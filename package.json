@@ -1,0 +1,65 @@
+{
+  "name": "microtypo",
+  "version": "0.1.0",
+  "description": "Russian typography that never mangles your code, URLs, or markup. Zero-dependency, safe on untrusted text",
+  "keywords": [
+    "cyrillic",
+    "dashes",
+    "guillemets",
+    "hanging-punctuation",
+    "nbsp",
+    "quotes",
+    "russian",
+    "russian-typography",
+    "smart-quotes",
+    "typographer",
+    "typography"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "Alexey Simonenko",
+    "email": "alexey@simonenko.dev",
+    "url": "https://simonenko.xyz"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/meritt/microtypo.git"
+  },
+  "bin": {
+    "microtypo": "./src/cli/index.js"
+  },
+  "files": [
+    "src"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.js",
+    "./define-rule": "./src/define-rule.js",
+    "./errors": "./src/errors/index.js"
+  },
+  "scripts": {
+    "coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-lines=98 --test-coverage-branches=94 --test-coverage-functions=96 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info 'test/**/*.test.js'",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "lint": "oxlint --report-unused-disable-directives",
+    "lint:redos": "node test/tools/redos-check.mjs",
+    "perf:profile": "node test/tools/perf-profile.mjs",
+    "perf:profile:json": "node test/tools/perf-profile.mjs --json",
+    "perf:scenarios": "node test/tools/perf-scenario-report.mjs",
+    "test": "node --test 'test/**/*.test.js'",
+    "test:perf": "node --test 'test/perf/**/*.perf.js'",
+    "test:watch": "node --test --watch 'test/**/*.test.js'"
+  },
+  "devDependencies": {
+    "oxfmt": "^0.58.0",
+    "oxlint": "^1.73.0",
+    "redos-detector": "^6.1.4",
+    "smol-toml": "^1.7.0",
+    "yaml": "^2.9.0"
+  },
+  "engines": {
+    "node": ">=26.4.0"
+  },
+  "packageManager": "pnpm@11.10.0"
+}

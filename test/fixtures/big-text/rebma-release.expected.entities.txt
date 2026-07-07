@@ -1,0 +1,7 @@
+<p># РЕБМА</p>
+
+<p>Зеркальный двор Ребмы под водой держит сеть Козырей, и&nbsp;королева Мойре подписала свежий релиз. Мерлин собрал ядро на&nbsp;pattern.js, панель Оберона&nbsp;&mdash; на&nbsp;trump.js, а&nbsp;витраж Дворкина&nbsp;&mdash; на&nbsp;shadow.js; правь index.html, трогай app.config.json, не&nbsp;трогай photo.png. Обновлены config.v2.0.final.json, core.ui.button.v3 и&nbsp;report.v1.2.3.final&nbsp;&mdash; ставь их&nbsp;через spell install --save-dev, и&nbsp;зеркала синхронны.</p>
+
+<p>Узлы Отражений отвечают: петля ::1 жива, дальний Козырь fe80::1ff:fe23:4567:890a виден, шлюз [2001:db8::1]:443 слушает, подсеть 2001:db8::/32 закрыта для Теней. Каждой карте выдан ключ 550e8400-e29b-41d4-a716-446655440000. Рамку рисует ::before, а&nbsp;буфер образов Мерлина держит std::vector; демо лежит на&nbsp;<a href="simonenko.xyz/pattern">simonenko.xyz/pattern</a>, архив&nbsp;&mdash; на&nbsp;<a href="simonenko.xyz/rebma">simonenko.xyz/rebma</a>.</p>
+
+<p>Пиши Мойре на&nbsp;<a href="mailto:Ребма.Мойре@амбер.рф">Ребма.Мойре@амбер.рф</a>, Корвину на&nbsp;<a href="mailto:corwin@simonenko.xyz">corwin@simonenko.xyz</a> или в&nbsp;Арден на&nbsp;<a href="mailto:arden@simonenko.xyz">arden@simonenko.xyz</a>. Казна двора: IBAN CH93 0076 2011 6238 5295 7, дежурный Козырь +7(999)123-45-67, посольство в&nbsp;Тени +41 44 668 18 00. Синхронизация зеркал начата в&nbsp;08:59, снимок снят в&nbsp;09:30:00, точная метка&nbsp;&mdash; 2026-04-27T09:30:00+02:00. &laquo;Отражение не&nbsp;лжёт&raquo;,&nbsp;&mdash; шепчут в&nbsp;Ребме&hellip;</p>

@@ -1,0 +1,10 @@
+._*
+.DS_Store
+*.local.*
+.worktrees/
+node_modules/
+coverage/
+*.log
+docs/
+plan/
+external/

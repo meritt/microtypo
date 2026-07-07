@@ -1,0 +1,2192 @@
+[
+  {
+    "text": "1 января 2009",
+    "result": "1&nbsp;января 2009",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": true
+      }
+    },
+    "title": "Неразрывный пробел между днём и месяцем",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "REBMA.RU — Регент Амбера Оберон Дворкин",
+    "result": "REBMA.RU&nbsp;&mdash; Регент Амбера Оберон Дворкин",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": true
+      }
+    },
+    "title": "Тире в цитировании сайта",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Осада Амбера продлится до 31 июля.",
+    "result": "Осада Амбера продлится до&nbsp;31&nbsp;июля.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": true
+      }
+    },
+    "title": "Неразрывный пробел между днём и месяцем и предлогом",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "закон «О Козырях АМ»",
+    "result": "закон<span style=\"margin-right:0.44em;\"> </span><span style=\"margin-left:-0.44em;\">&laquo;</span>О&nbsp;Козырях&nbsp;АМ&raquo;",
+    "result_classes": "закон<span class=\"oa_oquote_sp_s\"> </span><span class=\"oa_oquote_sp_q\">&laquo;</span>О&nbsp;Козырях&nbsp;АМ&raquo;",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": true
+      }
+    },
+    "title": "Определение двухбуквенного сокращения",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Отражение( ( Тени ) Лабиринт ).",
+    "result": "Отражение<span style=\"margin-right:0.3em;\"> </span><span style=\"margin-left:-0.3em;\">(</span>(Тени) Лабиринт).",
+    "result_classes": "Отражение<span class=\"oa_obracket_sp_s\"> </span><span class=\"oa_obracket_sp_b\">(</span>(Тени) Лабиринт).",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": true
+      }
+    },
+    "title": "Текст внутри скобок",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "в котором слышалась явная неприязнь Эрика к IP-телефонии, как к явлению",
+    "result": "в&nbsp;котором слышалась явная неприязнь Эрика к&nbsp;IP-телефонии, как к&nbsp;явлению",
+    "result_classes": "в&nbsp;котором слышалась явная неприязнь Эрика к&nbsp;IP-телефонии, как к&nbsp;явлению",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": true
+      }
+    },
+    "title": "IP-телефония",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Для сравнения, пиар-эффект Козырей",
+    "result": "Для сравнения, пиар-эффект Козырей",
+    "result_classes": "Для сравнения, пиар-эффект Козырей",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": true
+      }
+    },
+    "title": "Оптическое выравнивание",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Хроники и Козыри. № 23, привет",
+    "result": "Хроники и&nbsp;Козыри. &#8470;&#8239;23, привет",
+    "result_classes": "Хроники и&nbsp;Козыри. &#8470;&#8239;23, привет",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": true
+      }
+    },
+    "title": "Сокращения и символ номера",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "про Лабиринт в IT",
+    "result": "про Лабиринт в&nbsp;IT",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": true
+      }
+    },
+    "title": "Неразрывный пробел между предлогом и сокращением",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Кто то где то когда то как то что то чем то стукнул Джерард. И возможно чего нибудь бы получилось если б кто либо пришел. Не расставил дефисы в словах - нужно ли?",
+    "result": "Кто-то где-то когда-то как-то что-то чем-то стукнул Джерард. И&nbsp;возможно чего-нибудь&nbsp;бы получилось если&nbsp;б кто-либо пришел. Не&nbsp;расставил дефисы в&nbsp;словах&nbsp;&mdash; нужно&nbsp;ли?",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": true
+      }
+    },
+    "title": "Автоматическая расстановка дефисов",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Единственное, чего Корвину на данный момент не хватает, — это верного клинка.",
+    "result": "Единственное, чего Корвину на&nbsp;данный момент не&nbsp;хватает,&nbsp;&mdash; это верного клинка.",
+    "result_classes": "Единственное, чего Корвину на&nbsp;данный момент не&nbsp;хватает,&nbsp;&mdash; это верного клинка.",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": true
+      }
+    },
+    "title": "Тире и оптическое выравнивание",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Читать Хроники Амбера →",
+    "result": "Читать Хроники Амбера &rarr;",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": true
+      }
+    },
+    "title": "Стрелочка",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "«Козыри», то Дворкин их так и оставит. А они ведь неправильные. И из-за этого конечно же они не свисают.",
+    "result": "<span style=\"margin-left:-0.44em;\">&laquo;</span>Козыри&raquo;, то&nbsp;Дворкин их&nbsp;так и&nbsp;оставит. А&nbsp;они ведь неправильные. И&nbsp;из-за этого конечно&nbsp;же они не&nbsp;свисают.",
+    "result_classes": "<span class=\"oa_oquote_nl\">&laquo;</span>Козыри&raquo;, то&nbsp;Дворкин их&nbsp;так и&nbsp;оставит. А&nbsp;они ведь неправильные. И&nbsp;из-за этого конечно&nbsp;же они не&nbsp;свисают.",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": true
+      }
+    },
+    "title": "Оптическое выравнивание кавычки",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "известием: рассказом о первом в истории Амбера походе по навигации, минувшем в «Ребме».",
+    "result": "известием: рассказом о&nbsp;первом в&nbsp;истории Амбера походе по&nbsp;навигации, минувшем в&nbsp;&laquo;Ребме&raquo;.",
+    "result_classes": "известием: рассказом о&nbsp;первом в&nbsp;истории Амбера походе по&nbsp;навигации, минувшем в&nbsp;&laquo;Ребме&raquo;.",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": true
+      }
+    },
+    "title": "Кавычки и оптическое выравнивание",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Замысел Дворкина:ясен.",
+    "result": "Замысел Дворкина: ясен.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": true
+      }
+    },
+    "title": "Пробел после двоеточие",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Ребмы и Кашфы (в этих городах скитался наш единорог) скидку в размере 10% на любые тропы",
+    "result": "Ребмы и&nbsp;Кашфы<span style=\"margin-right:0.3em;\"> </span><span style=\"margin-left:-0.3em;\">(</span>в&nbsp;этих городах скитался наш единорог) скидку в&nbsp;размере 10% на&nbsp;любые тропы",
+    "result_classes": "Ребмы и&nbsp;Кашфы<span class=\"oa_obracket_sp_s\"> </span><span class=\"oa_obracket_sp_b\">(</span>в&nbsp;этих городах скитался наш единорог) скидку в&nbsp;размере 10% на&nbsp;любые тропы",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": true
+      }
+    },
+    "title": "Оптическое выравнивание",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "http://simonenko.xyz, Корвин, как твои тропы ?",
+    "result": "<a href=\"http://simonenko.xyz\">simonenko.xyz</a>, Корвин, как твои тропы?",
+    "result_classes": "<a href=\"http://simonenko.xyz\">simonenko.xyz</a>, Корвин, как твои тропы?",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": true
+      }
+    },
+    "title": "УРЛ и выравнивание",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Внемли, Корвин!\n\n",
+    "result": "<p>Внемли, Корвин!</p>",
+    "result_classes": null,
+    "title": "Параграф",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Внемли, Корвин",
+    "result": "Внемли, Корвин.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "punctuation.period_at_end": true,
+        "text.paragraphs": false
+      }
+    },
+    "title": "Точка в конце предложения",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "\"Слушай \"Козырь 13\" на своём зеркале 13\" недурно\".",
+    "result": "&laquo;Слушай &bdquo;Козырь 13&ldquo; на&nbsp;своём зеркале 13&Prime; недурно&raquo;.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Вложенные кавычки и дюймы",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "1997год.",
+    "result": "1997 год.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false
+      }
+    },
+    "title": "Пробел после года",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "<nobr>P.&nbsp;S.</nobr> поклон всем с&nbsp;Колвира. <nobr>P. P.&nbsp;S.</nobr> и&nbsp;мне тоже.",
+    "result": "<nobr>P.&nbsp;S.</nobr> поклон всем с&nbsp;Колвира. <nobr>P. P.&nbsp;S.</nobr> и&nbsp;мне тоже.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false
+      }
+    },
+    "title": "Авторский <nobr> из входа сохраняется дословно",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "«Я лично оленя на 57 кг добыл. 57, 24 и 7 кг — трех оленей загнал», — цитирует его «Козыри».",
+    "result": "<span style=\"margin-left:-0.44em;\">&laquo;</span>Я&nbsp;лично оленя на&nbsp;57&nbsp;кг добыл. 57, 24 и&nbsp;7&nbsp;кг&nbsp;&mdash; трех оленей загнал&raquo;,&nbsp;&mdash; цитирует его<span style=\"margin-right:0.44em;\"> </span><span style=\"margin-left:-0.44em;\">&laquo;</span>Козыри&raquo;.",
+    "result_classes": "<span class=\"oa_oquote_nl\">&laquo;</span>Я&nbsp;лично оленя на&nbsp;57&nbsp;кг добыл. 57, 24 и&nbsp;7&nbsp;кг&nbsp;&mdash; трех оленей загнал&raquo;,&nbsp;&mdash; цитирует его<span class=\"oa_oquote_sp_s\"> </span><span class=\"oa_oquote_sp_q\">&laquo;</span>Козыри&raquo;.",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": true
+      }
+    },
+    "title": "Привязка килограммов",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "2013 г.",
+    "result": "2013&nbsp;г.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false
+      }
+    },
+    "title": "Привязка года",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Кейн, т.е. Блейз, т. е. Бранд, съел пирог.",
+    "result": "Кейн, <span style=\"white-space:nowrap;\">т. е.</span> Блейз, <span style=\"white-space:nowrap;\">т. е.</span> Бранд, съел пирог.",
+    "result_classes": "Кейн, <span class=\"nowrap\">т. е.</span> Блейз, <span class=\"nowrap\">т. е.</span> Бранд, съел пирог.",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Обработка т.е.",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Д'воркин",
+    "result": "Д&rsquo;воркин",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Апостроф в русских текстах",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Amber'ский престол",
+    "result": "Amber&rsquo;ский престол",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Апостроф в смешанных текстах",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Единороги (такие звери)— это не только редкий дар…",
+    "result": "Единороги (такие звери)&nbsp;&mdash; это не&nbsp;только редкий дар&hellip;",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Пробел после тире",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Сначала пройди Лабиринт -> потом Отражение ->",
+    "result": "Сначала пройди Лабиринт &rarr; потом Отражение &rarr;",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Замена стрелочек",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Статья 159 Уложения Дворкина и по ст. 179 о праве прохода Отражениями.\nСогласно ст.16 Свода о странниках Теней \"3. Наместник Арден-марки не вправе без согласия странника требовать сверх положенной дорожной дани. Странник вправе отказаться от уплаты такой дани, а если она уже внесена, странник вправе потребовать от наместника возврата внесённого золота. (п. 3 в ред. Указа Оберона от 17.12.1999 N 212-А)\".",
+    "result": "<p>Статья 159 Уложения Дворкина и&nbsp;по&nbsp;ст.&nbsp;179 о&nbsp;праве прохода Отражениями.<br>\nСогласно ст.&nbsp;16 Свода о&nbsp;странниках Теней &laquo;3. Наместник Арден-марки не&nbsp;вправе без согласия странника требовать сверх положенной дорожной дани. Странник вправе отказаться от&nbsp;уплаты такой дани, а&nbsp;если она уже внесена, странник вправе потребовать от&nbsp;наместника возврата внесённого золота. (п.&nbsp;3 в&nbsp;ред. Указа Оберона <span style=\"white-space:nowrap;\">от 17.12.1999</span> N&nbsp;212-А)&raquo;.</p>",
+    "result_classes": "<p>Статья 159 Уложения Дворкина и&nbsp;по&nbsp;ст.&nbsp;179 о&nbsp;праве прохода Отражениями.<br>\nСогласно ст.&nbsp;16 Свода о&nbsp;странниках Теней &laquo;3. Наместник Арден-марки не&nbsp;вправе без согласия странника требовать сверх положенной дорожной дани. Странник вправе отказаться от&nbsp;уплаты такой дани, а&nbsp;если она уже внесена, странник вправе потребовать от&nbsp;наместника возврата внесённого золота. (п.&nbsp;3 в&nbsp;ред. Указа Оберона <span class=\"nowrap\">от 17.12.1999</span> N&nbsp;212-А)&raquo;.</p>",
+    "params": {
+      "rules": {
+        "hanging.*": false
+      }
+    },
+    "title": "Статья, пункт, кавычки",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Запомнить: § 123 и § Хроники о Амбере",
+    "result": "<p>Запомнить: &sect;&#8239;123 и &sect;&#8239;Хроники о&nbsp;Амбере</p>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "hanging.*": false
+      }
+    },
+    "title": "Привязка параграфа к слову",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "-><-",
+    "result": "<p>&rarr;&larr;</p>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "hanging.*": false
+      }
+    },
+    "title": "Соседние стрелочки 1",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "<- ->",
+    "result": "<p>&larr; &rarr;</p>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "hanging.*": false
+      }
+    },
+    "title": "Соседние стрелочки 2",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "-> ->",
+    "result": "<p>&rarr; &rarr;</p>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "hanging.*": false
+      }
+    },
+    "title": "Соседние стрелочки 3",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "<- <-",
+    "result": "<p>&larr; &larr;</p>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "hanging.*": false
+      }
+    },
+    "title": "Соседние стрелочки 4",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "<- ->",
+    "result": "<p><- -></p>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "hanging.*": false,
+        "symbol.arrows": false
+      }
+    },
+    "title": "Соседние стрелочки 5",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Единорог явился после «как то:» в разгар сражения",
+    "result": "<p>Единорог явился после<span style=\"margin-right:0.44em;\"> </span><span style=\"margin-left:-0.44em;\">&laquo;</span>как&nbsp;то:&raquo; в&nbsp;разгар сражения</p>",
+    "result_classes": "<p>Единорог явился после<span class=\"oa_oquote_sp_s\"> </span><span class=\"oa_oquote_sp_q\">&laquo;</span>как&nbsp;то:&raquo; в&nbsp;разгар сражения</p>",
+    "params": {
+      "rules": {
+        "hanging.*": true
+      }
+    },
+    "title": "Закрывающая кавычка",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Не вполне ясно, Корвин отступит на.",
+    "result": "Не&nbsp;вполне ясно, Корвин отступит&nbsp;на.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Предлог в конце предложения",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Напр.: В 1999 году; No 89954; ГОСТ 20283. По-иному раз- биваются тропы Амбера (см. 6.1.6).",
+    "result": "Напр.: В&nbsp;1999 году; No&nbsp;89&#8239;954; <span style=\"white-space:nowrap;\">ГОСТ 20&#8239;283</span>. По-иному раз- биваются тропы Амбера (см.&nbsp;6.1.6).",
+    "result_classes": "Напр.: В&nbsp;1999 году; No&nbsp;89&#8239;954; <span class=\"nowrap\">ГОСТ 20&#8239;283</span>. По-иному раз- биваются тропы Амбера (см.&nbsp;6.1.6).",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Сокращения и аббревиатуры 1",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Хроники Амбера\n\nЛетопись войны за престол",
+    "result": "<p>Хроники Амбера</p>\n\n<p>Летопись войны за&nbsp;престол</p>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "hanging.*": false
+      }
+    },
+    "title": "Параграф и двойной отступ",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "В Тени температура достигала -20... -30 градусов Цельсия.",
+    "result": "В&nbsp;Тени температура достигала &minus;20&hellip; &minus;30 градусов Цельсия.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Минус в диапозоне чисел",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "+7 123 123-45-67",
+    "result": "<span style=\"white-space:nowrap;\">+7 123 123-45-67</span>",
+    "result_classes": "<span class=\"nowrap\">+7 123 123-45-67</span>",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Обработка номеров телефонов",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "500 т; 485 °С; 20%; 15°; 45'; 15\"",
+    "result": "500&nbsp;т; 485&nbsp;&deg;C; 20%; 15&deg;; 45'; 15&Prime;",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Привязка тонн и градусов и прочее",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "586,5 кг",
+    "result": "586,5&nbsp;кг",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Привязка кг",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "(10±0,1) мм; 10 мм±0,1 мм",
+    "result": "(10&plusmn;0,1) мм; 10&nbsp;мм&plusmn;0,1&nbsp;мм",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Привязка мм",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "<p>Летопись Амбера<span style=\"margin-right:-0.2em;\">,</span><span style=\"margin-left:0.2em;\"> </span>&laquo;<a href=\"http://simonenko.xyz\">О&nbsp;королях Амбера</a>»</p> ",
+    "result": "<p>Летопись Амбера<span style=\"margin-right:-0.2em;\">,</span><span style=\"margin-left:0.2em;\"> </span>&laquo;<a href=\"http://simonenko.xyz\">О&nbsp;королях Амбера</a>&raquo;</p>",
+    "result_classes": null,
+    "title": "Баг с переворачиванием закрывающей кавычки",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Старый Дворкин любил повторять: \" Братья, довольно вражды!\"",
+    "result": "Старый Дворкин любил повторять: &laquo;Братья, довольно вражды!&raquo;",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Открывающая кавычка, окружённая пробелами",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "10±0,1 мм; 10 мм±0,1 мм",
+    "result": "10&plusmn;0,1&nbsp;мм; 10&nbsp;мм&plusmn;0,1&nbsp;мм",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Привязка мм 2",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "\"2013 г.\" тоже никак не связывает Дворкина.",
+    "result": "&laquo;2013&nbsp;г.&raquo; тоже никак не&nbsp;связывает Дворкина.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Привязка года к числу",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Т.е. это наставление Дворкина.",
+    "result": "<span style=\"white-space:nowrap;\">Т. е.</span> это наставление Дворкина.",
+    "result_classes": "<span class=\"nowrap\">Т. е.</span> это наставление Дворкина.",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Склейка т.е.",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "corwin@example.ru",
+    "result": "<a href=\"mailto:corwin@example.ru\">corwin@example.ru</a>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Почта",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "(benedict@example.ru)",
+    "result": "(<a href=\"mailto:benedict@example.ru\">benedict@example.ru</a>)",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Почта в скобочках",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "\"ХРОНИКИ\" вновь возвращаются к главе <a href=\"http://amber.example/169543\">\"Уроки Амбера\"</a>.",
+    "result": "&laquo;ХРОНИКИ&raquo; вновь возвращаются к&nbsp;главе &laquo;<a href=\"http://amber.example/169543\">Уроки Амбера</a>&raquo;.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Кавычка в конце предложения.",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Новый клинок Корвина обойдется в 3500-7500 золотых",
+    "result": "Новый клинок Корвина обойдется в&nbsp;3500&ndash;7500 золотых",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Тире в диапазоне золотых",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Неиздан. летопись Амбера. Ребма, 1963. с. 143",
+    "result": "Неиздан. летопись Амбера. Ребма, 1963. с.&nbsp;143",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Страница к номеру",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "Так бывает у принцев Амбера.И вот так...И ещё вот так!..Бывает же???Что поделать.\n\nЗамысел Дворкина:ясен.\n\n100 %",
+    "result": "<p>Так бывает у&nbsp;принцев Амбера. И&nbsp;вот так&hellip; И&nbsp;ещё вот так!.. Бывает&nbsp;же??? Что поделать.</p>\n\n<p>Замысел Дворкина: ясен.</p>\n\n<p>100%</p>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "hanging.*": false
+      }
+    },
+    "title": "Пробел после двоеточия",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "<p>В рубрике <strong>\"Система Дворкина\"</strong> - сценарий урока навигации по теме \"Прокладка тропы сквозь три Отражения к Колвиру\".</p>\t",
+    "result": "<p>В&nbsp;рубрике <strong>&laquo;Система Дворкина&raquo;</strong>&nbsp;&mdash; сценарий урока навигации по&nbsp;теме &laquo;Прокладка тропы сквозь три Отражения к&nbsp;Колвиру&raquo;.</p>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Тиры и неразрывный пробел после тега",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "А&nbsp;вот начало хроники.\n\n<p>Дивная затея с&nbsp;достойным воплощением не&nbsp;слишком частой (а&nbsp;в&nbsp;хрониках Отражений и&nbsp;вовсе почти не&nbsp;встречающейся) задумки. Государь&nbsp;&mdash; король Амбера. У&nbsp;него есть Замок и (потенциальное) владычество. Владычество слагается из&nbsp;трёх частей: Узор, золото и&nbsp;подданные. Так вот, государь&nbsp;НЕ МОЖЕТ править лордами Теней напрямую.</p>\n<p>У&nbsp;каждого лорда свой нрав, свой обычай, свои заботы, и&nbsp;лорд их&nbsp;держится. При дворе есть челядь, которой вы&nbsp;можете велеть возвести палаты, обновить кладку, призвать героя, <span style=\"white-space:nowrap;\">т. е.</span> распоряжаться казной, однако челядь сама решит меж собой, сколько из&nbsp;них пойдут (неспешно, вразвалочку) чинить последнюю сдерживающую отродий Хаоса башню с&nbsp;баллистой, а&nbsp;сколько&nbsp;&mdash; возводить бесполезный покуда причал. Выходит, надо учиться лавировать и&nbsp;считаться не&nbsp;только со&nbsp;своей волей, но и&nbsp;с&nbsp;тем, насколько она исполнима с&nbsp;точки зрения ратника или юной чародейки, а&nbsp;не&nbsp;короля, взирающего на&nbsp;владения с&nbsp;высоты птичьего полёта.</p>\n<p>Ратник помельче кинется на&nbsp;подступившую к&nbsp;заставе тварь лишь в&nbsp;самом крайнем случае&nbsp;&mdash; если та&nbsp;начнёт рушить его чертог. От&nbsp;героев нельзя ждать подвигов, разве что от&nbsp;безрассудных удальцов или верных клинков Арден; прочие&nbsp;же в&nbsp;страхе разбегутся перед превосходящим их&nbsp;числом врагом, порой даже когда сила и&nbsp;снаряжение сулят победу. Иных влечёт нажива&nbsp;&mdash; вы&nbsp;вольны назначить награду за&nbsp;голову твари или за&nbsp;неизведанное Отражение.</p>\n<p>Эта неподвластность&nbsp;&mdash; и&nbsp;есть главная соль хроники&hellip; В&nbsp;ней вся сложность, и&nbsp;в&nbsp;ней вся прелесть, особенно когда владычество уже окрепло&nbsp;&mdash; не&nbsp;нужно никому ничего велеть, довольно обустроить пути и&nbsp;заставы, чтобы всем всего хватало, а&nbsp;к&nbsp;вам текло золото, и&nbsp;просто смотреть, как они живут. Мне это очень нескоро наскучило: я&nbsp;держу Отражение уже который век, начинал ещё с&nbsp;малого лоскута Тени.</p>\n\nА&nbsp;вот и&nbsp;конец хроники.\n\nИ&nbsp;ещё один свиток.",
+    "result": "<p>А&nbsp;вот начало хроники.</p>\n\n<p>Дивная затея с&nbsp;достойным воплощением не&nbsp;слишком частой (а&nbsp;в&nbsp;хрониках Отражений и&nbsp;вовсе почти не&nbsp;встречающейся) задумки. Государь&nbsp;&mdash; король Амбера. У&nbsp;него есть Замок и (потенциальное) владычество. Владычество слагается из&nbsp;трёх частей: Узор, золото и&nbsp;подданные. Так вот, государь&nbsp;НЕ МОЖЕТ править лордами Теней напрямую.</p>\n\n<p>У&nbsp;каждого лорда свой нрав, свой обычай, свои заботы, и&nbsp;лорд их&nbsp;держится. При дворе есть челядь, которой вы&nbsp;можете велеть возвести палаты, обновить кладку, призвать героя, <span style=\"white-space:nowrap;\">т. е.</span> распоряжаться казной, однако челядь сама решит меж собой, сколько из&nbsp;них пойдут (неспешно, вразвалочку) чинить последнюю сдерживающую отродий Хаоса башню с&nbsp;баллистой, а&nbsp;сколько&nbsp;&mdash; возводить бесполезный покуда причал. Выходит, надо учиться лавировать и&nbsp;считаться не&nbsp;только со&nbsp;своей волей, но и&nbsp;с&nbsp;тем, насколько она исполнима с&nbsp;точки зрения ратника или юной чародейки, а&nbsp;не&nbsp;короля, взирающего на&nbsp;владения с&nbsp;высоты птичьего полёта.</p>\n\n<p>Ратник помельче кинется на&nbsp;подступившую к&nbsp;заставе тварь лишь в&nbsp;самом крайнем случае&nbsp;&mdash; если та&nbsp;начнёт рушить его чертог. От&nbsp;героев нельзя ждать подвигов, разве что от&nbsp;безрассудных удальцов или верных клинков Арден; прочие&nbsp;же в&nbsp;страхе разбегутся перед превосходящим их&nbsp;числом врагом, порой даже когда сила и&nbsp;снаряжение сулят победу. Иных влечёт нажива&nbsp;&mdash; вы&nbsp;вольны назначить награду за&nbsp;голову твари или за&nbsp;неизведанное Отражение.</p>\n\n<p>Эта неподвластность&nbsp;&mdash; и&nbsp;есть главная соль хроники&hellip; В&nbsp;ней вся сложность, и&nbsp;в&nbsp;ней вся прелесть, особенно когда владычество уже окрепло&nbsp;&mdash; не&nbsp;нужно никому ничего велеть, довольно обустроить пути и&nbsp;заставы, чтобы всем всего хватало, а&nbsp;к&nbsp;вам текло золото, и&nbsp;просто смотреть, как они живут. Мне это очень нескоро наскучило: я&nbsp;держу Отражение уже который век, начинал ещё с&nbsp;малого лоскута Тени.</p>\n\n<p>А&nbsp;вот и&nbsp;конец хроники.</p>\n\n<p>И&nbsp;ещё один свиток.</p>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "hanging.*": false
+      }
+    },
+    "title": "Повторное типографирование с новыми параграфами",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "<p>Лорды Амбера не&nbsp;явились на&nbsp;совет короны, где решалась судьба принца Корвина. Об&nbsp;этом сообщил <strong>канцлер двора, член Дома &laquo;ВД &bdquo;Единорог&ldquo;&raquo; Джулиан</strong>, передаёт &laquo;<a href=\"http://amber.example/\" target=\"_blank\">Вестник Амбера</a>&laquo;.</p>\n<p>По&nbsp;словам Джулиана, из-за неявки &laquo;мятежников&raquo; на&nbsp;совете нет кворума, необходимого для начала работы. Голосов всего&nbsp;&mdash; 17, а&nbsp;по&nbsp;уставу короны совет правомочен тогда, когда собрано не&nbsp;менее девяти принцев.</p>\n<p>В&nbsp;то&nbsp;же время на&nbsp;совет пришли лишь семеро, представляющих оппозицию: сам Джулиан, Джерард, Бенедикт, Кейн (все&nbsp;&mdash; Дом &laquo;Единорога&raquo;), Рэндом (Дом &laquo;Козырей&raquo;) и&nbsp;Блейз (внефракционный).</p>\n<p>Одновременно на&nbsp;совет не&nbsp;явились сторонники Эрика: Дейдра, Фиона, Бранд, Флора и&nbsp;Ллевелла.</p>\n<p>&laquo;Бойкот совета со&nbsp;стороны Эрика означает одно&nbsp;&mdash; он&nbsp;не&nbsp;хочет мира между Амбером и&nbsp;Дворами Хаоса&raquo;,&nbsp;&mdash; заявил Джулиан, цитирует &laquo;<a href=\"http://arden.example/\" target=\"_blank\">Хроники Теней</a>&laquo;.</p>",
+    "result": "<p>Лорды Амбера не&nbsp;явились на&nbsp;совет короны, где решалась судьба принца Корвина. Об&nbsp;этом сообщил <strong>канцлер двора, член Дома &laquo;ВД &bdquo;Единорог&ldquo;&raquo; Джулиан</strong>, передаёт &laquo;<a href=\"http://amber.example/\" target=\"_blank\">Вестник Амбера</a>&raquo;.</p>\n\n<p>По&nbsp;словам Джулиана, из-за неявки &laquo;мятежников&raquo; на&nbsp;совете нет кворума, необходимого для начала работы. Голосов всего&nbsp;&mdash; 17, а&nbsp;по&nbsp;уставу короны совет правомочен тогда, когда собрано не&nbsp;менее девяти принцев.</p>\n\n<p>В&nbsp;то&nbsp;же время на&nbsp;совет пришли лишь семеро, представляющих оппозицию: сам Джулиан, Джерард, Бенедикт, Кейн (все&nbsp;&mdash; Дом &laquo;Единорога&raquo;), Рэндом (Дом &laquo;Козырей&raquo;) и&nbsp;Блейз (внефракционный).</p>\n\n<p>Одновременно на&nbsp;совет не&nbsp;явились сторонники Эрика: Дейдра, Фиона, Бранд, Флора и&nbsp;Ллевелла.</p>\n\n<p>&laquo;Бойкот совета со&nbsp;стороны Эрика означает одно&nbsp;&mdash; он&nbsp;не&nbsp;хочет мира между Амбером и&nbsp;Дворами Хаоса&raquo;,&nbsp;&mdash; заявил Джулиан, цитирует &laquo;<a href=\"http://arden.example/\" target=\"_blank\">Хроники Теней</a>&raquo;.</p>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "hanging.*": false
+      }
+    },
+    "title": "Повторное типографирование с новыми параграфами",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "8(905)1234567",
+    "result": "8(905)1234567",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Телефон не должен разбиваться на триады чисел",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "В 2000 году Корвину предложили снять несколько серий тайной хроники «Тёмная зала» для канала АМБЕР ТВ. Но, что поделать.",
+    "result": "В&nbsp;2000 году Корвину предложили снять несколько серий тайной хроники &laquo;Тёмная зала&raquo; для канала АМБЕР&nbsp;ТВ. Но, что поделать.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Не проставлять точки к инициалам",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "corwin@ex1-1ample.com",
+    "result": "<a href=\"mailto:corwin@ex1-1ample.com\">corwin@ex1-1ample.com</a>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Порча почты, при сложном домене 1",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "cor1-1win@example.com",
+    "result": "<a href=\"mailto:cor1-1win@example.com\">cor1-1win@example.com</a>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Порча почты, при сложном домене 2",
+    "grtitle": "Базовый набор"
+  },
+  {
+    "text": "В\t            этом          свитке Дворкина много пробелов.",
+    "result": "В&nbsp;этом свитке Дворкина много пробелов.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Удаление лишних пробельных символов и табуляций",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "При при проверке свитка Дворкина обнаружились обнаружились повторяющиеся слова слова. Слова убраны.",
+    "result": "При проверке свитка Дворкина обнаружились повторяющиеся слова. Слова убраны.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.deduplicate_words": true,
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Удаление повторяющихся слов (по умолчанию выключено)",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Мало начертать Козырь а руны кто за тебя расставит. Я же чертил но похоже что-то пропустил.",
+    "result": "Мало начертать Козырь а&nbsp;руны кто за&nbsp;тебя расставит. Я&nbsp;же&nbsp;чертил но&nbsp;похоже что-то пропустил.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Расстановка запятых перед а, но",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Кто то где то когда то как то что то чем то стукнул Джерард. И возможно чего нибудь бы получилось если б кто либо пришел",
+    "result": "Кто-то где-то когда-то как-то что-то чем-то стукнул Джерард. И&nbsp;возможно чего-нибудь&nbsp;бы получилось если&nbsp;б кто-либо пришел",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Автоматическая простановка дефисов в обезличенных местоимениях и междометиях",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Кто то где то когда то как то что то чем то стукнул Джерард.",
+    "result": "<span style=\"white-space:nowrap;\">Кто-то</span> <span style=\"white-space:nowrap;\">где-то</span> <span style=\"white-space:nowrap;\">когда-то</span> <span style=\"white-space:nowrap;\">как-то</span> <span style=\"white-space:nowrap;\">что-то</span> <span style=\"white-space:nowrap;\">чем-то</span> стукнул Джерард.",
+    "result_classes": "<span class=\"nowrap\">Кто-то</span> <span class=\"nowrap\">где-то</span> <span class=\"nowrap\">когда-то</span> <span class=\"nowrap\">как-то</span> <span class=\"nowrap\">что-то</span> <span class=\"nowrap\">чем-то</span> стукнул Джерард.",
+    "params": {
+      "rules": {
+        "nobr.nowrap_hyphen_short": true,
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Обрамление пятисимвольных слов разделенных дефисом в неразрывные блоки (по умолчанию выключено)",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "В дальних Отражениях встречаются разные чудеса, как то: Арден, Колвир, Ребма, Кашфа.",
+    "result": "В&nbsp;дальних Отражениях встречаются разные чудеса, как&nbsp;то: Арден, Колвир, Ребма, Кашфа.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Как то:",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Опять же у Дворкина что- то получилось, но как- то не так.",
+    "result": "Опять&nbsp;же у&nbsp;Дворкина что-то получилось, но&nbsp;как-то не&nbsp;так.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Лишние пробелы между дефисом в местоимениях и наречиях",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Возьми ка кубок вина. А коль увижу де, что казнь ему мала, повешу тут же всех лордов вокруг трона Амбера. Поди кась так",
+    "result": "<span style=\"white-space:nowrap;\">Возьми-ка кубок</span> вина. А&nbsp;коль <span style=\"white-space:nowrap;\">увижу-де</span>, что казнь ему мала, повешу тут&nbsp;же всех лордов вокруг трона Амбера. <span style=\"white-space:nowrap;\">Поди-кась так</span>",
+    "result_classes": "<span class=\"nowrap\">Возьми-ка кубок</span> вина. А&nbsp;коль <span class=\"nowrap\">увижу-де</span>, что казнь ему мала, повешу тут&nbsp;же всех лордов вокруг трона Амбера. <span class=\"nowrap\">Поди-кась так</span>",
+    "params": {
+      "rules": {
+        "dash.emphatic_particle": true,
+        "nobr.nowrap_hyphen_short": true,
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Эмфатические частицы -ка, -де, -кась",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Кое как дошли до Амбера. Кой кого встретили. Кое от кого, кое на чем, кой у кого, кое с чьим.",
+    "result": "<span style=\"white-space:nowrap;\">Кое-как</span> дошли до&nbsp;Амбера. <span style=\"white-space:nowrap;\">Кой-кого</span> встретили. Кое от&nbsp;кого, кое на&nbsp;чем, кой у&nbsp;кого, кое с&nbsp;чьим.",
+    "result_classes": "<span class=\"nowrap\">Кое-как</span> дошли до&nbsp;Амбера. <span class=\"nowrap\">Кой-кого</span> встретили. Кое от&nbsp;кого, кое на&nbsp;чем, кой у&nbsp;кого, кое с&nbsp;чьим.",
+    "params": {
+      "rules": {
+        "nobr.nowrap_hyphen_short": true,
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Приставки кое-, кой-",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Канцлер, хотя и чувствовал свое слабое недовольство, все таки радовался наличию таких стражей в дружине Амбера. Но хоть и велик был соблазн, я таки успел себя побороть.",
+    "result": "Канцлер, хотя и&nbsp;чувствовал свое слабое недовольство, <span style=\"white-space:nowrap;\">все-таки</span> радовался наличию таких стражей в&nbsp;дружине Амбера. Но&nbsp;хоть и&nbsp;велик был соблазн, я&nbsp;таки успел себя побороть.",
+    "result_classes": "Канцлер, хотя и&nbsp;чувствовал свое слабое недовольство, <span class=\"nowrap\">все-таки</span> радовался наличию таких стражей в&nbsp;дружине Амбера. Но&nbsp;хоть и&nbsp;велик был соблазн, я&nbsp;таки успел себя побороть.",
+    "params": {
+      "rules": {
+        "nobr.nowrap_hyphen_short": true,
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Частица -таки",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Из за леса Ардена величаво выплывало солнце. Из под раскидистого тёрна вдруг с лаем выскочила гончая.",
+    "result": "Из-за леса Ардена величаво выплывало солнце. Из-под раскидистого тёрна вдруг с&nbsp;лаем выскочила гончая.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Расстановка дефисов между из-за, из-под",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Спросил Корвин: Правда? Правда!!! Неправда??? Честно?? Честно!! Проехали.. Задумчиво...",
+    "result": "Спросил Корвин: Правда? Правда!!! Неправда??? Честно? Честно! Проехали. Задумчиво&hellip;",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Замена трех точек на знак многоточия, сдвоенные знаки препинания на одинарные",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Внемли, Корвин!? Как твои тропы? ",
+    "result": "Внемли, Корвин?! Как твои тропы?",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Замена восклицательного и вопросительного знаков местами",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Разные виды клинков Амбера : меч ,копьё , лук, щит ; растут в наших землях .",
+    "result": "Разные виды клинков Амбера: меч, копьё, лук, щит; растут в&nbsp;наших землях.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Удаление пробелов перед и после знаков препинания в предложении",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Так бывает у принцев Амбера.И вот так...И ещё вот так!..Бывает же???Что поделать.",
+    "result": "Так бывает у&nbsp;принцев Амбера. И&nbsp;вот так&hellip; И&nbsp;ещё вот так!.. Бывает&nbsp;же??? Что поделать.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Расстановка пробелов после знаков препинания",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Замысел Дворкина:ясен.",
+    "result": "Замысел Дворкина: ясен.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Расстановка пробела в словах после двоеточия ",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "100 %",
+    "result": "100%",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Удаление пробела перед символом процента",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Отражение( ( Тени ) Лабиринт ).",
+    "result": "Отражение ((Тени) Лабиринт).",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Удаление пробелов внутри скобок, а также расстановка пробела перед скобками",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "- Я пошёл в Тень восвояси... - Может останешься, Корвин? - Нет, ухожу.",
+    "result": "&mdash;&nbsp;Я&nbsp;пошёл в&nbsp;Тень восвояси&hellip; &mdash;&nbsp;Может останешься, Корвин? &mdash;&nbsp;Нет, ухожу.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Выделение прямой речи",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Я бы в дозор Амбера б пошёл, пусть меня научат.",
+    "result": "Я&nbsp;бы в&nbsp;дозор Амбера&nbsp;б пошёл, пусть меня научат.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Привязка союзов, предлогов",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "3х4, 3 х 6",
+    "result": "3&times;4, 3&times;6",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Замена x на символ в размерных единицах",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "1/2, 1/4, 3/4, 123/432",
+    "result": "&frac12;, &frac14;, &frac34;, 123/432",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Замена дробей 1/2, 1/4, 3/4 на соответствующие символы",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Grayswandir(r) - зарегистрированный товарный знак.",
+    "result": "Grayswandir&reg;&nbsp;&mdash; зарегистрированный товарный знак.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Замена (R) на символ зарегистрированной торговой марки",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "(c) Corwin Inc.",
+    "result": "&copy;&nbsp;Corwin Inc.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Замена (c) на символ копирайт",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Дворкин(tm)",
+    "result": "Дворкин&trade;",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Замена (tm) на символ торговой марки",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Раздобудь к утру Козырь -\nШитый золотом узор!..\nКоролевское дело, -\nРасшибись, а будь добёр!",
+    "result": "Раздобудь к&nbsp;утру Козырь&nbsp;&mdash;<br>\nШитый золотом узор!..<br>\nКоролевское дело,&nbsp;&mdash;<br>\nРасшибись, а&nbsp;будь добёр!",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Тире в конце строки (стихотворная форма)",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "123-32",
+    "result": "123&ndash;32",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Расстановка знака минус между числами",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "don't",
+    "result": "don&rsquo;t",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Расстановка правильного апострофа в английских текстах",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "§32, §IV",
+    "result": "&sect;&#8239;32, &sect;&#8239;IV",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Замена символа параграф с привязкой к числу",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "№15Ф, №34/25, № 807",
+    "result": "&#8470;&#8239;15Ф, &#8470;&#8239;34/25, &#8470;&#8239;807",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Замена символа номер с привязкой к числу",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "(С) 1999-2003г., ООО \"Фирма \"Единорог\". Все права защищены.",
+    "result": "&copy;&nbsp;1999&ndash;2003&nbsp;гг., ООО&nbsp;&laquo;Фирма &laquo;Единорог&raquo;. Все права защищены.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Расстановка правильных тройных кавычек",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Фиона добавила: \"И цвет мой самый любимый - \"изумруд\"\".",
+    "result": "Фиона добавила: &laquo;И&nbsp;цвет мой самый любимый&nbsp;&mdash; &bdquo;изумруд&ldquo;&raquo;.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Расстановка вложенных пар кавычек",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "10,34руб., 23тыс.долл., 64 млн.евро, 34.3€, 56$, 3,65уе",
+    "result": "10,34&nbsp;&#8381;, 23&nbsp;тыс.долл., 64 млн. евро, 34.3&nbsp;&euro;, 56&nbsp;$, 3,65&nbsp;у.е.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Расстановка пробелов и привязка в денежных сокращениях",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Меч Корвина, копьё, лук и тд., и т.п.. Плащи, кольчуги в тч. брони-кольчуги.",
+    "result": "Меч Корвина, копьё, лук <span style=\"white-space:nowrap;\">и т. д.</span>, <span style=\"white-space:nowrap;\">и т. п.</span> Плащи, кольчуги <span style=\"white-space:nowrap;\">в т. ч.</span> брони-кольчуги.",
+    "result_classes": "Меч Корвина, копьё, лук <span class=\"nowrap\">и т. д.</span>, <span class=\"nowrap\">и т. п.</span> Плащи, кольчуги <span class=\"nowrap\">в т. ч.</span> брони-кольчуги.",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Объединение сокращений и т.д., и т.п., в т.ч.",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Данные изложены в таблице см.цветной вкладыш. Дом им.Дворкина.",
+    "result": "Данные изложены в&nbsp;таблице см.&nbsp;цветной вкладыш. Дом им.&nbsp;Дворкина.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Расстановка пробелов перед сокращениями см., им.",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Хронику см. гл. 8, стр.34, рис.3 или илл.3.",
+    "result": "Хронику см.&nbsp;гл.&nbsp;8, стр.&nbsp;34, рис.&nbsp;3 или илл.&nbsp;3.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Расстановка пробелов перед сокращениями гл., стр., рис., илл.",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Кейн, Джулиан, Джерард и др. принцы.",
+    "result": "Кейн, Джулиан, Джерард и&nbsp;др. принцы.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Объединение сокращений и др.",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "г.Амбер, ул.Оберона, д. 4",
+    "result": "г.&nbsp;Амбер, ул.&nbsp;Оберона, д.&nbsp;4",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Расстановка пробелов в сокращениях г., ул., пер., д.",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Чёткость Козыря 300dpi (для печати).",
+    "result": "Чёткость Козыря 300&nbsp;dpi (для печати).",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Расстановка пробелов перед сокращениями dpi, lpi",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "P.S. поклон всем принцам Амбера. P.P.S. и мне тоже.",
+    "result": "<span style=\"white-space:nowrap;\">P. S.</span> поклон всем принцам Амбера. <span style=\"white-space:nowrap;\">P. P. S.</span> и&nbsp;мне тоже.",
+    "result_classes": "<span class=\"nowrap\">P. S.</span> поклон всем принцам Амбера. <span class=\"nowrap\">P. P. S.</span> и&nbsp;мне тоже.",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Объединение сокращений P.S., P.P.S.",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Жёлто-оранжевый штандарт. Тир-на-Ногт вольный город.",
+    "result": "<span style=\"white-space:nowrap;\">Жёлто-оранжевый</span> штандарт. <span style=\"white-space:nowrap;\">Тир-на-Ногт</span> вольный город.",
+    "result_classes": "<span class=\"nowrap\">Жёлто-оранжевый</span> штандарт. <span class=\"nowrap\">Тир-на-Ногт</span> вольный город.",
+    "params": {
+      "rules": {
+        "nobr.nowrap_hyphen": true,
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Объединение в неразрывные конструкции слов с дефисом (по умолчанию выключено)",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "ООО \"Фирма \"Грейсвандир\", НИИ \"АмберСнабКозырь\"",
+    "result": "ООО&nbsp;&laquo;Фирма &laquo;Грейсвандир&raquo;, НИИ&nbsp;&laquo;АмберСнабКозырь&raquo;",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Привязка сокращений форм собственности к названиям организаций",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "+7 (3452) 55-66-77, 8 905 555-55-55",
+    "result": "<span style=\"white-space:nowrap;\">+7 (3452) 55-66-77</span>, <span style=\"white-space:nowrap;\">8 905 555-55-55</span>",
+    "result_classes": "<span class=\"nowrap\">+7 (3452) 55-66-77</span>, <span class=\"nowrap\">8 905 555-55-55</span>",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Объединение в неразрывные конструкции номеров телефонов",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Гост 5773-90 - амберские правила ведения хроник",
+    "result": "<span style=\"white-space:nowrap;\">ГОСТ 5773&ndash;90 &mdash;</span> амберские правила ведения хроник",
+    "result_classes": "<span class=\"nowrap\">ГОСТ 5773&ndash;90 &mdash;</span> амберские правила ведения хроник",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Привязка сокращения ГОСТ к номеру",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "~23,5в",
+    "result": "~23,5&nbsp;В",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Установка пробельных символов в сокращении вольт",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "123 456 789 руб. В битве за Амбер участвовало 3 200 воинов.",
+    "result": "123&#8239;456&#8239;789&nbsp;&#8381; В&nbsp;битве за&nbsp;Амбер участвовало 3&#8239;200 воинов.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Объединение триад чисел полупробелом",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Адрес Колвира localhost - 127.0.0.1",
+    "result": "Адрес Колвира localhost&nbsp;&mdash; <span style=\"white-space:nowrap;\">127.0.0.1</span>",
+    "result_classes": "Адрес Колвира localhost&nbsp;&mdash; <span class=\"nowrap\">127.0.0.1</span>",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Объединение IP-адресов",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Это событие Амбера произошло между 1999-2001г.г., на стыке XX-XXIв.",
+    "result": "Это событие Амбера произошло между 1999&ndash;2001&nbsp;гг., на&nbsp;стыке <span style=\"white-space:nowrap;\">XX&ndash;XXI вв.</span>",
+    "result_classes": "Это событие Амбера произошло между 1999&ndash;2001&nbsp;гг., на&nbsp;стыке <span class=\"nowrap\">XX&ndash;XXI вв.</span>",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Установка тире и пробельных символов в периодах дат",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Указ Оберона был подписан 17.02.1983г. И утратил свою силу 07.03.93 года.",
+    "result": "Указ Оберона был подписан <span style=\"white-space:nowrap;\">17.02.1983 г.</span> И&nbsp;утратил свою силу <span style=\"white-space:nowrap;\">07.03.93</span> года.",
+    "result_classes": "Указ Оберона был подписан <span class=\"nowrap\">17.02.1983 г.</span> И&nbsp;утратил свою силу <span class=\"nowrap\">07.03.93</span> года.",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Привязка года к дате",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Поединки принцев состоятся 14-24 сентября, в тронном зале Амбера с 11:30-13:00.",
+    "result": "Поединки принцев состоятся <span style=\"white-space:nowrap;\">14&mdash;24 сентября</span>, в&nbsp;тронном зале Амбера <span style=\"white-space:nowrap;\">с 11:30&ndash;13:00</span>.",
+    "result_classes": "Поединки принцев состоятся <span class=\"nowrap\">14&mdash;24 сентября</span>, в&nbsp;тронном зале Амбера <span class=\"nowrap\">с 11:30&ndash;13:00</span>.",
+    "params": {
+      "rules": {
+        "date.nowrap_day_range": true,
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Расстановка тире и объединение в неразрывные периоды дней (по умолчанию выключено)",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Турнир в Амбере пройдёт в апреле-мае этого года.",
+    "result": "Турнир в&nbsp;Амбере пройдёт в&nbsp;апреле&ndash;мае этого года.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "date.month_range": true,
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Расстановка тире и объединение в неразрывные периоды месяцев (по умолчанию включено)",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "А.С.Дворкин, Дворкин А.С.",
+    "result": "<span style=\"white-space:nowrap;\">А. С. Дворкин</span>, <span style=\"white-space:nowrap;\">Дворкин А. С.</span>",
+    "result_classes": "<span class=\"nowrap\">А. С. Дворкин</span>, <span class=\"nowrap\">Дворкин А. С.</span>",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Привязка инициалов к фамилиям",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "...Когда В. И. Дворкин увидел в газете ( это была &quot;Хроники Амбера&quot; № 45) рубрику Amber Chronicle(r), он не поверил своим глазам - температуру обещали +-451F.",
+    "result": "&hellip;Когда <span style=\"white-space:nowrap;\">В. И. Дворкин</span> увидел в&nbsp;газете (это была &laquo;Хроники Амбера&raquo; &#8470;&#8239;45) рубрику Amber Chronicle&reg;, он&nbsp;не&nbsp;поверил своим глазам&nbsp;&mdash; температуру обещали &plusmn;<span style=\"white-space:nowrap;\">451 &deg;F</span>.",
+    "result_classes": "&hellip;Когда <span class=\"nowrap\">В. И. Дворкин</span> увидел в&nbsp;газете (это была &laquo;Хроники Амбера&raquo; &#8470;&#8239;45) рубрику Amber Chronicle&reg;, он&nbsp;не&nbsp;поверил своим глазам&nbsp;&mdash; температуру обещали &plusmn;<span class=\"nowrap\">451 &deg;F</span>.",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Замена символа градус, плюс-минус",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Дворкин, оценивая всех своих предшественников, писал: &quot;... Некоторые оды Оберона, несмотря на неправильность языка и неровность слога, исполнены порывами гения...&quot;.",
+    "result": "Дворкин, оценивая всех своих предшественников, писал: &laquo;&hellip;Некоторые оды Оберона, несмотря на&nbsp;неправильность языка и&nbsp;неровность слога, исполнены порывами гения&hellip;&raquo;.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Повторное типографирование текста",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "На верфь Амбера завезли 32 м3 леса, из которых 4м3 пустили под распил на 25мм брусья, длинной по 6м.",
+    "result": "На&nbsp;верфь Амбера завезли 32&nbsp;м&sup3; леса, из&nbsp;которых 4&nbsp;м&sup3; пустили под распил на&nbsp;25&nbsp;мм брусья, длинной по&nbsp;6&nbsp;м.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Замена символов и привязка сокращений в размерных величинах: м, см, м2...",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "<p>dsdsd</p>\n<p>sdsdadadad</p>",
+    "result": "<p>dsdsd</p>\n\n<p>sdsdadadad</p>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Нет br между параграфами",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Корвин, привет при'в'ет как дела",
+    "result": "Корвин, привет при&rsquo;в&rsquo;ет как дела",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Два апострофа в слове",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "$125, $ 12, &euro; 1, €12",
+    "result": "$&nbsp;125, $&nbsp;12, &euro;&nbsp;1, &euro;&nbsp;12",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Привязка доллара и евро к числу",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "+ 7 (495)1234567, +7 (495)1234567, +7(495)1234567, +7(495) 1234567",
+    "result": "<span style=\"white-space:nowrap;\">+7 495 123-45-67</span>, <span style=\"white-space:nowrap;\">+7 495 123-45-67</span>, <span style=\"white-space:nowrap;\">+7 495 123-45-67</span>, <span style=\"white-space:nowrap;\">+7 495 123-45-67</span>",
+    "result_classes": "<span class=\"nowrap\">+7 495 123-45-67</span>, <span class=\"nowrap\">+7 495 123-45-67</span>, <span class=\"nowrap\">+7 495 123-45-67</span>, <span class=\"nowrap\">+7 495 123-45-67</span>",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Неразрывная конструкция для телефонов",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Высота Колвира 15 000—20 000 м",
+    "result": "Высота Колвира 15&#8239;000&ndash;20&#8239;000&nbsp;м",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Тонкие пробелы в числах",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Высота Колвира 15000—20000 м",
+    "result": "Высота Колвира 15&#8239;000&ndash;20&#8239;000&nbsp;м",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Тонкие пробелы в числах с разибвкой",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "Счёт Амбера 123456, 1234567, 12345678, 123456789",
+    "result": "Счёт Амбера 123&#8239;456, 1&#8239;234&#8239;567, 12&#8239;345&#8239;678, 123&#8239;456&#8239;789",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Тонкие пробелы в больших числах с разибвкой",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "А.С.Дворкин, Дворкин АС",
+    "result": "<span style=\"white-space:nowrap;\">А. С. Дворкин</span>, <span style=\"white-space:nowrap;\">Дворкин А. С.</span>",
+    "result_classes": "<span class=\"nowrap\">А. С. Дворкин</span>, <span class=\"nowrap\">Дворкин А. С.</span>",
+    "params": {
+      "rules": {
+        "nobr.initials_dots": true,
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Привязка инициалов к фамилиям с точками",
+    "grtitle": "Расширенный набор"
+  },
+  {
+    "text": "<notg>хроника Амбера</notg>",
+    "result": "<span class=\"_notg_start\"></span>хроника Амбера<span class=\"_notg_end\"></span>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Отмена типографирования во всём тексте",
+    "grtitle": "Блоки без типографирования и защищённые теги"
+  },
+  {
+    "text": "Дворкин пишет свиток, <notg>и не хочу,</notg> чтобы его часть правилась.",
+    "result": "Дворкин пишет свиток, <span class=\"_notg_start\"></span>и не хочу,<span class=\"_notg_end\"></span> чтобы его часть правилась.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Отмена типографирования на части текста",
+    "grtitle": "Блоки без типографирования и защищённые теги"
+  },
+  {
+    "text": "<pre>Единорог стоял на Колвире.</pre>",
+    "result": "<pre>Единорог стоял на Колвире.</pre>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "safetags": "pre",
+    "title": "Отмена типографирования тега pre",
+    "grtitle": "Блоки без типографирования и защищённые теги"
+  },
+  {
+    "text": "<pre><code>Единорог стоял на Колвире.</code></pre>",
+    "result": "<pre><code>Единорог стоял на Колвире.</code></pre>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "safetags": "code",
+    "title": "Отмена типографирования тега pre с вложенным тегом",
+    "grtitle": "Блоки без типографирования и защищённые теги"
+  },
+  {
+    "text": "<code><pre>Единорог стоял на Колвире.</pre></code>",
+    "result": "<code><pre>Единорог стоял на Колвире.</pre></code>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "safetags": "code",
+    "title": "Отмена типографирования тега pre в внешним тегом",
+    "grtitle": "Блоки без типографирования и защищённые теги"
+  },
+  {
+    "text": "http://simonenko.xyz/the-best-microtypo.html\nКозырь: http://simonenko.xyz/A0SAFESEQUENCENUM1ID ",
+    "result": "<a href=\"http://simonenko.xyz/the-best-microtypo.html\">simonenko.xyz/the-best-microtypo.html</a><br>\nКозырь: <a href=\"http://simonenko.xyz/A0SAFESEQUENCENUM1ID\">simonenko.xyz/A0SAFESEQUENCENUM1ID</a>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "safetags": "code",
+    "title": "Обработка ссылок с имеющейся маркой",
+    "grtitle": "Блоки без типографирования и защищённые теги"
+  },
+  {
+    "text": "<a href=\"https://www.simonenko.xyz/\">Amber Club</a>",
+    "result": "<a href=\"https://www.simonenko.xyz/\">Amber Club</a>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Баг с TIMES в кодированом тексте",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "<p>\"Очень хороший скрипт этот Козырь, <strong>просто замечательный</strong>\",&mdash; отмечает канцелярия.</p>",
+    "result": "<p>&laquo;Очень хороший скрипт этот Козырь, <strong>просто замечательный</strong>&raquo;,&nbsp;&mdash; отмечает канцелярия.</p>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Баг с закрывающей кавычкой",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "Книга «Летопись Амбера и Хаоса» Оберона Дворкина и Фионы Дворкин  . третье издание, исправленное и дополненное.",
+    "result": "<p>Книга &laquo;Летопись Амбера и&nbsp;Хаоса&raquo; Оберона Дворкина и&nbsp;Фионы Дворкин. третье издание, исправленное и&nbsp;дополненное.</p>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "hanging.*": false
+      }
+    },
+    "title": "Пробел перед точкой",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "«Летопись Амбера» — свод, составленный по материалам сборника «О правлении и королях» Оберона Первого Дворкина, который со времён Первого Отражения собирал выдержки из хроник, преданий, песен, писем и свитков, где так или иначе затрагивается природа королевской власти. Это собрание легло в основу обширной антологии, являющей суть и историю правления Амбера в первоисточниках.",
+    "result": "<p><span style=\"margin-left:-0.44em;\">&laquo;</span>Летопись Амбера&raquo;&nbsp;&mdash; свод, составленный по&nbsp;материалам сборника<span style=\"margin-right:0.44em;\"> </span><span style=\"margin-left:-0.44em;\">&laquo;</span>О&nbsp;правлении и&nbsp;королях&raquo; Оберона Первого Дворкина, который со&nbsp;времён Первого Отражения собирал выдержки из&nbsp;хроник, преданий, песен, писем и&nbsp;свитков, где так или иначе затрагивается природа королевской власти. Это собрание легло в&nbsp;основу обширной антологии, являющей суть и&nbsp;историю правления Амбера в&nbsp;первоисточниках.</p>",
+    "result_classes": "<p><span class=\"oa_oquote_nl\">&laquo;</span>Летопись Амбера&raquo;&nbsp;&mdash; свод, составленный по&nbsp;материалам сборника<span class=\"oa_oquote_sp_s\"> </span><span class=\"oa_oquote_sp_q\">&laquo;</span>О&nbsp;правлении и&nbsp;королях&raquo; Оберона Первого Дворкина, который со&nbsp;времён Первого Отражения собирал выдержки из&nbsp;хроник, преданий, песен, писем и&nbsp;свитков, где так или иначе затрагивается природа королевской власти. Это собрание легло в&nbsp;основу обширной антологии, являющей суть и&nbsp;историю правления Амбера в&nbsp;первоисточниках.</p>",
+    "params": {
+      "rules": {
+        "hanging.*": true
+      }
+    },
+    "title": "Оптическое выравнивание первой кавычки",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "Крепость Амбера № 214 в Ребме",
+    "result": "Крепость Амбера &#8470;&#8239;214 в&nbsp;Ребме",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Предлог 'в' определяется как вольт и становится прописным",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "\"Летопись Амбера\" - сайт  , созданный по хроникам Амбера",
+    "result": "&laquo;Летопись Амбера&raquo;&nbsp;&mdash; сайт, созданный по&nbsp;хроникам Амбера",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Двойной пробел перед знаком препинания",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "На входе: \"Летопись Амбера\" - сайт , созданный по хроникам Амбера\n\nНа выходе: <p>&laquo;Летопись Амбера&raquo;&nbsp;&mdash; сайт , созданный по&nbsp;хроникам Амбера ",
+    "result": "<p>На&nbsp;входе: &laquo;Летопись Амбера&raquo;&nbsp;&mdash; сайт, созданный по&nbsp;хроникам Амбера</p>\n\n<p>На&nbsp;выходе: <p>&laquo;Летопись Амбера&raquo;&nbsp;&mdash; сайт, созданный по&nbsp;хроникам Амбера.</p>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "punctuation.period_at_end": true,
+        "hanging.*": false
+      }
+    },
+    "title": "Точка в конце текста",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "и тд и тп.",
+    "result": "<span style=\"white-space:nowrap;\">и т. д.</span> <span style=\"white-space:nowrap;\">и т. п.</span>",
+    "result_classes": "<span class=\"nowrap\">и т. д.</span> <span class=\"nowrap\">и т. п.</span>",
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "и тд и тп.",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "Доброй охоты, Джулиан, \"друг \"вдруг\"\"",
+    "result": "Доброй охоты, Джулиан, &laquo;друг &bdquo;вдруг&ldquo;&raquo;",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Баг с кавычками 'друг-вдруг'",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "<span>=</span>",
+    "result": "<span>=</span>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Равно в теге валит типограф",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "Об этой дороге я мечтал давно, с тех пор как впервые услышал про Амбер. Когда узнал о его существовании, почувствовал тягу к нему. А в мае того года на военном совете в Ребме я особенно сильно ощутил его зов, его свет и тепло…\n\nИ вот, наконец, всё сложилось так, что я смог отправиться в путь. Ещё до похода я видел Амбер во сне. Таких снов было три, и они были ярче яви.\n\nДо Колвира из Ардена я ехал верхом. Дорога должна была занять три дня, но проводник, некий В. И. Ганелон, знал тропы короче. Мы условились встретиться у ворот за час до заката.\n\nОтражений без числа, говорил он, а истинный свет лишь в Амбере. С первого взгляда кажется, что Тени бедны и серы, но за каждой из них скрыта своя тайна.\n\nКогда мы въехали в Арден, было три часа пополудни. Джулиан встретил нас у сторожевой башни. «Господа, — сказал он, — дальше вас проводит стража».\n\nВ тот вечер я написал письмо Дворкину. У меня было ещё два письма от других принцев, которые я вёз из Ребмы. Письма Дворкину — это одна из старых игр Амбера.\n\nПервый день при дворе прошёл как во сне. Рано утром уже была длинная очередь перед тронным залом. Меня посадили во второй ряд от дорожки, по которой проходит король.\n\nИ вот король подходит очень близко ко мне. Отовсюду лорды тянутся к нему с прошениями. Я протягиваю свои письма, он берёт их, смотрит мне в глаза и как будто чего-то ждёт.\n\nВечером на площади перед залом собрались изгнанники, чтобы под лютню спеть песни о Козырях. Когда я рассказал, как прошёл мой первый день, все сказали, что мне очень повезло: иные ждут месяцами.\n\nНароду было тысяч 8−10, и это, говорят, ещё немного. Двор — это воплощённая милость единорога, и там всё наполнено им. Рядом с замком стоит башня, которую построил сам Дворкин.\n\n«Прежде чем указывать на промахи других, — сказал мне Бенедикт, — исследуй самого себя». Эти слова я записал 29 января, и они были как будто для меня.\n\nP. S. Ты хорошо владеешь клинком и ищешь службу? Приходи к воротам Амбера. Множество дорог ведёт сюда, и среди них ты найдёшь свою.",
+    "result": "<p>Об&nbsp;этой дороге я&nbsp;мечтал давно, с&nbsp;тех пор как впервые услышал про Амбер. Когда узнал о&nbsp;его существовании, почувствовал тягу к&nbsp;нему. А&nbsp;в&nbsp;мае того года на&nbsp;военном совете в&nbsp;Ребме я&nbsp;особенно сильно ощутил его зов, его свет и&nbsp;тепло&hellip;</p>\n\n<p>И&nbsp;вот, наконец, всё сложилось так, что я&nbsp;смог отправиться в&nbsp;путь. Ещё до&nbsp;похода я&nbsp;видел Амбер во&nbsp;сне. Таких снов было три, и&nbsp;они были ярче яви.</p>\n\n<p>До&nbsp;Колвира из&nbsp;Ардена я&nbsp;ехал верхом. Дорога должна была занять три дня, но&nbsp;проводник, некий <span style=\"white-space:nowrap;\">В. И. Ганелон</span>, знал тропы короче. Мы&nbsp;условились встретиться у&nbsp;ворот за&nbsp;час до&nbsp;заката.</p>\n\n<p>Отражений без числа, говорил он, а&nbsp;истинный свет лишь в&nbsp;Амбере. С&nbsp;первого взгляда кажется, что Тени бедны и&nbsp;серы, но&nbsp;за&nbsp;каждой из&nbsp;них скрыта своя тайна.</p>\n\n<p>Когда мы&nbsp;въехали в&nbsp;Арден, было три часа пополудни. Джулиан встретил нас у&nbsp;сторожевой башни. &laquo;Господа,&nbsp;&mdash; сказал он,&nbsp;&mdash; дальше вас проводит стража&raquo;.</p>\n\n<p>В&nbsp;тот вечер я&nbsp;написал письмо Дворкину. У&nbsp;меня было ещё два письма от&nbsp;других принцев, которые я&nbsp;вёз из&nbsp;Ребмы. Письма Дворкину&nbsp;&mdash; это одна из&nbsp;старых игр Амбера.</p>\n\n<p>Первый день при дворе прошёл как во&nbsp;сне. Рано утром уже была длинная очередь перед тронным залом. Меня посадили во&nbsp;второй ряд от&nbsp;дорожки, по&nbsp;которой проходит король.</p>\n\n<p>И&nbsp;вот король подходит очень близко ко&nbsp;мне. Отовсюду лорды тянутся к&nbsp;нему с&nbsp;прошениями. Я&nbsp;протягиваю свои письма, он&nbsp;берёт их, смотрит мне в&nbsp;глаза и&nbsp;как будто чего-то ждёт.</p>\n\n<p>Вечером на&nbsp;площади перед залом собрались изгнанники, чтобы под лютню спеть песни о&nbsp;Козырях. Когда я&nbsp;рассказал, как прошёл мой первый день, все сказали, что мне очень повезло: иные ждут месяцами.</p>\n\n<p>Народу было тысяч 8&ndash;10, и&nbsp;это, говорят, ещё немного. Двор&nbsp;&mdash; это воплощённая милость единорога, и&nbsp;там всё наполнено им.&nbsp;Рядом с&nbsp;замком стоит башня, которую построил сам Дворкин.</p>\n\n<p>&laquo;Прежде чем указывать на&nbsp;промахи других,&nbsp;&mdash; сказал мне Бенедикт,&nbsp;&mdash; исследуй самого себя&raquo;. Эти слова я&nbsp;записал 29&nbsp;января, и&nbsp;они были как будто для меня.</p>\n\n<p><span style=\"white-space:nowrap;\">P. S.</span> Ты&nbsp;хорошо владеешь клинком и&nbsp;ищешь службу? Приходи к&nbsp;воротам Амбера. Множество дорог ведёт сюда, и&nbsp;среди них ты&nbsp;найдёшь свою.</p>",
+    "result_classes": "<p>Об&nbsp;этой дороге я&nbsp;мечтал давно, с&nbsp;тех пор как впервые услышал про Амбер. Когда узнал о&nbsp;его существовании, почувствовал тягу к&nbsp;нему. А&nbsp;в&nbsp;мае того года на&nbsp;военном совете в&nbsp;Ребме я&nbsp;особенно сильно ощутил его зов, его свет и&nbsp;тепло&hellip;</p>\n\n<p>И&nbsp;вот, наконец, всё сложилось так, что я&nbsp;смог отправиться в&nbsp;путь. Ещё до&nbsp;похода я&nbsp;видел Амбер во&nbsp;сне. Таких снов было три, и&nbsp;они были ярче яви.</p>\n\n<p>До&nbsp;Колвира из&nbsp;Ардена я&nbsp;ехал верхом. Дорога должна была занять три дня, но&nbsp;проводник, некий <span class=\"nowrap\">В. И. Ганелон</span>, знал тропы короче. Мы&nbsp;условились встретиться у&nbsp;ворот за&nbsp;час до&nbsp;заката.</p>\n\n<p>Отражений без числа, говорил он, а&nbsp;истинный свет лишь в&nbsp;Амбере. С&nbsp;первого взгляда кажется, что Тени бедны и&nbsp;серы, но&nbsp;за&nbsp;каждой из&nbsp;них скрыта своя тайна.</p>\n\n<p>Когда мы&nbsp;въехали в&nbsp;Арден, было три часа пополудни. Джулиан встретил нас у&nbsp;сторожевой башни. &laquo;Господа,&nbsp;&mdash; сказал он,&nbsp;&mdash; дальше вас проводит стража&raquo;.</p>\n\n<p>В&nbsp;тот вечер я&nbsp;написал письмо Дворкину. У&nbsp;меня было ещё два письма от&nbsp;других принцев, которые я&nbsp;вёз из&nbsp;Ребмы. Письма Дворкину&nbsp;&mdash; это одна из&nbsp;старых игр Амбера.</p>\n\n<p>Первый день при дворе прошёл как во&nbsp;сне. Рано утром уже была длинная очередь перед тронным залом. Меня посадили во&nbsp;второй ряд от&nbsp;дорожки, по&nbsp;которой проходит король.</p>\n\n<p>И&nbsp;вот король подходит очень близко ко&nbsp;мне. Отовсюду лорды тянутся к&nbsp;нему с&nbsp;прошениями. Я&nbsp;протягиваю свои письма, он&nbsp;берёт их, смотрит мне в&nbsp;глаза и&nbsp;как будто чего-то ждёт.</p>\n\n<p>Вечером на&nbsp;площади перед залом собрались изгнанники, чтобы под лютню спеть песни о&nbsp;Козырях. Когда я&nbsp;рассказал, как прошёл мой первый день, все сказали, что мне очень повезло: иные ждут месяцами.</p>\n\n<p>Народу было тысяч 8&ndash;10, и&nbsp;это, говорят, ещё немного. Двор&nbsp;&mdash; это воплощённая милость единорога, и&nbsp;там всё наполнено им.&nbsp;Рядом с&nbsp;замком стоит башня, которую построил сам Дворкин.</p>\n\n<p>&laquo;Прежде чем указывать на&nbsp;промахи других,&nbsp;&mdash; сказал мне Бенедикт,&nbsp;&mdash; исследуй самого себя&raquo;. Эти слова я&nbsp;записал 29&nbsp;января, и&nbsp;они были как будто для меня.</p>\n\n<p><span class=\"nowrap\">P. S.</span> Ты&nbsp;хорошо владеешь клинком и&nbsp;ищешь службу? Приходи к&nbsp;воротам Амбера. Множество дорог ведёт сюда, и&nbsp;среди них ты&nbsp;найдёшь свою.</p>",
+    "params": {
+      "rules": {
+        "hanging.*": false
+      }
+    },
+    "title": "Много кавычек, одна после дефиса",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "<pre><code>text</code></pre>",
+    "result": "<pre><code>text</code></pre>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "safetags": [
+      "pre",
+      "code"
+    ],
+    "title": "Баг двойного декодирования safe tags",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "Новая глава зовётся \"<a href=\"/articles/finalhourshl/?page=3\">Тайна Амбера</a>\":",
+    "result": "Новая глава зовётся &laquo;<a href=\"/articles/finalhourshl/?page=3\">Тайна Амбера</a>&raquo;:",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Двойная кавычка перед двоеточием",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "Составление козырей с помощью ПО Trump Studio CS Отражений",
+    "result": "Составление козырей с&nbsp;помощью&nbsp;ПО Trump Studio&nbsp;CS Отражений",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Инициалы проставляются при англ/рус названии сокращении ",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "Император Эрик II ест.",
+    "result": "Император Эрик&nbsp;II ест.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Инициалы смешанные.",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "arden.ambersource.co.uk",
+    "result": "arden.ambersource.co.uk",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Обработка домена 1",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "amber.info",
+    "result": "amber.info",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Обработка домена 2",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "Trumps.NET",
+    "result": "Trumps.NET",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Обработка домена 3",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "сообщила летописцу сайта XXX.RU Дейдра Обероновна",
+    "result": "сообщила летописцу сайта XXX.RU Дейдра Обероновна",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Баг проставления иницаилов при использовании домена",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "В Тени температура достигала -20... -30 градусов Цельсия.",
+    "result": "В Тени температура достигала −20… −30 градусов Цельсия.",
+    "result_classes": null,
+    "params": {
+      "entities": false,
+      "rules": {
+        "other.nbsp_in_nowrap": true,
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Преобразование в юникод",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "и тд и тп.",
+    "result": "<span style=\"white-space:nowrap;\">и т. д.</span> <span style=\"white-space:nowrap;\">и т. п.</span>",
+    "result_classes": "<span class=\"nowrap\">и т. д.</span> <span class=\"nowrap\">и т. п.</span>",
+    "params": {
+      "entities": false,
+      "rules": {
+        "other.nbsp_in_nowrap": true,
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Преобразование в юникод с nobr",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "и тд и тп.",
+    "result": "<span style=\"white-space:nowrap;\">и т. д.</span> <span style=\"white-space:nowrap;\">и т. п.</span>",
+    "result_classes": "<span class=\"nowrap\">и т. д.</span> <span class=\"nowrap\">и т. п.</span>",
+    "params": {
+      "entities": false,
+      "rules": {
+        "other.nbsp_in_nowrap": false,
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Преобразование в юникод с отключённым nobr",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "беседа для «Козыри+»",
+    "result": "беседа для &laquo;Козыри+&raquo;",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Закрывающая кавычка в конце",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "беседа для «Козыри+» вот",
+    "result": "беседа для &laquo;Козыри+&raquo; вот",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Закрывающая кавычка после +",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "ООО Компания «Клинок и Козырь»<br/>\nВерный и старый союзник",
+    "result": "ООО&nbsp;Компания &laquo;Клинок и&nbsp;Козырь&raquo;<br/>\nВерный и&nbsp;старый союзник",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false,
+        "text.breakline": false
+      }
+    },
+    "title": "Закрывающая кавычка перед тегом",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "«\"Grayswandir\" — это баллада об ответственности. Поэтому очень символично, что именно она стала первым синглом с альбома, за который\nмы сами несем полную ответственность», — заявил хранитель Козырей Рэндом Дворкин.",
+    "result": "&laquo;&bdquo;Grayswandir&ldquo;&nbsp;&mdash; это баллада об&nbsp;ответственности. Поэтому очень символично, что именно она стала первым синглом с&nbsp;альбома, за&nbsp;который<br>\nмы&nbsp;сами несем полную ответственность&raquo;,&nbsp;&mdash; заявил хранитель Козырей Рэндом Дворкин.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Две открывающие кавычки подряд",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "«Пир в Ребмó» славное. Спецсимвол \"Последний символ ASCII таблицы - ¥\".",
+    "result": "&laquo;Пир в&nbsp;Ребмó&raquo; славное. Спецсимвол &laquo;Последний символ ASCII таблицы&nbsp;&mdash; ¥&raquo;.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Закрывающая кавычка после спец символов.",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "«Козырь ⿇\" и «Козырь あ\".",
+    "result": "&laquo;Козырь ⿇&raquo; и&nbsp;&laquo;Козырь あ&raquo;.",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Закрывающая кавычка после иероглифов.",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "«В дозоре Амбера&rdquo;",
+    "result": "&laquo;В&nbsp;дозоре Амбера&raquo;",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Баг с rdquo.",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "(С) 1999-2003г., ООО \"Фирма \"Единорог\". Все права защищены.\n\nФиона добавила: \"И цвет мой самый любимый - \"изумруд\"\".",
+    "result": "<p>&copy;&nbsp;1999&ndash;2003&nbsp;гг., ООО&nbsp;&laquo;Фирма &laquo;Единорог&raquo;. Все права защищены.</p>\n\n<p>Фиона добавила: &laquo;И&nbsp;цвет мой самый любимый&nbsp;&mdash; &bdquo;изумруд&ldquo;&raquo;.</p>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "hanging.*": false
+      }
+    },
+    "title": "Обработка неправильных кавычек в разных параграфах",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "15 мм",
+    "result": "<p>15&nbsp;мм</p>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "hanging.*": false
+      }
+    },
+    "title": "Повтороное типографирование не вставляет пробел",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "после 19.00 отступить от Колвира",
+    "result": "после 19.00 отступить от&nbsp;Колвира",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Неверная обработка денежных сокращений у.е.",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "<!-- <tag/> -->",
+    "result": "<!-- <tag/> -->",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Обработка HTML комментариев",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "<p>test - \"test\"</p><p>\"test\" - test</p>",
+    "result": "<p>test&nbsp;&mdash; &laquo;test&raquo;</p><p>&laquo;test&raquo;&nbsp;&mdash; test</p>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "hanging.*": false
+      }
+    },
+    "title": "Если один абзац заканчивается закрывающей кавычкой, то следющий за ним абзац не обрабатывается",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "Владения Амбера зон А и Б",
+    "result": "Владения Амбера зон А и Б",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Запятая перед А",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "Фиона поймала баг: если в статье есть ссылки вроде http://www.amber.example/questions/693440-tropy-ambera-cherez-otrazhenija.html (обратите внимание на цифры и дефис после них).",
+    "result": "Фиона поймала баг: если в&nbsp;статье есть ссылки вроде <a href=\"http://www.amber.example/questions/693440-tropy-ambera-cherez-otrazhenija.html\">www.amber.example/questions/693440-tropy-ambera-cherez-otrazhenija.html</a> (обратите внимание на&nbsp;цифры и&nbsp;дефис после них).",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Правильная обработка ссылок 1",
+    "grtitle": "Регрессионные случаи"
+  },
+  {
+    "text": "https://amber.domain.ru/#hesh:a1fe4bd7-ad5a-4588-8127-8496db8f6c5d",
+    "result": "<a href=\"https://amber.domain.ru/#hesh:a1fe4bd7-ad5a-4588-8127-8496db8f6c5d\">amber.domain.ru/#hesh:a1fe4bd7-ad5a-4588-8127-8496db8f6c5d</a>",
+    "result_classes": null,
+    "params": {
+      "rules": {
+        "text.paragraphs": false,
+        "hanging.*": false
+      }
+    },
+    "title": "Правильная обработка ссылок 2",
+    "grtitle": "Регрессионные случаи"
+  }
+]
