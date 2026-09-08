@@ -1,4 +1,6 @@
+import { CONTENT_END_LOOKAHEAD, CONTENT_OPEN_BRACKETS, CONTENT_START } from '../lib/boundaries.js';
 import { G } from '../lib/glyphs.js';
+import { CLOSE } from '../protect/placeholders.js';
 
 function wrapPhone(ctx, m) {
   const [, p1, p2, , p4, , p6, , p8, , p10, p11] = m;
@@ -53,11 +55,17 @@ export const nobrGroup = {
     {
       id: 'nbsp_short_word',
       description: 'Привязка союзов и предлогов к следующему слову',
-      // ASCII whitespace only ([ \t\n\r]) so it can't double-glue across an existing NBSP.
-      // Intentionally broad: glues any 1-2 letter word, accepting false positives.
-      // Trailing gaps stay horizontal-only ([ \t]) so the glue never crosses a line break.
-      pattern:
-        /([ \t\n\r]|^|[«„]|>|\(|—\u{00A0})([a-zа-яё]{1,2}[ \t]+)([a-zа-яё]{1,2}[ \t]+)?([a-zа-яё0-9-]{2,}|[0-9])/giu,
+      // Not `CONTENT_START`: that one starts with `\s`, which matches a non-breaking space, and this
+      // rule must not glue across one it already wrote. So the whitespace half stays ASCII-only and
+      // the openers come from the shared bracket half, plus the two ends a protected region and a
+      // tag leave in front of content. Trailing gaps stay horizontal, so the glue never crosses a
+      // line break.
+      //
+      // Deliberately broad: any one- or two-letter word is glued, false positives accepted.
+      pattern: new RegExp(
+        `([ \\t\\n\\r]|^|[${CONTENT_OPEN_BRACKETS}]|>|${CLOSE}|${G.MDASH}${G.NBSP})([a-zа-яё]{1,2}[ \\t]+)([a-zа-яё]{1,2}[ \\t]+)?([a-zа-яё0-9-]{2,}|[0-9])`,
+        'giu'
+      ),
       replacement: (m) => {
         const [, p1, p3, p4, p5] = m;
 
@@ -150,7 +158,8 @@ export const nobrGroup = {
     {
       id: 'nbsp_after_particle',
       description: 'Неразрывный пробел после усилительной частицы: Поди-кась так → Поди-кась так',
-      // Leading boundary anchors the match start so the greedy [а-яё]+ can't retry from every offset (avoids O(n^2)).
+      // The leading boundary anchors the match start, so the greedy `[а-яё]+` cannot retry from every
+      // offset.
       pattern: /(\s|^|\u{00A0}|>)([а-яё]+-(?:кась|тка|тко|ка|де))( )([а-яё]+)/giu,
       replacement: `$1$2${G.NBSP}$4`
     },
@@ -163,8 +172,15 @@ export const nobrGroup = {
     {
       id: 'nbsp_celsius',
       description: 'Привязка градусов к числу (включая ±, +, − перед числом)',
-      pattern: /(\s|^|>|\u{00A0}|[+\-−±])(\d+)( |\u{00A0})?°(C|С|F)(\s|\.|!|\?|,|$|\u{00A0}|;)/gu,
-      replacement: (m) => `${m[1]}${m[2]}${G.NBSP}${G.DEG}${degreeUnit(m[4])}${m[5]}`
+      // A temperature is a measurement like any other, so it shares the boundary sets and `(20 °C)`
+      // gets the non-breaking space a bare `20 °C` does. `+` and `±` are extra here — a signed
+      // reading is still a reading, and `±` opens content nowhere else — and the closer stays a
+      // lookahead so a range binds both ends.
+      pattern: new RegExp(
+        `(^|[${CONTENT_START}+${G.PLUSMN}])(\\d+)( |${G.NBSP})?${G.DEG}(C|С|F)${CONTENT_END_LOOKAHEAD}`,
+        'gu'
+      ),
+      replacement: (m) => `${m[1]}${m[2]}${G.NBSP}${G.DEG}${degreeUnit(m[4])}`
     },
     {
       id: 'nowrap_hyphen_short',

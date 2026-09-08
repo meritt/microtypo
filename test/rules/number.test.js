@@ -110,6 +110,26 @@ describe('math signs', () => {
   test('+- becomes ±', () => {
     assert.ok(microtypo('5 +-1', cfg).includes('±'));
   });
+
+  // ≡ is its own canonical form, so it needs no rule to come back — and no rule claims '=='.
+  test('an authored ≡ survives the round trip', () => {
+    assert.ok(microtypo('Отражение ≡ Тень', cfg).includes('≡'));
+    assert.ok(microtypo('Дворкин &equiv; закон', cfg).includes('≡'));
+    assert.ok(entity('Отражение ≡ Тень').includes('&equiv;'));
+  });
+
+  // A Markdown setext underline and ==highlight== markers are runs of '='; a == → ≡ rule eats them.
+  test('runs of = are left alone', () => {
+    assert.equal(
+      microtypo('Заголовок\n===\nтекст', { input: 'markdown' }),
+      'Заголовок\n===\nтекст'
+    );
+    assert.equal(
+      microtypo('Корвин ==Амбер== Хаос', { input: 'markdown' }),
+      'Корвин ==Амбер== Хаос'
+    );
+    assert.ok(microtypo('Дворкин == Лабиринт', cfg).includes('=='));
+  });
 });
 
 describe('subscript and superscript', () => {
@@ -248,22 +268,76 @@ describe('units spacing', () => {
   test('units bundle binds number to unit with nbsp', () => {
     assert.ok(microtypo('клинок весит 5 кг', cfg).includes(`5${NBSP}кг`));
   });
+
+  test('volume units л and мл get nbsp', () => {
+    assert.ok(entity('Фиона отмерила 2 л воды').includes('2&nbsp;л'));
+    assert.ok(entity('и 500 мл вина').includes('500&nbsp;мл'));
+    assert.ok(entity('фляга 2л').includes('2&nbsp;л'));
+  });
+
+  test('time units ч and мин get nbsp', () => {
+    assert.ok(entity('Корвин шёл 3 ч подряд').includes('3&nbsp;ч'));
+    assert.ok(entity('и ждал 15 мин у ворот').includes('15&nbsp;мин'));
+  });
+
+  // `с` after a digit reads as the preposition far more often than as seconds, so it stays out.
+  test('a preposition after a number is not read as a unit', () => {
+    const out = microtypo('Корвин ждал 5 с половиной часов', P);
+
+    assert.ok(out.includes(`5 с${NBSP}половиной`), out);
+  });
+
+  test('a longer word starting with a unit is untouched', () => {
+    assert.ok(microtypo('прошло 40 лет', P).includes('40 лет'));
+    assert.ok(microtypo('отряд 5 человек', P).includes('5 человек'));
+  });
+
+  test('the units bundle covers the volume and time rules', () => {
+    const out = microtypo('Фиона взяла 2 л воды за 3 ч', {
+      ...P,
+      rules: { units: false }
+    });
+
+    assert.ok(!out.includes(`2${NBSP}л`), out);
+    assert.ok(!out.includes(`3${NBSP}ч`), out);
+  });
 });
 
 describe('currency', () => {
   test('руб. becomes ₽ with nbsp', () => {
-    assert.equal(entity('Дань 100 руб.'), `Дань 100&nbsp;&#8381;`);
+    assert.equal(entity('Дань 100 руб. за проход'), `Дань 100&nbsp;&#8381; за&nbsp;проход`);
+  });
+
+  // The abbreviation's period is also the sentence's; it survives the symbol only where the
+  // sentence ends, never mid-sentence.
+  test('the abbreviation period is kept at a sentence end', () => {
+    assert.equal(entity('Дань 100 руб.'), 'Дань 100&nbsp;&#8381;.');
+    assert.equal(entity('Дань 100 руб. Оберон ждёт.'), 'Дань 100&nbsp;&#8381;. Оберон ждёт.');
+    assert.equal(entity('Дань 100 долл.'), 'Дань 100&nbsp;$.');
+  });
+
+  test('the abbreviation period is dropped mid-sentence', () => {
+    assert.equal(entity('Дань 100 руб., затем путь'), 'Дань 100&nbsp;&#8381;, затем путь');
+    assert.equal(
+      entity('Дань 100 руб. и 200 долл. в казну'),
+      'Дань 100&nbsp;&#8381; и&nbsp;200&nbsp;$ в&nbsp;казну'
+    );
+  });
+
+  test('a spelled-out form keeps the sentence period as it always was', () => {
+    assert.equal(entity('Дань 100 рублей.'), 'Дань 100&nbsp;&#8381;.');
+    assert.equal(entity('Дань 100 евро.'), 'Дань 100&nbsp;&euro;.');
   });
 
   test('trailing р. variants become ₽', () => {
-    assert.equal(entity('100р.'), '100&nbsp;&#8381;');
-    assert.equal(entity('100 р.'), '100&nbsp;&#8381;');
+    assert.equal(entity('100р.'), '100&nbsp;&#8381;.');
+    assert.equal(entity('100 р.'), '100&nbsp;&#8381;.');
     assert.equal(entity('100р'), '100&nbsp;&#8381;');
     assert.equal(entity('100руб'), '100&nbsp;&#8381;');
   });
 
   test('долл. and долларов become $', () => {
-    assert.equal(entity('100 долл.'), '100&nbsp;$');
+    assert.equal(entity('100 долл. за карту'), '100&nbsp;$ за&nbsp;карту');
     assert.equal(entity('100 долларов'), '100&nbsp;$');
   });
 
@@ -324,6 +398,22 @@ describe('number.thin_space_triads — G8 phone-tail guard', () => {
     assert.equal(microtypo('1 000 000 200 раз', cfg), `1${NNBSP}000${NNBSP}000${NNBSP}200 раз`);
   });
 
+  // Digits stuck to a word are part of that word: without the guard `ab12 345 конец` reads as
+  // `12 345`, and `ab12 345678` comes out two ways over two passes.
+  test('digits ending a word are not the leading triad of what follows', () => {
+    for (const src of ['ab12 345 конец', 'файл7 100 644 байт', 'ab12 345678']) {
+      const once = microtypo(src, cfg);
+
+      assert.equal(once, src, `grouped a word tail: ${JSON.stringify(once)}`);
+      assert.equal(microtypo(once, cfg), once);
+    }
+  });
+
+  test('a real number after a word still groups', () => {
+    assert.equal(microtypo('Корвин 345 678 монет', cfg), `Корвин 345${NNBSP}678 монет`);
+    assert.equal(microtypo('дом 12 345 монет', cfg), `дом 12${NNBSP}345 монет`);
+  });
+
   test('a legitimate big number before a word still groups', () => {
     assert.ok(microtypo('до 1 000 000 человек', cfg).includes(`1${NNBSP}000${NNBSP}000`));
   });
@@ -344,5 +434,35 @@ describe('number.math — +- guard (BUG-1)', () => {
 
   test('legitimate 5+-3 still becomes plus-minus', () => {
     assert.equal(microtypo('5+-3', NOP), `5${'±'}3`);
+  });
+
+  // As ASCII stand-ins these would decompose to `1/2` during normalisation and only
+  // `number.fraction` would put them back, so disabling that group would destroy the author's glyph.
+  test('a fraction glyph survives with the number group disabled', () => {
+    const src = 'Корвин увёл ½ отряда и ¼ казны, а Рэндом ¾ Козырей';
+
+    for (const config of [{ rules: { number: false } }, {}]) {
+      const out = microtypo(src, config);
+
+      for (const glyph of ['½', '¼', '¾']) {
+        assert.ok(out.includes(glyph), `${glyph} lost: ${out}`);
+      }
+
+      for (const ascii of ['1/2', '1/4', '3/4']) {
+        assert.ok(!out.includes(ascii), `decomposed to ${ascii}: ${out}`);
+      }
+    }
+  });
+
+  test('an ASCII fraction still becomes a glyph', () => {
+    assert.equal(microtypo('Корвин увёл 1/2 отряда'), 'Корвин увёл ½ отряда');
+  });
+
+  test('a fraction entity decodes to the glyph in both directions', () => {
+    assert.equal(microtypo('Корвин увёл &frac12; отряда'), 'Корвин увёл ½ отряда');
+    assert.equal(
+      microtypo('Корвин увёл ½ отряда', { entities: true }),
+      'Корвин увёл &frac12; отряда'
+    );
   });
 });

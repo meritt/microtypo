@@ -8,7 +8,7 @@ function hasNextCopyrightToken(source, index) {
 }
 
 function copyrightSpace(m) {
-  const [match, , offset, source] = m;
+  const [match, offset, source] = m;
   const next = source[offset + match.length];
 
   return `${G.COPY}${
@@ -40,12 +40,19 @@ export const symbolGroup = {
     {
       id: 'copyright',
       description: '(c) → ©',
+      // © is its own canonical form, so an authored glyph reaches this rule as itself. Convert first,
+      // space second, or the spacing decision has to be spelled once against the shorthand and once
+      // against the glyph, with the two kept in agreement.
+      //
+      // The conversion needs a right boundary, as a lookahead so it consumes nothing: a `(c)` that
+      // continues into `)`, `-` or `/` is an enumerated item or an expression, not a copyright mark.
+      // The gap the second pattern binds is horizontal, because `\s` spans a blank line and a mark
+      // ending a paragraph would swallow the break behind it.
       pattern: [
-        /\((c|с)\)\s+/giu,
-        /\((c|с)\)($|\.|,|!|\?)/giu,
-        /\((c|с)\)([a-zа-яёA-ZА-ЯЁ0-9])/giu
+        /\((?:c|с)\)(?=\s|[a-zа-яёA-ZА-ЯЁ0-9.,!?]|$)/giu,
+        new RegExp(`${G.COPY}[ \\t]+`, 'gu')
       ],
-      replacement: [copyrightSpace, (m) => `${G.COPY}${m[2]}`, (m) => `${G.COPY}${m[2]}`]
+      replacement: [G.COPY, copyrightSpace]
     },
     {
       id: 'apostrophe',

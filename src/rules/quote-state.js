@@ -1,12 +1,37 @@
 import { G } from '../lib/glyphs.js';
 import { PARAGRAPH_CLOSE } from '../protect/placeholders.js';
 
-// Every buf rewrite is a length-preserving in-place overwrite; substitutions must be single BMP code points.
+// Every `buf` rewrite is a length-preserving in-place overwrite, so a substitution has to be a
+// single BMP code point.
 
 const { LAQUO } = G;
 const { RAQUO } = G;
 const { BDQUO } = G;
 const { LDQUO } = G;
+
+// What separates a quote from its content, as against what is content. A non-breaking space is the
+// second: the author wrote it inside the quotation, so a quote in front of one has its word right
+// there.
+export const SEPARATOR = ' \\t\\r\\n';
+const SEPARATOR_RE = new RegExp(`[${SEPARATOR}]`, 'u');
+
+// What may stand immediately before a quote that opens a quotation, as one character-class fragment.
+// The straight-quote patterns in `quote.js` and the walk below decide the same thing about the same
+// position, so they read one set.
+export const OPEN_LEFT = `\\s([${G.LAQUO}${G.MDASH}${G.NDASH}>-`;
+const OPEN_LEFT_RE = new RegExp(`[${OPEN_LEFT}]`, 'u');
+
+// Quote state does not cross a paragraph. The state machine below splits on this boundary before it
+// reads a single quote, and the role assignment in `quote.js` decides the same question one pass
+// earlier — so both ask here where a paragraph ends, or the two disagree about which quotations are
+// open and the earlier pass hands the later one roles it cannot honour.
+export function paragraphSeparator(text) {
+  if (text.includes(PARAGRAPH_CLOSE)) {
+    return PARAGRAPH_CLOSE;
+  }
+
+  return text.includes('\r\n') ? '\r\n\r\n' : '\n\n';
+}
 
 function nextQuote(buf, off) {
   for (let i = off; i < buf.length; i++) {
@@ -22,21 +47,17 @@ function nextQuote(buf, off) {
 
 // Assumes outer "..." pairs were already converted to «...».
 export function processQuotes(text, options = {}) {
+  // Every rewrite below is triggered by an angle quote, so text without one comes back unchanged —
+  // and the split plus the code-point array are the whole cost on a short data value.
+  if (!text.includes(LAQUO) && !text.includes(RAQUO)) {
+    return text;
+  }
+
   const allowNested = options.allowNested !== false;
   const convertInches = options.convertInches !== false;
   const { checkBudget } = options;
 
-  // Split at paragraph / double-newline boundaries so quote state can't leak across paragraphs.
-  let separator;
-
-  if (text.includes(PARAGRAPH_CLOSE)) {
-    separator = PARAGRAPH_CLOSE;
-  } else if (text.includes('\r\n')) {
-    separator = '\r\n\r\n';
-  } else {
-    separator = '\n\n';
-  }
-
+  const separator = paragraphSeparator(text);
   const chunks = text.split(separator);
   const out = [];
 
@@ -89,6 +110,12 @@ function processChunk(chunk, allowNested, convertInches, checkBudget) {
       continue;
     }
 
+    if (level < 0 && opensHere(buf, p.pos)) {
+      buf[p.pos] = LAQUO;
+      level = 1;
+      continue;
+    }
+
     if (level < 0 && convertInches) {
       const result = tryConvertInches(buf, off, balancedStack);
 
@@ -109,16 +136,27 @@ function processChunk(chunk, allowNested, convertInches, checkBudget) {
   }
 
   if (level > 0) {
-    for (let i = lastBalanced; i < buf.length; i++) {
-      if (buf[i] === BDQUO) {
-        buf[i] = LAQUO;
-      } else if (buf[i] === LDQUO) {
-        buf[i] = RAQUO;
-      }
-    }
+    restoreNestedMarks(buf, lastBalanced, buf.length);
   }
 
   return buf.join('');
+}
+
+// A closing quote where no quotation stands open, with a boundary in front of it and a word behind,
+// is an opening one written the wrong way round: no rule of this engine puts a closer there, and read
+// as one it has no pair. A measurement never reaches here — its quote follows a digit.
+function opensHere(buf, at) {
+  if (at > 0 && !OPEN_LEFT_RE.test(buf[at - 1])) {
+    return false;
+  }
+
+  let i = at + 1;
+
+  while (buf[i] === ' ' || buf[i] === '\t') {
+    i += 1;
+  }
+
+  return i < buf.length && !SEPARATOR_RE.test(buf[i]);
 }
 
 function tryConvertInches(buf, off, balancedStack) {
@@ -150,7 +188,10 @@ function tryConvertInches(buf, off, balancedStack) {
   return { kind: 'fallback', off: fallbackPos + 1 };
 }
 
-function isDigit(ch) {
+// What makes a straight quote a measurement rather than a delimiter. The role assignment in
+// `quote.js` asks the same question before this state machine runs, and the two have to agree: a
+// mark counted as a closer there is one this pass will turn into a prime.
+export function isDigit(ch) {
   return ch >= '0' && ch <= '9';
 }
 

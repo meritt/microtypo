@@ -125,6 +125,21 @@ describe('quote state machine', () => {
       assert.equal(processQuotes(input), 'Корвин" продолжение');
     });
 
+    // No rule of this engine writes a closing quote where nothing is open and a word follows, so the
+    // one standing there is the author's, written the wrong way round.
+    test('a closing quote where none is open and a word follows opens instead', () => {
+      assert.equal(processQuotes('»Амбер»'), '«Амбер»');
+      assert.equal(processQuotes('» Амбер'), '« Амбер');
+    });
+
+    test('a closing quote with no word behind it still falls back', () => {
+      assert.equal(processQuotes('Амбер »'), 'Амбер "');
+    });
+
+    test('a measurement is untouched: its quote follows a digit', () => {
+      assert.equal(processQuotes('Брус 5» длиной'), `Брус 5${PRIME} длиной`);
+    });
+
     test('inch conversion off leaves digit close', () => {
       const input = 'Клинок 15» в длину.';
       assert.equal(processQuotes(input, { convertInches: false }), input);
@@ -433,9 +448,49 @@ describe('quote.open — closing quote after a tag (REG-2)', () => {
     assert.ok(!out.includes(`</a>${'«'}`), `flipped to opener: ${out}`);
   });
 
-  // A straight quote glued to a tag is opener/closer-ambiguous; we keep the closing case, leaving a padded opener straight.
-  test('opening quote glued to a tag with padding is left straight (documented limitation)', () => {
-    assert.equal(microtypo('<b>" слово"</b>', NOP), '<b>" слово"</b>');
+  // The end of a tag is a boundary, so a quotation may open right behind one whether or not the
+  // author padded the quote.
+  test('opening quote glued to a tag opens the quotation, padded or not', () => {
+    assert.equal(microtypo('<b>" слово"</b>', NOP), '<b>«слово»</b>');
+    assert.equal(microtypo('<b>"слово"</b>', NOP), '<b>«слово»</b>');
+  });
+});
+
+// A quote the author wrote pointing the wrong way is still the author's, and `”` keeps its direction
+// by folding to `»`. That puts it on the state machine's path while the straight quote takes the
+// pattern rules, so the two have to read one set of boundaries.
+describe('a misdirected quote settles in one pass, whatever stands beside it', () => {
+  const NOP = { html: true, render: { paragraphs: false, breakline: false } };
+
+  for (const [name, left, right] of [
+    ['an inline tag', '<em>', '</em>'],
+    ['a bracket', '[', ']'],
+    ['a paren', '(', ')'],
+    ['a hyphen', '-', ''],
+    ['nothing', '', '']
+  ]) {
+    test(`after ${name} the pair closes on the first call`, () => {
+      const source = `${left}”Амбер”${right}`;
+
+      assert.equal(microtypo(source, NOP), `${left}«Амбер»${right}`);
+    });
+  }
+
+  test('a non-breaking space after the quote is content, not separation', () => {
+    assert.equal(microtypo('”\u{00A0}Амбер”', NOP), '«Амбер»');
+  });
+
+  test('the same text written with straight quotes reaches the same place', () => {
+    for (const source of ['<em>"Амбер"</em>', '["Амбер"]', '"Амбер"']) {
+      const once = microtypo(source, NOP);
+
+      assert.equal(microtypo(once, NOP), once, source);
+      assert.ok(once.includes('«Амбер»'), `${source}: ${once}`);
+    }
+  });
+
+  test('a measurement still keeps its prime, because a digit is no boundary', () => {
+    assert.ok(microtypo('Корвин прошёл 5” по карнизу', NOP).includes('5\u{2033}'));
   });
 });
 
@@ -455,7 +510,7 @@ describe('GAP-W1 — quote glued to a comma', () => {
   });
 });
 
-describe('XTEST-8 — comma before a straight quote must not flip a closer to opener', () => {
+describe('a comma before a straight quote does not flip a closer to an opener', () => {
   test('open: closing quote after comma stays closing', () => {
     assert.equal(microtypo('"Отражение,".'), '«Отражение,».');
   });
@@ -478,10 +533,413 @@ describe('XTEST-8 — comma before a straight quote must not flip a closer to op
   });
 });
 
-describe('quote-padded-straight-multiphrase — accepted limitation (R7)', () => {
-  // With two padded phrases, the first closer is misread as an opener and glues to the next word.
-  test('two padded phrases: first closer misread as opener, glues to next word', () => {
-    assert.equal(microtypo('" Порядок " и " Хаос "'), '«Порядок «и «Хаос»');
+// The opening step carries the quote depth and decides each quote knowing what came before it,
+// which a pattern replacement cannot do: `String.replace` never sees the substitutions made beside
+// it, so every spaced quote would read as an opener that had lost its word.
+describe('quote parted from its word by a space', () => {
+  const NB = '\u{00A0}';
+
+  test('two padded phrases close where they should', () => {
+    assert.equal(microtypo('" Порядок " и " Хаос "'), `«Порядок» и${NB}«Хаос»`);
+  });
+
+  test('a padded closer binds back to its own word', () => {
+    assert.equal(microtypo('Дворкин "Амбер " ушёл'), 'Дворкин «Амбер» ушёл');
+  });
+
+  test('a padded opener still binds forward', () => {
+    assert.equal(microtypo('Дворкин " Амбер" ушёл'), 'Дворкин «Амбер» ушёл');
+  });
+
+  test('an empty pair stays an empty pair', () => {
+    assert.equal(microtypo('Дворкин "" ушёл'), 'Дворкин «» ушёл');
+    assert.equal(microtypo('Цитата "" внутри "текста" тут'), 'Цитата «» внутри «текста» тут');
+  });
+
+  // The word a spaced quote supposedly lost can be another quote — an empty quotation, not an opener
+  // looking for something to bind to.
+  test('a row of spaced quotes settles in one pass', () => {
+    const once = microtypo('" " " "');
+
+    assert.equal(once, '«» «»');
+    assert.equal(microtypo(once), once);
+  });
+
+  test('spaced empty pairs beside real quotations', () => {
+    assert.equal(microtypo('Дворкин " " и "Амбер" тут'), 'Дворкин «» и\u{00A0}«Амбер» тут');
+  });
+
+  test('nested doubled quotes are untouched by the change', () => {
+    assert.equal(microtypo('Дворкин ""Амбер"" ушёл'), `Дворкин «${BDQUO}Амбер${LDQUO}» ушёл`);
+  });
+
+  // The word a padded opener binds to is a non-space run, so it carries that quotation's own closing
+  // quote along with it.
+  test('two independent padded quotations both convert', () => {
+    const once = microtypo('" Корвин" " Рэндом"');
+
+    assert.equal(once, '«Корвин» «Рэндом»');
+    assert.equal(microtypo(once), once);
+  });
+
+  test('a particle between two padded quotations keeps its space', () => {
+    assert.equal(microtypo('" Корвин" и " Рэндом"'), `«Корвин» и${NB}«Рэндом»`);
+  });
+
+  test('a row of three padded quotations converts in one pass', () => {
+    assert.equal(
+      microtypo('" Корвин" , " Рэндом" и " Дейрдре"'),
+      `«Корвин», «Рэндом» и${NB}«Дейрдре»`
+    );
+  });
+
+  test('a padded opener after a glued quotation converts', () => {
+    assert.equal(microtypo('"Амбер" " Рэндом"'), '«Амбер» «Рэндом»');
+  });
+
+  // A quotation is already open, so a spaced quote reads as its close — unless the word it binds to
+  // carries the matching quote itself, which makes the pair a quotation of its own nested inside.
+  test('a padded quotation nested in an open one does not close it', () => {
+    const once = microtypo('«Корвин сказал " Рэндом" сегодня»');
+
+    assert.equal(once, `«Корвин сказал ${BDQUO}Рэндом${LDQUO} сегодня»`);
+    assert.equal(microtypo(once), once);
+  });
+
+  test('a padded quote with no closer of its own still closes the open one', () => {
+    assert.equal(microtypo('«Амбер " ушёл'), '«Амбер» ушёл');
+  });
+
+  // The word the quote binds to cannot answer whether a quotation opens here: its closing quote may
+  // be several words along, and reading only the first word closed the outer quotation instead.
+  test('a padded nested quotation of several words does not close the outer one', () => {
+    const once = microtypo('«Корвин сказал " Новый Амбер" сегодня»');
+
+    assert.equal(once, `«Корвин сказал ${BDQUO}Новый Амбер${LDQUO} сегодня»`);
+    assert.equal(microtypo(once), once);
+  });
+
+  // The next straight quote stands past the `»`, so it belongs to a quotation of its own and this
+  // one still closes the quotation it is inside.
+  test('a quotation closed after the outer one is not read as nested', () => {
+    assert.equal(microtypo('«Амбер " ушёл» и "Хаос"'), `«Амбер» ушёл" и${NB}«Хаос»`);
+  });
+
+  // Quote state does not cross a paragraph — the state machine says so before it reads a quote, and
+  // the role assignment one pass earlier has to agree.
+  test('a measurement in another paragraph does not change a quote role', () => {
+    const once = microtypo('17" 19"\n\n"Амбер " ушёл');
+
+    assert.equal(once, `17${PRIME} 19${PRIME}\n\n«Амбер» ушёл`);
+    assert.equal(microtypo(once), once);
+  });
+
+  test('a measurement beside the quotation does not change its role either', () => {
+    const once = microtypo('17" 19" «Амбер " ушёл');
+
+    assert.equal(once, `17${PRIME} 19${PRIME} «Амбер» ушёл`);
+    assert.equal(microtypo(once), once);
+  });
+
+  // A digit is part of the word as readily as it is a measurement, and a quotation already open
+  // settles which.
+  test('a quote glued to a digit inside an open quotation still closes it', () => {
+    const once = microtypo('"Корвин " Рэндом Рэндом1" Корвин0"');
+
+    assert.equal(once, `«Корвин ${BDQUO}Рэндом Рэндом1${LDQUO} Корвин0»`);
+    assert.equal(microtypo(once), once);
+  });
+
+  // The paragraph break is content: a quote that takes the wrong role goes to the closing rules,
+  // whose whitespace matcher would swallow the blank line.
+  test('a paragraph break survives a quotation left open above it', () => {
+    const once = microtypo('«Пролог\n\n" Амбер"');
+
+    assert.equal(once, '«Пролог\n\n«Амбер»');
+    assert.equal(microtypo(once), once);
+  });
+
+  // The count says how many undecided quotes close, never which ones.
+  test('two nested quotations in one quotation keep their pairing', () => {
+    const once = microtypo('«Альфа " Бета" "Гамма " конец»');
+
+    assert.equal(once, `«Альфа ${BDQUO}Бета${LDQUO} ${BDQUO}Гамма${LDQUO} конец»`);
+    assert.equal(microtypo(once), once);
+  });
+
+  // A quote whose word is the next quote is an empty quotation the walk writes in one step, so the
+  // plan has to spend both of its quotes on the pair.
+  test('an empty pair costs the plan both of its quotes', () => {
+    const once = microtypo('«Альфа " Бета " " Гамма" " Дельта " конец»');
+
+    assert.equal(microtypo(once), once);
+    assert.ok(once.includes(`${BDQUO}${LDQUO}`) || once.includes('«»'), once);
+  });
+
+  // Padded, glued and empty quotes in every arrangement inside one quotation: the plan and the walk
+  // have to agree about all of them, and a disagreement is a second pass that moves the text again.
+  test('every arrangement of padded, glued and empty quotes settles in one pass', () => {
+    const words = ['Альфа', 'Бета', 'Гамма', 'Дельта', 'Эпсилон'];
+
+    for (let mask = 0; mask < 1 << words.length; mask += 1) {
+      const parts = ['«Пролог'];
+
+      for (const [i, word] of words.entries()) {
+        parts.push(mask & (1 << i) ? `" ${word}"` : `"${word} "`);
+      }
+
+      const src = `${parts.join(' ')} конец»`;
+      const once = microtypo(src);
+
+      assert.equal(microtypo(once), once, `not idempotent: ${src} -> ${once}`);
+    }
+  });
+
+  // An escaped quote is one token, and its left boundary stands in front of the backslash, so a
+  // reader asking from the quote alone finds the backslash there instead.
+  test('an escaped padded opener reads its boundary from the whole token', () => {
+    const once = microtypo(String.raw`«Альфа \" Бета\" конец»`);
+
+    assert.equal(once, `«Альфа ${BDQUO}Бета${LDQUO} конец»`);
+    assert.equal(microtypo(once), once);
+  });
+
+  // Which quotation is running here says nothing about whether this quote closes it: one the walk
+  // opened a moment ago nests exactly like one the author wrote as `«`.
+  test('a nested quotation under an opening this pass minted still nests', () => {
+    const once = microtypo('" Корвин сказал " Новый Амбер" сегодня"');
+
+    assert.equal(once, `«Корвин сказал ${BDQUO}Новый Амбер${LDQUO} сегодня»`);
+    assert.equal(microtypo(once), once);
+  });
+
+  // A quote ahead is evidence of a pair only where it can be this one's other half: a `«` between
+  // them owns it, and a second spaced quote is the same undecided shape deciding for itself.
+  test('an opening between the two does not make them a pair', () => {
+    assert.equal(microtypo('"Амбер " затем "Хаос"'), '«Амбер» затем «Хаос»');
+  });
+
+  test('a second spaced quote does not make the first one nest', () => {
+    assert.equal(microtypo('"Амбер " и " Хаос "'), `«Амбер» и${NB}«Хаос»`);
+  });
+
+  // A pair that opens and closes between the two is one level deeper, not another quotation's
+  // boundary.
+  test('a pair between the two is stepped over, not read as a boundary', () => {
+    const once = microtypo('"Он сказал " Название "Амбер" здесь" вчера"');
+
+    assert.equal(
+      once,
+      `«Он${NB}сказал ${BDQUO}Название ${BDQUO}Амбер${LDQUO} здесь${LDQUO} вчера»`
+    );
+    assert.equal(microtypo(once), once);
+  });
+
+  test('four levels deep still alternate', () => {
+    const once = microtypo('"первый " второй "третий "четвёртый" пятый" шестой" седьмой"');
+
+    assert.equal(
+      once,
+      `«первый ${BDQUO}второй ${BDQUO}третий ${BDQUO}четвёртый${LDQUO} пятый${LDQUO} шестой${LDQUO} седьмой»`
+    );
+    assert.equal(microtypo(once), once);
+  });
+
+  // Whether an author parted an opening quote from its word is a typing habit, not a structure, so
+  // every spacing of the same nesting has to come out the same.
+  test('the same nesting under every spacing of its opening quotes', () => {
+    for (const words of [
+      ['Корвин', 'Рэндом'],
+      ['Корвин', 'Рэндом', 'Дейрдре'],
+      ['Корвин', 'Рэндом', 'Дейрдре', 'Бенедикт']
+    ]) {
+      const closes = words.map((w, i) => `${w}${i}`).toReversed();
+
+      for (let mask = 0; mask < 1 << words.length; mask += 1) {
+        const opened = words.map((w, i) => `"${mask & (1 << i) ? ' ' : ''}${w}`).join(' ');
+        const source = `${opened} ${closes.map((w) => `${w}"`).join(' ')}`;
+
+        const inner = words.slice(1).map((w) => `${BDQUO}${w}`);
+        const shut = closes.map((w, i) => `${w}${i === closes.length - 1 ? '»' : LDQUO}`);
+        const want = `«${[words[0], ...inner].join(' ')} ${shut.join(' ')}`;
+
+        const once = microtypo(source);
+
+        assert.equal(once.replaceAll(NB, ' '), want, source);
+        assert.equal(microtypo(once), once, `not idempotent: ${once}`);
+      }
+    }
+  });
+
+  // The matrix above varies the spacing of one nesting; these are the structures beside it — several
+  // quotations in a row, each with every spelling of its own boundaries.
+  test('independent quotations stay independent under every spacing', () => {
+    const NAMES = ['Корвин', 'Рэндом', 'Дейрдре'];
+
+    for (const count of [1, 2, 3]) {
+      const heads = NAMES.slice(0, count);
+
+      for (let mask = 0; mask < 1 << (2 * count); mask += 1) {
+        const parts = heads.map((word, i) => {
+          const osp = mask & (1 << (2 * i)) ? ' ' : '';
+          const csp = mask & (1 << (2 * i + 1)) ? ' ' : '';
+
+          return `"${osp}${word} принц${csp}"`;
+        });
+
+        const source = parts.join(' и ');
+        const want = heads.map((word) => `«${word} принц»`).join(' и ');
+        const once = microtypo(source);
+
+        assert.equal(once.replaceAll(NB, ' '), want, source);
+        assert.equal(microtypo(once), once, `not idempotent: ${once}`);
+      }
+    }
+  });
+});
+
+// A quote written `\"` is one token, and every reader has to agree where it begins, or the two
+// halves of a pair are settled apart.
+describe('an escaped quote is one token to every reader', () => {
+  test('an empty pair is one pair however it is spelled', () => {
+    assert.equal(microtypo(String.raw`«Пролог " \" конец»`), `«Пролог ${BDQUO}${LDQUO} конец»`);
+    assert.equal(microtypo('«Пролог " " конец»'), `«Пролог ${BDQUO}${LDQUO} конец»`);
+    assert.equal(microtypo(String.raw`«Пролог \" \" конец»`), `«Пролог ${BDQUO}${LDQUO} конец»`);
+  });
+
+  test('an empty pair inside a quotation settles in one pass', () => {
+    const once = microtypo(String.raw`«Пролог " \" конец»`);
+
+    assert.equal(microtypo(once), once);
+  });
+
+  test('a padded escaped quote closes the quotation it stands in', () => {
+    assert.equal(microtypo(String.raw`Дворкин \"Амбер \" ушёл`), `Дворкин «Амбер» ушёл`);
+  });
+});
+
+// The inch mark is a measurement where no quotation stands open, which is a fact about the balance
+// rather than about how many quotes have been seen.
+describe('inches are decided by what stands open, not by what has been seen', () => {
+  const NB = '\u{00A0}';
+
+  test('inches after a closed quotation stay inches', () => {
+    assert.equal(
+      microtypo(String.raw`«Пролог» 17" 19" \"Амбер \" ушёл`),
+      `«Пролог» 17${PRIME} 19${PRIME} «Амбер» ушёл`
+    );
+    assert.equal(
+      microtypo('«Пролог» 17" 19" "Амбер " ушёл'),
+      `«Пролог» 17${PRIME} 19${PRIME} «Амбер» ушёл`
+    );
+  });
+
+  test('inches with no quotation around them stay inches', () => {
+    assert.equal(microtypo('Экран 17" и 19" рядом'), `Экран 17${PRIME} и${NB}19${PRIME} рядом`);
+  });
+
+  // The other half of the same question: a real closing quote after a digit is not a measurement.
+  test('a closing quote after a digit inside a quotation still closes', () => {
+    assert.equal(microtypo('«Глава 5" хвост'), '«Глава 5» хвост');
+    assert.equal(microtypo('"Экран 17" большой'), `«Экран 17» большой`);
+  });
+});
+
+// An authored `„` opens and nothing else, so the pair it marks is knowable without guessing; folded
+// to a neutral straight quote it would not be.
+describe('an authored directed quote says which way it points', () => {
+  const NB = '\u{00A0}';
+
+  test('two lapki pairs stay two quotations', () => {
+    assert.equal(microtypo('„Амбер “ „ Хаос“'), '«Амбер» «Хаос»');
+    assert.equal(microtypo('„Амбер  “  „  Хаос“'), '«Амбер» «Хаос»');
+    assert.equal(microtypo('„Амбер\t“\t„\tХаос“'), '«Амбер» «Хаос»');
+  });
+
+  test('they stay two inside a quotation of their own', () => {
+    assert.equal(
+      microtypo('«Корвин назвал „Амбер “ „ Хаос“ владениями»'),
+      `«Корвин назвал ${BDQUO}Амбер${LDQUO} ${BDQUO}Хаос${LDQUO} владениями»`
+    );
+    assert.equal(
+      microtypo('«Альфа „Бета “ „ Гамма“ конец»'),
+      `«Альфа ${BDQUO}Бета${LDQUO} ${BDQUO}Гамма${LDQUO} конец»`
+    );
+  });
+
+  // A pair already written tight must not move.
+  test('a tight lapki pair is unchanged', () => {
+    const src = `«Альфа ${BDQUO}Бета${LDQUO} ${BDQUO}Гамма${LDQUO} конец»`;
+
+    assert.equal(microtypo(src), src);
+  });
+
+  // `“` points both ways — it closes a Russian `„…“` and opens an English `“…”` — so it stays
+  // neutral and what stands around it decides.
+  test('an English pair still becomes guillemets', () => {
+    assert.equal(microtypo('“Amber, Corwin”'), '«Amber, Corwin»');
+  });
+
+  test('the entity spellings read back the same way', () => {
+    assert.equal(
+      microtypo('&bdquo;Амбер &ldquo; &bdquo; Хаос&ldquo;'),
+      `«Амбер»${NB}«Хаос»`.replace(NB, ' ')
+    );
+    assert.equal(
+      microtypo('&laquo;Амбер &bdquo;Тень&ldquo; дальше&raquo;'),
+      `«Амбер ${BDQUO}Тень${LDQUO} дальше»`
+    );
+  });
+
+  // The quotation an opening quote marks may hold no words at all, and the closer of that empty one
+  // needs a rule to match.
+  test('an empty quotation after an opening quote closes', () => {
+    const once = microtypo('« " Корвин');
+
+    assert.equal(once, '«» Корвин');
+    assert.equal(microtypo(once), once);
+  });
+
+  // That gap is horizontal and nothing else: a run spanning line breaks would swallow the blank line
+  // between two paragraphs.
+  test('the gap of an empty quotation does not cross a blank line', () => {
+    const src = '«\n \n" Амбер';
+
+    assert.equal(microtypo(src), src);
+  });
+
+  // An English pair points as plainly as a Russian one: `”` closes and nothing else.
+  test('two English pairs stay two quotations', () => {
+    assert.equal(microtypo('“Амбер ” “ Хаос”'), '«Амбер» «Хаос»');
+    assert.equal(
+      microtypo('«Корвин назвал “Амбер ” “ Хаос” владениями»'),
+      `«Корвин назвал ${BDQUO}Амбер${LDQUO} ${BDQUO}Хаос${LDQUO} владениями»`
+    );
+  });
+
+  // A non-breaking space is content the author put inside the quotation, not separation, and every
+  // spelling of the pair has to reach the answer an authored `«…»` already gets: the space directly
+  // inside an empty quotation goes with it.
+  test('a non-breaking gap settles in one pass, the same way for every spelling', () => {
+    const results = new Set();
+
+    for (const [open, close] of [
+      ['“', '”'],
+      ['„', '“'],
+      ['"', '"'],
+      ['«', '»']
+    ]) {
+      const once = microtypo(`${open}\u{00A0}${close} "Фраза"`);
+
+      assert.equal(microtypo(once), once, `${open}${close} -> ${JSON.stringify(once)}`);
+      results.add(once);
+    }
+
+    assert.equal(
+      results.size,
+      1,
+      `spellings disagree: ${[...results].map((s) => JSON.stringify(s)).join(' ')}`
+    );
   });
 });
 
@@ -502,7 +960,8 @@ describe('LOCK-1 — correct where cross-test siblings diverge', () => {
 });
 
 describe('TASK-5.4 — path backslash before a closing quote', () => {
-  // `\"` is ambiguous (escaped quote vs path separator + closer); the close rule keeps the backslash only after a preceding backslash-word run.
+  // `\"` is ambiguous — an escaped quote, or a path separator plus a closer — so the close rule
+  // keeps the backslash only behind a backslash-word run.
   test('Windows path backslash survives the closing quote', () => {
     assert.equal(microtypo(String.raw`"c:\amber\pattern\"`), String.raw`«c:\amber\pattern\»`);
   });
@@ -526,16 +985,22 @@ describe('TASK-5.4 — path backslash before a closing quote', () => {
   });
 });
 
-describe('TASK-5.5 — pre-existing single curly quotes fold symmetric', () => {
+// `symbol.apostrophe` is the only way back from ASCII and fires only between letters, so a folded
+// `‘…’` pair would come out as two straight quotes. Both are their own canonical form: what the
+// author wrote is what comes back.
+describe('single curly quotes keep the form they were written with', () => {
   const NOP = { html: true, render: { paragraphs: false } };
 
-  // Both single curly quotes canonicalize to straight `'` before any rule runs.
-  test('single curly quotes nested in a double-quoted span both fold straight', () => {
-    assert.equal(microtypo('"‘22’"', NOP), "«'22'»");
+  test('a pair nested in a double-quoted span survives', () => {
+    assert.equal(microtypo('"‘22’"', NOP), '«‘22’»');
+    assert.equal(microtypo('‘Амбер’', NOP), '‘Амбер’');
   });
 
-  test('matches the existing straight-single-quote baseline (never promoted to „…“)', () => {
-    assert.equal(microtypo('"a \'b\' c"', NOP), microtypo('"a ‘b’ c"', NOP));
+  // The straight form is left alone where the apostrophe rule cannot claim it, so neither spelling
+  // is rewritten into the other.
+  test('a straight pair stays straight, a curly pair stays curly', () => {
+    assert.equal(microtypo('"a \'b\' c"', NOP), "«a 'b' c»");
+    assert.equal(microtypo('"a ‘b’ c"', NOP), '«a ‘b’ c»');
   });
 
   test('non-regression: apostrophe rule still converts straight and pre-curled forms', () => {
@@ -545,5 +1010,71 @@ describe('TASK-5.5 — pre-existing single curly quotes fold symmetric', () => {
 
   test('&lsquo; entity folds the same way as the ‘ glyph', () => {
     assert.equal(microtypo('&lsquo;Амбер&rsquo;', NOP), microtypo('‘Амбер’', NOP));
+  });
+});
+
+describe('quote.open — neighbours that are not letters', () => {
+  const NOP = { html: true, render: { paragraphs: false } };
+
+  for (const [label, wrap] of [
+    ['markdown bold', '**'],
+    ['markdown italic', '*'],
+    ['markdown underscore', '_'],
+    ['markdown strikethrough', '~~']
+  ]) {
+    test(`${label} around a quoted word converts both quotes`, () => {
+      assert.equal(
+        microtypo(`Корвин ${wrap}"первый"${wrap} принц.`, NOP),
+        `Корвин ${wrap}«первый»${wrap} принц.`
+      );
+    });
+  }
+
+  test('a bracketed quote converts', () => {
+    assert.equal(
+      microtypo('Читай ["Хроники"](/amber) тут.', NOP),
+      'Читай [«Хроники»](/amber) тут.'
+    );
+  });
+
+  test('a colon with no space still opens', () => {
+    assert.equal(microtypo('Корвин сказал:"Амбер" тут.', NOP), 'Корвин сказал:«Амбер» тут.');
+  });
+
+  test('emphasis closing a quoted phrase stays a closing quote', () => {
+    assert.equal(microtypo('Он сказал "это *важно*".', NOP), 'Он\u{00A0}сказал «это *важно*».');
+  });
+
+  test('a closing quote before a sentence mark is not reopened', () => {
+    assert.equal(
+      microtypo('Указ (п. 3 в ред. Оберона)".', NOP),
+      'Указ (п.\u{00A0}3 в\u{00A0}ред. Оберона)".'
+    );
+  });
+
+  test('inches after a digit are untouched by the widened boundary', () => {
+    assert.equal(microtypo('Клинок длиной 5" тут.', NOP), 'Клинок длиной 5″ тут.');
+  });
+
+  // The character table leaves « and » out of the folded set so a raw guillemet keeps the direction
+  // its author chose, and their entity spellings have to agree.
+  test('a guillemet entity keeps the direction its author wrote', () => {
+    assert.equal(microtypo('Дворкин &laquo;Амбер&raquo; ушёл'), 'Дворкин «Амбер» ушёл');
+    assert.equal(microtypo('Дворкин &#171;Амбер&#187; ушёл'), 'Дворкин «Амбер» ушёл');
+  });
+
+  test('an empty guillemet pair survives in every spelling', () => {
+    const expected = 'Дворкин «» ушёл';
+
+    assert.equal(microtypo('Дворкин «» ушёл'), expected);
+    assert.equal(microtypo('Дворкин &laquo;&raquo; ушёл'), expected);
+    assert.equal(microtypo(expected), expected);
+  });
+
+  test('entity and raw guillemets still agree with straight quotes on a filled pair', () => {
+    const expected = microtypo('"Амбер"');
+
+    assert.equal(microtypo('«Амбер»'), expected);
+    assert.equal(microtypo('&laquo;Амбер&raquo;'), expected);
   });
 });

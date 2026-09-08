@@ -2,6 +2,32 @@ import { G } from '../lib/glyphs.js';
 
 const BRACKET_SPACE_RE = /[ \t\u{00A0}]/u;
 const WORD_RE = /[a-zа-яё0-9]/iu;
+const REFERENCE_TAIL_RE = /&[0-9A-Za-z#]+$/;
+// Longest HTML5 named reference (CounterClockwiseContourIntegral) plus its '&' and ';'.
+const REFERENCE_MAX = 32;
+
+// Which second mark each first mark swallows, taken from the rules below: `collapse_doubled` reads
+// `.`/`!` before `.`/`!`/`?` and `?` before `?`, `mark_ellipsis` reads `?`/`!` before `…`, and
+// `collapse_repeated` reads a comma or a semicolon before itself. One table, because a group later
+// has to ask the same question before it glues two marks together — this group runs fourth and would
+// not see the pair, so it would survive to the next pass and come back a mark short.
+const SWALLOWED_AFTER = new Map([
+  ['.', '.!?'],
+  ['!', `.!?${G.HELLIP}`],
+  ['?', `?${G.HELLIP}`],
+  [',', ','],
+  [';', ';']
+]);
+
+export function collapsesAsRepeat(first, second) {
+  return second !== undefined && (SWALLOWED_AFTER.get(first) ?? '').includes(second);
+}
+
+// The ';' closing a character reference is markup, not the stray punctuation this rule strips:
+// cutting it turns &amp; into a bare &amp, which the entities layer promises never to emit.
+function endsCharacterReference(text, semicolonAt) {
+  return REFERENCE_TAIL_RE.test(text.slice(Math.max(0, semicolonAt - REFERENCE_MAX), semicolonAt));
+}
 
 function trimBracketPunct(text) {
   let close = text.indexOf(')');
@@ -21,7 +47,7 @@ function trimBracketPunct(text) {
 
     const mark = text[markAt];
 
-    if (mark === ',' || mark === ';') {
+    if (mark === ',' || (mark === ';' && !endsCharacterReference(text, markAt))) {
       const wordAt = markAt - 1;
 
       if (wordAt >= 0 && WORD_RE.test(text[wordAt])) {
@@ -132,16 +158,27 @@ export const punctmarkGroup = {
     {
       id: 'collapse_doubled',
       description: 'Сдвоенные знаки препинания → одиночные',
+      // The pairs these three and `mark_ellipsis` rewrite are also asked about from outside, through
+      // `collapsesAsRepeat` above: a group that runs later must not glue a pair together that this
+      // one would have taken apart, because by then the repeat survives a pass.
+      //
+      // All three take the same shape: a letter or digit before, a sentence boundary after. The
+      // boundary is what keeps `1..10`, `../pattern.txt` and a `1a2b3c4..5d6e7f8` revision range
+      // whole, and it carries the closers too, since a doubled period ends a sentence just as often
+      // inside `(…)` or `«…»`. The leading class keeps `Что?..` intact — `mark_ellipsis` produces
+      // that form one rule earlier — and carries white space, because
+      // `space.trim_before_punctuation` glues the gap of `Корвин ..` two groups later.
       pattern: [
-        /([^!?])\.\./g,
+        new RegExp(`([a-zа-яё0-9]|\\s|^)\\.\\.(\\s|$|<|[),\\]}${G.RAQUO}${G.LDQUO}])`, 'giu'),
         /([a-zа-яё0-9])(!|\.)(!|\.|\?)(\s|$|<)/giu,
         /([a-zа-яё0-9])(\?)(\?)(\s|$|<)/giu
       ],
-      replacement: ['$1.', '$1$2$4', '$1$2$4']
+      replacement: ['$1.$2', '$1$2$4', '$1$2$4']
     },
     {
       id: 'trim_bracket_terminal_punct',
       description: 'Удаление случайной пунктуации перед закрывающей скобкой',
+      regexes: [BRACKET_SPACE_RE, WORD_RE, REFERENCE_TAIL_RE],
       handler: (ctx) => trimBracketPunct(ctx.text)
     },
     {
