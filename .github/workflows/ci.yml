@@ -24,17 +24,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Node
-        uses: actions/setup-node@v6
+      - name: Toolchain
+        uses: pnpm/setup@v2
         with:
-          node-version-file: .nvmrc
-          cache: pnpm
-
-      - name: Install
-        run: pnpm install --frozen-lockfile
+          cache: true
+          require-lockfile: true
 
       - name: Lint
         run: pnpm lint --format=github

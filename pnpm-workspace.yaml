@@ -1,5 +1,7 @@
+minimumReleaseAgeStrict: true
 minimumReleaseAgeExclude:
   - oxfmt
   - oxlint
   - '@oxfmt/*'
   - '@oxlint/*'
+trustPolicy: no-downgrade
