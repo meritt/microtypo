@@ -4,7 +4,8 @@ export function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-// __proto__/prototype/constructor can reach the shared Object.prototype through a plain-object write; reject them before any node[key] access.
+// `__proto__`, `prototype` and `constructor` reach the shared `Object.prototype` through a
+// plain-object write, so they are refused before any `node[key]` access.
 const UNSAFE_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 
 function assertSafeKey(key) {

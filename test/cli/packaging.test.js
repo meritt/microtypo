@@ -46,7 +46,8 @@ test('every api/*.md page linked from the README exists in the repo', async () =
   ];
 
   assert.ok(linked.length > 0, 'expected the README to link at least one api/*.md file');
-  // api docs aren't shipped; npm rewrites the README's relative links to the repo, so each must exist on disk.
+  // The api docs are not shipped, and npm rewrites the readme's relative links to the repo, so each
+  // one has to exist on disk.
   for (const doc of linked) {
     await assert.doesNotReject(
       readFile(new URL(`../../${doc}`, import.meta.url), 'utf8'),
