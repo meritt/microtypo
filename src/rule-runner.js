@@ -10,7 +10,7 @@ export function compileRuleGroup(groupDef, name) {
 
   const compiledRules = groupDef.rules.map((rule) => compileRule(rule, name));
 
-  return {
+  const compiled = {
     name,
     title: groupDef.title || name,
     raw: snapshotRaw(groupDef),
@@ -18,6 +18,19 @@ export function compileRuleGroup(groupDef, name) {
     enabledOverride: new Map(), // ruleId → true(force-on) / false(force-off)
     settings: {}
   };
+
+  // What a rule handler is given as `ctx.group`, and never the compiled object itself: a handler
+  // setting `builtin` on that object would mark its own group trusted and skip the forgery scrub.
+  // Settings stay the live object, so config applied after registration is still read; `raw` is
+  // frozen at registration already.
+  compiled.view = Object.freeze({
+    name: compiled.name,
+    title: compiled.title,
+    settings: compiled.settings,
+    raw: compiled.raw
+  });
+
+  return compiled;
 }
 
 // Clone+freeze: a live reference would let post-registration mutation change registered output.
@@ -49,6 +62,7 @@ function compileRule(rule, groupName) {
 
   const apply = makeApplyFn(rule, groupName);
   const cycled = Boolean(rule.cycled);
+  const { id } = rule;
 
   const wrapped = cycled
     ? (text, ctx) =>
@@ -58,7 +72,7 @@ function compileRule(rule, groupName) {
           MAX_CYCLE_ITER,
           (n) => {
             if (typeof ctx.onCycleLimit === 'function') {
-              ctx.onCycleLimit(rule.id, n);
+              ctx.onCycleLimit(id, n);
             }
           },
           ctx.checkBudget
@@ -66,7 +80,7 @@ function compileRule(rule, groupName) {
     : apply;
 
   return {
-    id: rule.id,
+    id,
     defaultEnabled: rule.enabled !== false,
     description: rule.description ?? '',
     htmlOnly: Boolean(rule.htmlOnly),
@@ -82,9 +96,13 @@ function makeApplyFn(rule, groupName) {
       );
     }
 
+    // Captured, not read through `rule`: a live reference lets post-registration mutation change
+    // registered output, which snapshotRaw already denies to classes and preParse.
+    const { handler } = rule;
+
     return (text, ctx) => {
       ctx.text = text;
-      const r = rule.handler(ctx);
+      const r = handler(ctx);
 
       return typeof r === 'string' ? r : ctx.text;
     };
@@ -141,17 +159,16 @@ function makeApplyFn(rule, groupName) {
   };
 }
 
+// Always a fresh RegExp, never the caller's: handing back their object leaves the compiled rule
+// reading a live reference — the same door the captured handler above closes — and inherits
+// whatever lastIndex they left on it.
 function ensureGlobal(re) {
-  if (re.flags.includes('g')) {
-    return re;
-  }
-
-  return new RegExp(re.source, `${re.flags}g`);
+  return new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`);
 }
 
 export function runRuleGroup(compiled, text, ctx) {
   ctx.text = text;
-  ctx.group = compiled;
+  ctx.group = compiled.view;
 
   if (compiled.raw.preParse) {
     compiled.raw.preParse(ctx);

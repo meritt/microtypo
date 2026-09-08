@@ -3,7 +3,8 @@ import { describe, test } from 'node:test';
 
 import { microtypo, MicroTypo } from '../../src/index.js';
 
-// Idempotent only for inputs the engine fully owns, not for already-emitted HTML (<a>, <span>), which re-processes on a second pass.
+// Idempotent only for inputs the engine fully owns, never for already-emitted HTML — an `<a>` or a
+// `<span>` re-processes on a second pass.
 
 describe('per-group idempotency — one group enabled at a time', () => {
   const GROUPS = [
@@ -47,10 +48,12 @@ describe('whole-pipeline idempotency on short canonical inputs', () => {
     'EXAMPLE.COM — король Амбера Оберон и принц Корвин',
     '«Козырь» — карта',
     '5-10 Козырей',
-    // Adjacent and degenerate angle-quote pairs convert fully and round-trip, leaving no stray straight quotes.
+    // Adjacent and degenerate angle-quote pairs convert fully and round-trip, leaving no stray
+    // straight quotes.
     '«Корвин» — «Эрик»',
     '«Амбер» «Арден»'
-    // `7 °C`-style temperatures are not idempotent — the nobr group re-positions the NBSP on a second pass.
+    // A `7 °C`-style temperature is not idempotent: the nobr group re-positions the NBSP on a second
+    // pass.
   ];
 
   for (const sample of CANONICAL_SAMPLES) {
@@ -68,7 +71,8 @@ describe('whole-pipeline idempotency on short canonical inputs', () => {
     assert.equal(typo.process(once), once);
   });
 
-  // abbr.nowrap_era is likewise not idempotent on already-emitted HTML: reprocessing the emitted nowrap span nests a second one.
+  // `abbr.nowrap_era` is likewise not idempotent on already-emitted HTML: reprocessing the emitted
+  // nowrap span nests a second one.
 });
 
 describe('idempotency under a few preset combinations', () => {
@@ -143,7 +147,8 @@ function phrase(rng) {
   return out;
 }
 
-// Single-style only: mixing or nesting raw quotes is inherently ambiguous (a `""` run reads as nested), a documented non-idempotency.
+// Single-style only: mixing or nesting raw quotes is inherently ambiguous, since a `""` run reads as
+// nested, and that is a documented non-idempotency.
 function genFlat(rng, open, close) {
   const parts = [];
   const n = 1 + Math.floor(rng() * 4);
@@ -225,5 +230,27 @@ describe('idempotency on already-typeset text', () => {
     const once = entity(text);
     const twice = entity(once);
     assert.equal(twice, once);
+  });
+
+  // A closing quote glyph the author wrote where nothing is open. Whatever the engine decides it
+  // means, it has to decide it on the first pass: settling it as a neutral straight quote left the
+  // direction to be re-derived by the second one, and the two passes disagreed.
+  describe('a quotation written with the closing glyph on both sides', () => {
+    for (const source of ['”Амбер”', '” Амбер', '&rdquo;Амбер&rdquo;', '\n\n”Амбер”', '»Амбер»']) {
+      test(`settles on the first pass: ${JSON.stringify(source)}`, () => {
+        const once = microtypo(source, PARAMS);
+        const twice = microtypo(once, PARAMS);
+
+        assert.equal(twice, once, `\nonce:  ${once}\ntwice: ${twice}`);
+      });
+    }
+
+    test('the English pair keeps its own boundary', () => {
+      assert.equal(microtypo('“Амбер ” “ Хаос”', PARAMS), '«Амбер» «Хаос»');
+    });
+
+    test('a real closing quote is still one', () => {
+      assert.equal(microtypo('«Амбер » и «Хаос»', PARAMS), '«Амбер» и\u{00A0}«Хаос»');
+    });
   });
 });

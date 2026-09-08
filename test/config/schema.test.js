@@ -468,6 +468,35 @@ test('mutating group-level classes after registration does not change output', (
   assert.equal(before, 'a:orig');
 });
 
+test('swapping rule.handler after registration does not change output', () => {
+  const def = { title: 'm', rules: [{ id: 'x', handler: (ctx) => `${ctx.text}:Амбер` }] };
+  const typo = new MicroTypo({ presets: false });
+  typo.registerRuleGroup(def, { name: 'm' });
+  const before = typo.process('Корвин');
+  def.rules[0].handler = (ctx) => `${ctx.text}:Хаос`;
+  assert.equal(before, 'Корвин:Амбер');
+  assert.equal(typo.process('Корвин'), before);
+});
+
+test('mutating a caller-owned pattern after registration does not change output', () => {
+  class Live extends RegExp {}
+  const def = {
+    title: 'm',
+    rules: [{ id: 'x', pattern: new Live('Корвин', 'g'), replacement: 'Оберон' }]
+  };
+  const typo = new MicroTypo({ presets: false });
+  typo.registerRuleGroup(def, { name: 'm' });
+  const before = typo.process('Корвин');
+  Live.prototype[Symbol.replace] = () => 'Хаос';
+
+  try {
+    assert.equal(before, 'Оберон');
+    assert.equal(typo.process('Корвин'), before);
+  } finally {
+    delete Live.prototype[Symbol.replace];
+  }
+});
+
 test('adding preParse after registration is never invoked', () => {
   const def = { title: 'm', rules: [{ id: 'x', pattern: /a/g, replacement: 'A' }] };
   const typo = new MicroTypo();

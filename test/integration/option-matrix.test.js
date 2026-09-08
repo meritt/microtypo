@@ -8,13 +8,15 @@ import { microtypo } from '../../src/index.js';
 import { splitFrontmatter } from '../../src/input/frontmatter.js';
 import { validateXml } from '../../src/input/xml.js';
 
-// Cross-product matrix asserting the data-safe contract holds across every axis, with structured output re-parsed by a real parser.
+// A cross-product matrix asserting the data-safe contract across every axis, with structured output
+// re-parsed by a real parser.
 
 // One payload reused across formats: a straight-quote pair, a hyphen, and an ampersand-bearing URL.
 const PAYLOAD = '"Амбер" - истинный, см. http://amber.example/a?x=1&y=2';
 const JSON_PAYLOAD = PAYLOAD.replaceAll('"', '\\"');
 
-// YAML/TOML use single-quoted scalars: a double-quoted backslash escape would make the value ineligible.
+// YAML and TOML use single-quoted scalars: a double-quoted backslash escape makes the value
+// ineligible.
 const CORPUS = {
   text: PAYLOAD,
   html: `<em>${PAYLOAD}</em>`,
@@ -28,7 +30,8 @@ const CORPUS = {
 
 const FORMATS = Object.keys(CORPUS);
 
-// render.hanging emits markup only once hanging.quote/bracket is opted in, so those axes are bundled with the rule toggle.
+// `render.hanging` emits markup only once `hanging.quote` or `hanging.bracket` is opted in, so those
+// axes are bundled with the rule toggle.
 const RENDER_PROFILES = [
   { name: 'default', render: { paragraphs: true, autolink: true }, rules: {} },
   { name: 'no-paragraphs-no-autolink', render: { paragraphs: false, autolink: false }, rules: {} },
@@ -132,7 +135,8 @@ describe('option matrix: structured formats ignore render.* entirely (no leakage
 
 test('json data mode normalizes entity spellings (documented, consistent with entities axis)', () => {
   const out = microtypo('{"t":"Амбер &copy; Корвин - Эрик"}', { input: 'json' });
-  // Prose NBSP-binding rules apply inside the value; the NBSPs are ordinary output, not a data-mode artifact.
+  // Prose NBSP-binding rules apply inside the value, so the NBSPs are ordinary output rather than a
+  // data-mode artifact.
   assert.equal(JSON.parse(out).t, 'Амбер © Корвин — Эрик');
 });
 
