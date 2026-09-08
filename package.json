@@ -1,6 +1,6 @@
 {
   "name": "microtypo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Russian typography that never mangles your code, URLs, or markup. Zero-dependency, safe on untrusted text",
   "keywords": [
     "cyrillic",
