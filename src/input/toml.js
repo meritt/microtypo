@@ -1,4 +1,7 @@
 import { MicroTypoInputError } from '../errors/index.js';
+import { decodeEscapes } from '../lib/escape-decoder.js';
+import { isFlowSpace, skipSpaces } from '../lib/strings.js';
+import { chainAppend, LocatedSpan } from './span-path.js';
 
 const BARE_KEY_CHAR = /[A-Za-z0-9_-]/;
 
@@ -9,9 +12,11 @@ function parseQuotedLiteral(src, i, n) {
   if (src[i + 1] === q && src[i + 2] === q) {
     const delim = q + q + q;
     let j = i + 3;
+    let hasBackslash = false;
 
     while (j < n) {
       if (q === '"' && src[j] === '\\') {
+        hasBackslash = true;
         j += 2;
         continue;
       }
@@ -23,7 +28,16 @@ function parseQuotedLiteral(src, i, n) {
           j += 1;
         }
 
-        return { end: j, span: null };
+        // The eligibility rule is the single-line one: a literal has no escapes at all, and a basic
+        // string without a backslash has none either, so the interior is exactly what it says. The
+        // splice refuses any result that would contain the three-character delimiter.
+        return {
+          start,
+          end: j,
+          delim,
+          multiline: true,
+          eligible: q === "'" || !hasBackslash
+        };
       }
 
       j += 1;
@@ -52,8 +66,11 @@ function parseQuotedLiteral(src, i, n) {
 
     if (c === q) {
       return {
+        start,
         end: j + 1,
-        span: { start, end: j + 1, quoteChar: q, eligible: q === "'" || !hasBackslash }
+        delim: q,
+        multiline: false,
+        eligible: q === "'" || !hasBackslash
       };
     }
 
@@ -79,26 +96,81 @@ function assertNoTrailingLineContent(src, pos, n) {
   }
 }
 
+// TOML's basic-string escapes. Three of them — `\U` for a codepoint past the BMP, `\x`, `\e` — JSON
+// does not have, so `JSON.parse` throws on a key that carries one.
+const TOML_ESCAPE = Object.freeze({
+  b: '\b',
+  t: '\t',
+  n: '\n',
+  f: '\f',
+  r: '\r',
+  e: '',
+  '"': '"',
+  '\\': '\\'
+});
+
+const TOML_HEX = Object.freeze({ x: 2, u: 4, U: 8 });
+
 function decodeQuotedKey(raw, quoteChar) {
-  if (quoteChar === "'") {
-    return raw;
+  return quoteChar === "'" ? raw : decodeEscapes(raw, TOML_ESCAPE, TOML_HEX);
+}
+
+// A header names a path through the tables already open, and a leading segment that names an array
+// of tables means that array's current element: resolved against the document root, `[posts.meta]`
+// under `[[posts]]` would address `posts.meta`, which no pointer to this document can name.
+// TOML §3.3.
+//
+// The counters live in a tree, one node per segment, so a header of k segments costs k lookups and
+// nothing more, where one accumulated key carrying every ancestor and its index would build k
+// strings of growing length. A node's children are dropped when its own index advances: that is what
+// makes a new parent element start the arrays nested under it over, and why no ancestor index has to
+// appear in a key.
+function resolveHeader(segments, isArrayHeader, root) {
+  let chain = null;
+  let node = root;
+
+  for (let k = 0; k < segments.length; k += 1) {
+    chain = chainAppend(chain, segments[k]);
+
+    let entry = node.get(segments[k]);
+
+    if (entry === undefined) {
+      entry = { index: -1, children: new Map() };
+      node.set(segments[k], entry);
+    }
+
+    if (isArrayHeader && k === segments.length - 1) {
+      entry.index += 1;
+      entry.children = new Map();
+
+      return chainAppend(chain, entry.index);
+    }
+
+    if (entry.index !== -1) {
+      chain = chainAppend(chain, entry.index);
+    }
+
+    node = entry.children;
   }
 
-  try {
-    return JSON.parse(`"${raw}"`);
-  } catch {
-    return raw;
-  }
+  return chain;
 }
 
 function readKeySegment(src, i, n) {
   const ch = src[i];
 
   if (ch === '"' || ch === "'") {
-    const { end, span } = parseQuotedLiteral(src, i, n);
+    const span = parseQuotedLiteral(src, i, n);
+    const { end } = span;
+
+    // A key is never multi-line in TOML, so a triple delimiter here is malformed input: it is taken
+    // verbatim as the segment text and reports no span.
+    if (span.multiline) {
+      return { text: src.slice(i, end), end, quotedSpan: null };
+    }
 
     return {
-      text: span ? decodeQuotedKey(src.slice(i + 1, end - 1), ch) : src.slice(i, end),
+      text: decodeQuotedKey(src.slice(i + 1, end - 1), ch),
       end,
       quotedSpan: span
     };
@@ -119,13 +191,12 @@ function scanKeyPath(src, i, n) {
   let pos = i;
 
   while (true) {
-    while (pos < n && (src[pos] === ' ' || src[pos] === '\t')) {
-      pos += 1;
-    }
+    pos = skipSpaces(src, pos, n);
 
     const seg = readKeySegment(src, pos, n);
 
-    // An empty BARE segment (a..b, or no key before '=') is invalid TOML; a quoted empty string ("" = "x") is legal and must not be rejected.
+    // An empty bare segment — `a..b`, or no key before `=` — is invalid TOML, while a quoted empty
+    // string (`"" = "x"`) is legal and must not be rejected.
     if (!seg.quotedSpan && seg.text === '') {
       throw new MicroTypoInputError(`Empty TOML key segment at offset ${pos}`, {
         details: { offset: pos }
@@ -140,9 +211,7 @@ function scanKeyPath(src, i, n) {
 
     pos = seg.end;
 
-    while (pos < n && (src[pos] === ' ' || src[pos] === '\t')) {
-      pos += 1;
-    }
+    pos = skipSpaces(src, pos, n);
 
     if (src[pos] !== '.') {
       break;
@@ -151,15 +220,29 @@ function scanKeyPath(src, i, n) {
     pos += 1;
   }
 
-  return { path: segments.join('.'), segments, end: pos, quotedSpans };
+  return { segments, end: pos, quotedSpans };
 }
 
-// Skip inline arrays/tables whole; strings and '#' comments are consumed atomically so a ]/}/#/quote inside one never drives structure.
-function skipStructuredValue(src, i, n) {
-  let depth = 0;
+// A table frame still waiting for its key names its own base: malformed TOML puts a value where the
+// key belongs, and a scanner that looks for spans reports no span there rather than crashing.
+const elementChain = (frame) =>
+  frame.type === 'array'
+    ? chainAppend(frame.base, frame.index)
+    : chainAppend(frame.base, ...(frame.keySegments ?? []));
+
+// Walk inline arrays/tables for their string values; comments and strings are consumed atomically so
+// a ]/}/#/quote inside one never drives structure. Protect-or-reject: a recognized opener that never
+// closes is rejected, not silently swallowed together with every value after it.
+function scanInlineCollection(src, i, n, base, spans, checkBudget) {
+  const stack = [];
   let j = i;
+  let steps = 0;
 
   while (j < n) {
+    if ((steps++ & 0x3fff) === 0) {
+      checkBudget?.('toml-inline-scan');
+    }
+
     const c = src[j];
 
     if (c === '#') {
@@ -170,44 +253,102 @@ function skipStructuredValue(src, i, n) {
       continue;
     }
 
-    if (c === '"' || c === "'") {
-      j = parseQuotedLiteral(src, j, n).end;
+    if (isFlowSpace(c)) {
+      j += 1;
       continue;
     }
 
+    const frame = stack.at(-1);
+
     if (c === '[' || c === '{') {
-      depth += 1;
+      stack.push({
+        type: c === '[' ? 'array' : 'table',
+        index: 0,
+        keySegments: null,
+        base: frame ? elementChain(frame) : base
+      });
       j += 1;
       continue;
     }
 
     if (c === ']' || c === '}') {
-      depth -= 1;
-      j += 1;
-
-      if (depth === 0) {
-        break;
+      // The closer has to be the one this frame opened. Popping on either of them accepted
+      // `a = [ 1 }` and typeset the values inside it, while `a = [ 1` — the same malformation, spelled
+      // the other way — was rejected. Protect-or-reject admits only one answer for both.
+      if (frame.type !== (c === ']' ? 'array' : 'table')) {
+        throw new MicroTypoInputError(
+          `Mismatched TOML inline collection closer '${c}' at offset ${j}`,
+          { details: { offset: j } }
+        );
       }
 
+      stack.pop();
+      j += 1;
+
+      if (stack.length === 0) {
+        return j;
+      }
+
+      continue;
+    }
+
+    if (c === ',') {
+      if (frame.type === 'array') {
+        frame.index += 1;
+      } else {
+        frame.keySegments = null;
+      }
+
+      j += 1;
+      continue;
+    }
+
+    if (frame.type === 'table' && frame.keySegments === null) {
+      const key = scanKeyPath(src, j, n);
+      frame.keySegments = key.segments;
+
+      for (const qs of key.quotedSpans) {
+        spans.push(new LocatedSpan(qs.start, qs.end, true, elementChain(frame), qs.eligible));
+      }
+
+      j = key.end;
+      continue;
+    }
+
+    if (c === '"' || c === "'") {
+      const span = parseQuotedLiteral(src, j, n);
+      const { end } = span;
+
+      spans.push(
+        new LocatedSpan(span.start, span.end, false, elementChain(frame), span.eligible, span.delim)
+      );
+
+      j = end;
       continue;
     }
 
     j += 1;
   }
 
-  return j;
+  throw new MicroTypoInputError(`Unterminated TOML inline collection at offset ${i}`, {
+    details: { offset: i }
+  });
 }
 
-export function scanToml(src) {
+export function scanToml(src, checkBudget) {
   const spans = [];
   const n = src.length;
   let i = 0;
-  let path = '';
-  let segments = [];
+  let tableChain = null;
   let atLineStart = true;
-  const aotCounts = new Map();
+  let steps = 0;
+  const aotTree = new Map();
 
   while (i < n) {
+    if ((steps++ & 0x3fff) === 0) {
+      checkBudget?.('toml-scan');
+    }
+
     const ch = src[i];
 
     if (ch === ' ' || ch === '\t' || ch === '\r') {
@@ -232,38 +373,18 @@ export function scanToml(src) {
     if (atLineStart && ch === '[') {
       const isArrayHeader = src[i + 1] === '[';
       const {
-        path: headerPath,
         segments: headerSegments,
         end,
         quotedSpans
       } = scanKeyPath(src, i + (isArrayHeader ? 2 : 1), n);
 
-      if (isArrayHeader) {
-        const occurrence = aotCounts.get(headerPath) ?? 0;
-        aotCounts.set(headerPath, occurrence + 1);
-        path = `${headerPath}.${occurrence}`;
-        segments = [...headerSegments, occurrence];
-      } else {
-        path = headerPath;
-        segments = headerSegments;
-      }
+      tableChain = resolveHeader(headerSegments, isArrayHeader, aotTree);
 
       for (const qs of quotedSpans) {
-        spans.push({
-          start: qs.start,
-          end: qs.end,
-          isKey: true,
-          eligible: qs.eligible,
-          path,
-          segments
-        });
+        spans.push(new LocatedSpan(qs.start, qs.end, true, tableChain, qs.eligible));
       }
 
-      let pos = end;
-
-      while (pos < n && (src[pos] === ' ' || src[pos] === '\t')) {
-        pos += 1;
-      }
+      let pos = skipSpaces(src, end, n);
 
       if (isArrayHeader) {
         if (src[pos] === ']' && src[pos + 1] === ']') {
@@ -288,31 +409,14 @@ export function scanToml(src) {
 
     atLineStart = false;
 
-    const {
-      path: keyPath,
-      segments: keySegments,
-      end: afterKey,
-      quotedSpans: keyQuoted
-    } = scanKeyPath(src, i, n);
-    const fullPath = path === '' ? keyPath : `${path}.${keyPath}`;
-    const fullSegments = [...segments, ...keySegments];
+    const { segments: keySegments, end: afterKey, quotedSpans: keyQuoted } = scanKeyPath(src, i, n);
+    const fullChain = chainAppend(tableChain, ...keySegments);
 
     for (const qs of keyQuoted) {
-      spans.push({
-        start: qs.start,
-        end: qs.end,
-        isKey: true,
-        eligible: qs.eligible,
-        path: fullPath,
-        segments: fullSegments
-      });
+      spans.push(new LocatedSpan(qs.start, qs.end, true, fullChain, qs.eligible));
     }
 
-    let pos = afterKey;
-
-    while (pos < n && (src[pos] === ' ' || src[pos] === '\t')) {
-      pos += 1;
-    }
+    let pos = skipSpaces(src, afterKey, n);
 
     if (src[pos] !== '=') {
       while (pos < n && src[pos] !== '\n') {
@@ -325,30 +429,21 @@ export function scanToml(src) {
 
     pos += 1;
 
-    while (pos < n && (src[pos] === ' ' || src[pos] === '\t')) {
-      pos += 1;
-    }
+    pos = skipSpaces(src, pos, n);
 
     const vch = src[pos];
 
     if (vch === '"' || vch === "'") {
-      const { end: vEnd, span } = parseQuotedLiteral(src, pos, n);
+      const span = parseQuotedLiteral(src, pos, n);
 
-      if (span) {
-        spans.push({
-          start: span.start,
-          end: span.end,
-          isKey: false,
-          eligible: span.eligible,
-          path: fullPath,
-          segments: fullSegments
-        });
-      }
+      spans.push(
+        new LocatedSpan(span.start, span.end, false, fullChain, span.eligible, span.delim)
+      );
 
-      assertNoTrailingLineContent(src, vEnd, n);
-      pos = vEnd;
+      assertNoTrailingLineContent(src, span.end, n);
+      pos = span.end;
     } else if (vch === '[' || vch === '{') {
-      pos = skipStructuredValue(src, pos, n);
+      pos = scanInlineCollection(src, pos, n, fullChain, spans, checkBudget);
       assertNoTrailingLineContent(src, pos, n);
     } else {
       while (pos < n && src[pos] !== '\n' && src[pos] !== '#') {

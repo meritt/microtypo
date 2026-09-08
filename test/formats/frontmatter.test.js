@@ -25,11 +25,11 @@ describe('frontmatter input: YAML/TOML header + Markdown body', () => {
     assert.equal(out, `+++\ntitle = "Corwin${NBSP}— Amber"\n+++\nКорвин «в${NBSP}Амбере»`);
   });
 
-  test('header bare scalar is SKIPPED (YAML safety): byte-verbatim, body still typeset', () => {
+  test('a header bare scalar is typeset like any other prose value', () => {
     const input = '---\ntitle: Хроники Амбера - лучшие\n---\nАмбер';
     const out = microtypo(input, { input: { format: 'frontmatter' } });
 
-    assert.equal(out, '---\ntitle: Хроники Амбера - лучшие\n---\nАмбер');
+    assert.equal(out, `---\ntitle: Хроники Амбера\u{00A0}— лучшие\n---\nАмбер`);
   });
 
   test('body code fence is protected (Markdown safe-blocks registered), header value typeset', () => {
