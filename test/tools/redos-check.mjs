@@ -18,9 +18,9 @@ import { spaceGroup } from '../../src/rules/space.js';
 import { symbolGroup } from '../../src/rules/symbol.js';
 import { textGroup } from '../../src/rules/text.js';
 
-// redos-detector leaks memory across repeated isSafePattern calls in one isolate (confirmed:
-// RSS grows unbounded, OOMs after ~15 calls). Each pattern is analyzed in its own short-lived
-// child process instead — this file re-invokes itself with --check for that.
+// redos-detector leaks memory across repeated `isSafePattern` calls in one isolate: RSS grows
+// unbounded and the process OOMs after about fifteen. Each pattern is analyzed in its own
+// short-lived child process instead, which is what this file's `--check` re-invocation is for.
 if (process.argv[2] === '--check') {
   const { pattern, unicode, caseInsensitive, dotAll, multiLine } = JSON.parse(process.argv[3]);
   const result = isSafePattern(pattern, {
@@ -50,13 +50,11 @@ const GROUPS = [
   textGroup
 ];
 
-// protect/tags.js and protect/blocks.js run before any rule group, over raw (possibly
-// hostile) markup (TAG_RE's now-removed bare `["']` fallback) shipped undetected
-// specifically because this gate never looked past src/rules/*.js and src/lib/*. addTag()'s
-// opener is built per call from a tag name spliced around ATTR_ALT_SOURCE; `x` here stands in
-// for any validated tag name (TAG_NAME_RE already restricts it to `[a-zA-Z][a-zA-Z0-9-]*`, so
-// the name itself can't add ambiguity) — this reproduces the exact alternation shape addTag()
-// interpolates.
+// The protect layer runs before any rule group, over raw and possibly hostile markup, so its
+// patterns belong under this gate too. `addTag()` builds its opener per call from a tag name
+// spliced around `ATTR_ALT_SOURCE`; `x` stands in for any validated name, which `TAG_NAME_RE`
+// already restricts to `[a-zA-Z][a-zA-Z0-9-]*`, so the name adds no ambiguity of its own and this
+// reproduces the alternation shape `addTag()` interpolates.
 const BLOCKS_OPEN_RE = new RegExp(`<x(?:\\s(?:${ATTR_ALT_SOURCE})*)?>`, 'gi');
 
 const regexes = [
@@ -69,11 +67,10 @@ const regexes = [
 ];
 
 // redos-detector flags these because it downgrades unanchored patterns and treats any
-// prefix-overlapping alternation as unbounded ambiguity — neither implies real exponential
-// backtracking. Each entry below was verified with an adversarial timing probe (~30,000-char
-// worst-case input, doubling-size scaling check for superlinear growth): every one stays
-// linear and completes in well under 50ms, most under 1ms. Adding a new
-// pattern here requires the same empirical check — this is not a rubber stamp.
+// prefix-overlapping alternation as unbounded ambiguity, neither of which implies real exponential
+// backtracking. Every entry was verified with an adversarial timing probe — a ~30,000-character
+// worst case and a doubling-size check for superlinear growth — and each stays linear well under
+// 50 ms. Adding one requires the same check; this is not a rubber stamp.
 const ALLOWLIST = new Map([
   [
     'url',
@@ -95,11 +92,6 @@ const ALLOWLIST = new Map([
     'Дефисы и тире/hyphenated_particle[0]',
     'fixed 19-way pronoun/adverb alternation (prefix overlap but no repetition), no nested ' +
       'quantifier; linear to 30k chars (empirically verified <1ms at adversarial worst-case shapes)'
-  ],
-  [
-    'Дефисы и тире/emphatic_particle[0]',
-    'greedy [а-яё]+ word scan, no nested quantifier, fixed 5-way particle alternation after it; ' +
-      'linear to 30k chars (probed 1k-30k, all worst-case shapes <1ms)'
   ],
   [
     'Неразрывные конструкции/nbsp_after_particle[0]',
@@ -153,13 +145,26 @@ const ALLOWLIST = new Map([
   ]
 ]);
 
+// `regexes` is how a handler rule stays under this gate: the runner never reads the field, so a rule
+// that scans on its own declares what it scans with and cannot quietly leave the check behind. The
+// declaration is required rather than offered, because opt-in metadata protects only the rules that
+// remember it. A handler that genuinely scans with no regex says so with an empty array.
+const undeclared = [];
+
 for (const group of GROUPS) {
   for (const rule of group.rules) {
-    if (!rule.pattern) {
+    if (rule.handler && rule.regexes === undefined) {
+      undeclared.push(`${group.title}/${rule.id}`);
       continue;
     }
 
-    const patterns = Array.isArray(rule.pattern) ? rule.pattern : [rule.pattern];
+    const declared = rule.pattern ?? rule.regexes;
+
+    if (!declared) {
+      continue;
+    }
+
+    const patterns = Array.isArray(declared) ? declared : [declared];
 
     for (const [i, re] of patterns.entries()) {
       regexes.push([`${group.title}/${rule.id}[${i}]`, re]);
@@ -167,18 +172,25 @@ for (const group of GROUPS) {
   }
 }
 
+if (undeclared.length > 0) {
+  console.error(
+    `redos-check: handler rules with no \`regexes\` declaration:\n  ${undeclared.join('\n  ')}\n` +
+      'Declare every regex the handler scans with, or `regexes: []` when it scans with none.'
+  );
+  process.exit(1);
+}
+
 let unexpected = 0;
 let allowlisted = 0;
 const seenAllowlisted = new Set();
 
-// None of these patterns are start-anchored — they run via String.replace(re, ...) at every
-// offset. redos-detector's default "downgrade" for unanchored patterns prepends an unbounded
-// [^]*? scan prefix to model that, which floods every pattern here with scan-position
-// ambiguity (not real backtracking risk) and blows past resource limits. Scan-position
-// scaling is this engine's own separate, already-mitigated concern (maxInputLength, see
-// engine.js); anchoring with ^(?:...) isolates what this gate should catch — catastrophic
-// backtracking *within* a single match attempt (nested quantifiers, ambiguous alternation) —
-// confirmed against (a+)+b, which still reports unsafe anchored.
+// None of these patterns are start-anchored: they run through `String.replace` at every offset.
+// redos-detector's default downgrade for an unanchored pattern prepends an unbounded `[^]*?` scan
+// prefix to model that, which floods every pattern here with scan-position ambiguity rather than
+// real backtracking risk and blows past its resource limits. Scan-position scaling is this engine's
+// own concern and `maxInputLength` bounds it, so anchoring with `^(?:…)` isolates what this gate
+// should catch — catastrophic backtracking within a single match attempt. `(a+)+b` still reports
+// unsafe anchored.
 //
 // redos-detector also rejects caseInsensitive+unicode together (full Unicode case folding is
 // out of scope for it — see mathiasbynens.be/notes/es6-unicode-regex). Every rule regex here

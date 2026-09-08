@@ -3,7 +3,8 @@ import { test } from 'node:test';
 
 import { MicroTypo } from '../../src/index.js';
 
-// Quadratic backtracking on long single-char runs; 29_990 stays under the 30_000 cap so input is accepted, then must process fast.
+// Quadratic backtracking on long single-character runs. 29_990 stays under the 30_000 cap, so the
+// input is accepted and then has to process fast.
 const N = 29_990;
 const BOMBS = ['a', 'я', '1', ' ', '\n'];
 
@@ -43,7 +44,7 @@ test('number/date groups keep no-digit prose within budget', () => {
   assert.ok(ms < 80, `no-digit prose took ${ms.toFixed(1)}ms`);
 });
 
-// URL_REGEX quadratic on dotted/hyphenated ASCII runs (NOT Latin1-masked).
+// `URL_REGEX` goes quadratic on dotted and hyphenated ASCII runs, which V8 does not Latin1-mask.
 for (const unit of ['a.', '1.', 'a-', '1.0.']) {
   test(`${JSON.stringify(unit)}×N scales ~linearly`, () => {
     const typo = new MicroTypo({ maxInputLength: 5_000_000, maxProcessingMs: 0 });
@@ -56,7 +57,7 @@ for (const unit of ['a.', '1.', 'a-', '1.0.']) {
   });
 }
 
-// nbsp_volt — MUST be Cyrillic-prefixed or V8 Latin1 masks the quadratic.
+// `nbsp_volt`, Cyrillic-prefixed: V8's Latin1 fast path would otherwise mask the quadratic.
 test('"я"+"1"×N scales ~linearly', () => {
   const typo = new MicroTypo({ maxInputLength: 5_000_000, maxProcessingMs: 0 });
   const t = (n) => {
@@ -80,7 +81,9 @@ for (const unit of ['1,', '1.']) {
   });
 }
 
-// TAG_RE was exponential on a stray-quote run before an unterminated tag opener; it hangs inside an atomic String.replace before any budget checkpoint, so small n keeps a reintroduced regression at low seconds instead of a suite hang.
+// `TAG_RE` goes exponential on a stray-quote run before an unterminated tag opener, and it hangs
+// inside an atomic `String.replace` before any budget checkpoint, so a small n keeps a reintroduced
+// regression at low seconds rather than hanging the suite.
 test('TAG_RE linear on stray-quote run before an unterminated tag', () => {
   const typo = new MicroTypo({ maxProcessingMs: 5_000 });
   const t = (n) => {
@@ -89,8 +92,9 @@ test('TAG_RE linear on stray-quote run before an unterminated tag', () => {
     return performance.now() - s;
   };
   t(20); // warm
-  const r = t(40) / t(30);
-  assert.ok(r < 3, `exponential TAG_RE backtracking: ratio ${r.toFixed(1)} for +10 quote chars`);
+  // A single pass at these sizes lands around 0.04 ms, where JIT warm-up alone moves the ratio by 4x.
+  const r = best(t, 400) / best(t, 200);
+  assert.ok(r < 3, `exponential TAG_RE backtracking: ratio ${r.toFixed(1)} for 2x the quote run`);
 
   const ms = t(400);
   assert.ok(ms < 100, `TAG_RE too slow on 400 stray quotes: ${ms.toFixed(1)}ms`);

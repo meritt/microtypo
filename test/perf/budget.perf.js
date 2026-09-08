@@ -83,7 +83,8 @@ test('cycled rules with big repeated input do not exceed cap', () => {
   assert.ok(ms < 200, `cycled rule blew up: ${ms.toFixed(1)}ms`);
 });
 
-// Near the 30_000 maxInputLength cap: guards the whole pipeline against quadratic regressions within the accepted input range.
+// Near the 30_000 `maxInputLength` cap, which guards the whole pipeline against quadratic growth
+// inside the accepted input range.
 const NEAR_CAP = 29_000;
 
 test('near-cap: 29K repeated single char processes < 200ms', () => {
@@ -110,7 +111,8 @@ test('near-cap: 29K digits input processes < 200ms', () => {
   assert.ok(ms < 200, `Got ${ms.toFixed(1)}ms (expected < 200)`);
 });
 
-// A cycled loop must check the budget each iteration; assert.throws alone can't tell prompt interruption from an eventual throw after 100 iterations.
+// A cycled loop has to check the budget each iteration, and `assert.throws` alone cannot tell prompt
+// interruption from an eventual throw after 100 of them.
 test('cycled rule respects maxProcessingMs (interrupted promptly, not after 100 iterations)', () => {
   const typo = new MicroTypo({ presets: false, maxProcessingMs: 20 });
   typo.registerRuleGroup(
@@ -141,12 +143,14 @@ test('cycled rule respects maxProcessingMs (interrupted promptly, not after 100 
   assert.ok(ms < 100, `cycle() ignored the budget: took ${ms.toFixed(1)}ms (expected < 100)`);
 });
 
-// Isolated at the SafeBlocks level: the full pipeline's URL/email scan would mask whether the scanner's budget check actually fires.
+// Isolated at the SafeBlocks level, because the full pipeline's URL and email scan would mask
+// whether the scanner's own budget check fires.
 const oneLink = `[x](/p/${'a'.repeat(4000)})`;
 const manyValidLinks = oneLink.repeat(1200); // ~4.8M chars, every link valid and in-bound (never OVERLIMIT)
 
 test('SafeBlocks scanner budget check survives large per-match jumps (many valid links)', () => {
-  // A match advances the scan by the whole span; a bitmask-keyed periodic check can stride over every checkpoint when matches are large and regular.
+  // A match advances the scan by the whole span, so a mask-keyed periodic check can stride over
+  // every checkpoint when matches are large and regular.
   const sb = new SafeBlocks();
   sb.addScanner('md-link-destination', scanLinkDestinations);
 

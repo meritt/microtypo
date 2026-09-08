@@ -43,12 +43,13 @@
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "lint": "oxlint --report-unused-disable-directives",
+    "lint:glyphs": "node test/tools/glyph-check.mjs",
     "lint:redos": "node test/tools/redos-check.mjs",
     "perf:profile": "node test/tools/perf-profile.mjs",
     "perf:profile:json": "node test/tools/perf-profile.mjs --json",
     "perf:scenarios": "node test/tools/perf-scenario-report.mjs",
     "test": "node --test 'test/**/*.test.js'",
-    "test:perf": "node --test 'test/perf/**/*.perf.js'",
+    "test:perf": "node --test --test-concurrency=1 'test/perf/**/*.perf.js'",
     "test:watch": "node --test --watch 'test/**/*.test.js'"
   },
   "devDependencies": {
