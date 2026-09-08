@@ -9,13 +9,17 @@ export class Vault {
   #prefix;
   #restoreRe;
 
-  // Per-vault prefix keeps placeholder kinds distinguishable when they coexist in one text.
+  // Per-vault prefix keeps placeholder kinds distinguishable when they coexist in one text, so every
+  // one of them has to be taken exactly once. In use: `T` tags, `A` anchors, `L` block-level tags,
+  // `I` inline blocks, `B` safe blocks. Reusing one that is already taken makes two vaults answer to
+  // the same placeholder, and a restore then pulls the wrong content into the document.
   constructor(prefix) {
     this.#prefix = prefix;
     this.#restoreRe = placeholderRegex(prefix);
   }
 
-  // Same content returns the same placeholder - rules that build a sample tag and re-scan the text depend on it.
+  // The same content returns the same placeholder, which rules that build a sample tag and re-scan
+  // the text depend on.
   store(content) {
     const existing = this.#byContent.get(content);
 
@@ -41,7 +45,8 @@ export class Vault {
     return this.#entries[id];
   }
 
-  // Clears entries so placeholder ids restart at 0 for the next process() call; #prefix/#restoreRe are structural and stay.
+  // Entries are cleared so placeholder ids restart at 0 for the next `process()` call; `#prefix` and
+  // `#restoreRe` are structural and stay.
   reset() {
     this.#entries = [];
     this.#byContent = new Map();
@@ -51,7 +56,7 @@ export class Vault {
     return this.#entries.length;
   }
 
-  // Unknown ids are left untouched - blanking them would silently erase legitimate content.
+  // Unknown ids are left untouched: blanking them would silently erase legitimate content.
   restoreAll(text) {
     this.#restoreRe.lastIndex = 0;
     const entries = this.#entries;

@@ -34,7 +34,8 @@ describe('">" inside a quoted attribute value', () => {
     assert.equal(microtypo('<b>Амбер</b>'), '<b>Амбер</b>');
   });
 
-  // Unbalanced attr quote fails the tag match at "<", so the run falls through to rules and "--" → em dash.
+  // An unbalanced attribute quote fails the tag match at the `<`, so the run falls through to the
+  // rules and `--` becomes an em dash.
   test('unbalanced attribute quote falls through to text', () => {
     assert.equal(
       microtypo('<img alt="Корвин -- Эрик>Амбер'),
@@ -113,6 +114,39 @@ describe('block tags and generated <br>', () => {
   }
 });
 
+// The placeholder prefix is what a later rule reads to tell a block boundary from inline markup, so
+// a tag a rule group mints has to be classified by the same question as one read out of the
+// document.
+describe('a generated tag is classified like an authored one', () => {
+  const render = { html: true, render: { paragraphs: false }, rules: { 'hanging.*': false } };
+
+  const wrapping = (tag) => {
+    const engine = new MicroTypo(render);
+
+    engine.registerRuleGroup(
+      {
+        title: 'Gen',
+        rules: [
+          { id: 'wrap', handler: (ctx) => ctx.text.replace('MARK', () => ctx.tag('100 руб.', tag)) }
+        ]
+      },
+      { name: 'Gen', position: 'start' }
+    );
+
+    return engine.process('MARK 3 ошибки.');
+  };
+
+  for (const tag of ['p', 'div', 'li', 'section', 'blockquote']) {
+    test(`ctx.tag(…, '${tag}') ends the sentence like <${tag}>`, () => {
+      assert.equal(wrapping(tag), microtypo(`<${tag}>100 руб.</${tag}> 3 ошибки.`, render));
+    });
+  }
+
+  test('an inline tag stays transparent', () => {
+    assert.equal(wrapping('em'), microtypo('<em>100 руб.</em> 3 ошибки.', render));
+  });
+});
+
 describe('void and block tags are not <p>-wrapped', () => {
   test('<hr> is unwrapped', () => {
     const out = microtypo('<hr>', { html: true });
@@ -133,7 +167,8 @@ describe('void and block tags are not <p>-wrapped', () => {
 });
 
 describe('inert markup is never welded into a tag', () => {
-  // "< img …>" reads as text, so the space-before-bracket rule spaces "alert(1)" — orthogonal to the tag property.
+  // `< img …>` reads as text, so the space-before-bracket rule spaces `alert(1)`, which is a separate
+  // question from the tag property.
   test('inert "< img …>" stays text', () => {
     assert.equal(
       microtypo('Корвин < img src=x onerror=alert(1) > Эрик', flat),

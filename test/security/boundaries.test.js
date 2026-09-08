@@ -181,6 +181,84 @@ describe('custom rules', () => {
   });
 });
 
+// ctx.tag escapes attribute values but writes the element and attribute names as given, so those are
+// the two openings a rule group could use to emit markup nobody escaped.
+const invalidName = (e) => e.code === 'ERR_MICROTYPO_CONFIG';
+
+const tagging = (tag, attributes) => {
+  const typo = new MicroTypo({ html: true, render: { paragraphs: false }, presets: false });
+
+  typo.registerRuleGroup(
+    defineRuleGroup({
+      title: 'tagger',
+      rules: [{ id: 'tagger', handler: (ctx) => ctx.tag('Корвин', tag, attributes) }]
+    }),
+    { name: 'tagger' }
+  );
+
+  return () => typo.process('x');
+};
+
+describe('ctx.tag names are markup, not data', () => {
+  test('an element name carrying an attribute is rejected', () => {
+    assert.throws(tagging('span onload=alert(1)', {}), invalidName);
+  });
+
+  for (const name of ['', ' ', 'sp an', 'a>', '<a', 'a"b', '1span', '-span', 'a\nb']) {
+    test(`element name ${JSON.stringify(name)} is rejected`, () => {
+      assert.throws(tagging(name, {}), invalidName);
+    });
+  }
+
+  test('an attribute name carrying another attribute is rejected', () => {
+    assert.throws(tagging('span', { 'onload=alert(1) x': 'y' }), invalidName);
+  });
+
+  for (const name of ['a b', 'a"', 'a>', '1a', '']) {
+    test(`attribute name ${JSON.stringify(name)} is rejected`, () => {
+      assert.throws(tagging('span', { [name]: 'y' }), invalidName);
+    });
+  }
+
+  test('the names the built-in rules use are accepted', () => {
+    for (const tag of ['span', 'a', 'small', 'sup', 'sub', 'nobr']) {
+      assert.doesNotThrow(tagging(tag, {}));
+    }
+
+    for (const name of ['href', 'style', 'title', 'data-x', 'aria-label']) {
+      assert.doesNotThrow(tagging('span', { [name]: 'y' }));
+    }
+  });
+
+  test('an attribute value is still escaped, not rejected', () => {
+    const out = tagging('span', { title: '" onload="alert(1)' })();
+
+    assert.ok(out.includes('title="&quot; onload=&quot;alert(1)"'), out);
+  });
+
+  // A rule group is well-formed or it is not; whether this call happens to emit a tag is a separate
+  // question, so the refusal must not depend on html or on the destination.
+  for (const [label, config, input] of [
+    ['html:false', { html: false }, 'x'],
+    ['xml', { html: true, input: 'xml' }, '<a>x</a>'],
+    ['a structured value', { html: true, input: 'json' }, '{"a":"x"}']
+  ]) {
+    test(`a bad name is rejected under ${label} too`, () => {
+      const typo = new MicroTypo({ render: { paragraphs: false }, presets: false, ...config });
+
+      typo.registerRuleGroup(
+        defineRuleGroup({
+          title: 'tagger',
+          rules: [{ id: 'r', handler: (ctx) => ctx.tag('Корвин', 'span onload=alert(1)', {}) }]
+        }),
+        { name: 'tagger' }
+      );
+
+      assert.throws(() => typo.process(input), invalidName);
+    });
+  }
+});
+
 describe('reentrancy', () => {
   test('ctx.engineSettings mutation does not cross calls', () => {
     const typo = new MicroTypo({ html: true });
@@ -191,7 +269,8 @@ describe('reentrancy', () => {
           {
             id: 'pwn',
             handler(ctx) {
-              // 'nobr' would flip nowrap <span>→<nobr>; a cross-call leak would surface in the next output.
+              // `nobr` would flip the nowrap `<span>` to a `<nobr>`, so a cross-call leak surfaces in
+              // the next output.
               ctx.engineSettings.nowrap = 'nobr';
 
               return ctx.text;
@@ -282,6 +361,49 @@ describe('reentrancy', () => {
       assert.ok(r.includes('«отражением»'), `quote lost at ${i}: ${r}`);
     }
   });
+
+  // Sharing one instance is the documented way to use the engine in a loop, so the shared instance
+  // must answer exactly as a fresh one would — across formats, and whatever ran before.
+  test('a shared instance matches a fresh one over interleaved inputs', () => {
+    const inputs = [
+      'Корвин - принц "Амбера".',
+      'Смотри https://amber.io/a?b=1&c=2 и пиши corwin@amber.io.',
+      '<code>a - b</code> и текст "тут" - вот.',
+      'Цена 100 руб. Отряд 12345 бойцов.',
+      '«Внешние «внутренние» кавычки» и 5" дюймов.',
+      'Первый абзац.\n\nВторой - абзац.',
+      'Текст <notg>сырой "текст"</notg> ещё "раз".'
+    ];
+
+    for (const config of [
+      { html: true, render: { paragraphs: false } },
+      { html: false },
+      { html: true, entities: true, render: { paragraphs: false } },
+      { input: 'markdown' }
+    ]) {
+      const shared = new MicroTypo(config);
+
+      for (let round = 0; round < inputs.length * 4; round += 1) {
+        const source = inputs[(round * 3 + 1) % inputs.length];
+
+        assert.equal(
+          shared.process(source),
+          new MicroTypo(config).process(source),
+          `shared instance drifted on ${JSON.stringify(source)}`
+        );
+      }
+    }
+  });
+
+  test('a placeholder from one call cannot surface in the next', () => {
+    const typo = new MicroTypo({ html: true, render: { paragraphs: false } });
+    const withUrl = typo.process('Смотри https://amber.io/pattern тут.');
+    const plain = typo.process('Обычный текст без ссылок.');
+
+    assert.doesNotMatch(plain, /[\u{E000}\u{E001}\u{E100}\u{E101}]/u);
+    assert.ok(!plain.includes('amber.io'), plain);
+    assert.equal(typo.process('Смотри https://amber.io/pattern тут.'), withUrl);
+  });
 });
 
 // maxInputLength is raised per test because these crafted inputs exceed the 30K default.
@@ -291,7 +413,8 @@ function isCapacityError(err) {
 
 describe('vault capacity', () => {
   test('SafeTags vault throws a typed capacity error beyond 100000 entries', () => {
-    // SafeTags dedupes by content, so open/close must differ (attr on open) or one entry is reused.
+    // SafeTags dedupes by content, so the open and close have to differ — an attribute on the open —
+    // or one entry is reused.
     let text = '';
     for (let i = 0; i < 50_001; i++) {
       text += `<x${i} d="1">y</x${i}>`;
@@ -303,8 +426,10 @@ describe('vault capacity', () => {
     );
   });
 
+  // SafeSequences dedupes by content like the tag vault, so the cap counts distinct sequences: one
+  // address repeated is one entry, and the addresses below have to differ to reach the ceiling.
   test('SafeSequences throws a typed capacity error beyond 100000 emails', () => {
-    const text = 'a@b.co '.repeat(100_001);
+    const text = Array.from({ length: 100_001 }, (_, i) => `a${i}@b.co`).join(' ');
     const typo = new MicroTypo({ maxInputLength: text.length + 10 });
     assert.throws(
       () => typo.process(text),
@@ -312,9 +437,18 @@ describe('vault capacity', () => {
     );
   });
 
+  test('one address repeated is one vault entry', () => {
+    const text = 'a@b.co '.repeat(100_001);
+    const typo = new MicroTypo({ maxInputLength: text.length + 10 });
+
+    assert.doesNotThrow(() => typo.process(text));
+  });
+
   test('SafeSequences throws a typed capacity error beyond 100000 tokens', () => {
-    const uuid = '01234567-89ab-cdef-0123-456789abcdef';
-    const text = `${uuid} `.repeat(100_001);
+    const text = Array.from(
+      { length: 100_001 },
+      (_, i) => `01234567-89ab-cdef-0123-${String(i).padStart(12, '0')}`
+    ).join(' ');
     const typo = new MicroTypo({ maxInputLength: text.length + 10 });
     assert.throws(
       () => typo.process(text),
@@ -362,13 +496,15 @@ describe('vault reset', () => {
   test('placeholder ids restart each call so a forged prior-call id is not substituted', () => {
     const typo = new MicroTypo();
     typo.process('Visit http://oberon-secret.example');
-    // Second call's ids restart at 0; the forged A0 must resolve to this call's URL, not the prior one.
+    // The second call's ids restart at 0, so the forged `A0` must resolve to this call's URL rather
+    // than the previous one.
     const out = typo.process('check http://corwin.xyz/A0SAFESEQNUM0ID end');
     assert.ok(!out.includes('oberon-secret'), `cross-call leak: ${out}`);
   });
 });
 
-// render.prefix goes raw into a class value; both entry points reject chars that break out of the attr.
+// `render.prefix` goes raw into a class value, so both entry points reject anything that would break
+// out of the attribute.
 describe('render prefix', () => {
   test('render.prefix cannot break out of the class attribute', () => {
     assert.throws(

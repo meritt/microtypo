@@ -4,6 +4,16 @@ import { describe, test } from 'node:test';
 import { defineRuleGroup } from '../../src/define-rule.js';
 import { MicroTypoBudgetError, MicroTypoConfigError } from '../../src/errors/index.js';
 import { MicroTypo } from '../../src/index.js';
+import { scanJson } from '../../src/input/json.js';
+import {
+  scanCodeSpans,
+  scanFences,
+  scanIndentedCode,
+  scanLinePrefix,
+  scanReferenceDefinitions
+} from '../../src/input/markdown.js';
+import { scanToml } from '../../src/input/toml.js';
+import { scanYaml } from '../../src/input/yaml.js';
 
 const MAX = 5_000_000; // documented maxInputLength ceiling
 
@@ -127,6 +137,100 @@ describe('wall-clock budget', () => {
     const start = Date.now();
     typo.process(text);
     assert.ok(Date.now() - start < 500, `Took too long`);
+  });
+});
+
+// A scanner that never asks is unstoppable: nothing between rule groups can interrupt one long
+// scan. A stub that throws on the first ask proves the scanner asks at all; the end-to-end cases
+// below prove the engine hands it a real budget on a document that produces no spans, where a
+// per-value pipeline check could not stand in.
+// Lets the earlier asks through so the inner loops can be reached and named individually.
+const askAfter = (allowed) => {
+  let left = allowed;
+
+  return (where) => {
+    if (left-- <= 0) {
+      throw new Error(`asked:${where}`);
+    }
+  };
+};
+
+describe('own scanners ask the budget', () => {
+  const cases = [
+    ['scanJson', (ask) => scanJson('["Корвин"]', ask), 0, 'json-scan'],
+    ['scanYaml', (ask) => scanYaml('k: "Корвин"', ask), 0, 'yaml-scan'],
+    ['a YAML flow collection', (ask) => scanYaml('tags: ["Корвин"]', ask), 1, 'yaml-flow-scan'],
+    ['scanToml', (ask) => scanToml('k = "Корвин"', ask), 0, 'toml-scan'],
+    ['a TOML inline array', (ask) => scanToml('tags = ["Корвин"]', ask), 1, 'toml-inline-scan'],
+    ['scanFences', (ask) => scanFences('```\nкод\n```', ask), 0, 'md-fence'],
+    [
+      'the body of an unclosed fence',
+      (ask) => scanFences(`\`\`\`\n${'Корвин\n'.repeat(1100)}`, ask),
+      1,
+      'md-fence'
+    ],
+    ['scanIndentedCode', (ask) => scanIndentedCode('    код', ask), 0, 'md-indented-code'],
+    ['scanLinePrefix', (ask) => scanLinePrefix('  Корвин', ask), 0, 'md-line-prefix'],
+    ['scanCodeSpans', (ask) => scanCodeSpans('`код`', ask), 0, 'md-code-span'],
+    [
+      'scanReferenceDefinitions',
+      (ask) => scanReferenceDefinitions('[а]: /p', ask),
+      0,
+      'md-reference-definition'
+    ]
+  ];
+
+  for (const [name, run, allowed, where] of cases) {
+    test(name, () => {
+      assert.throws(() => run(askAfter(allowed)), { message: `asked:${where}` });
+    });
+  }
+});
+
+const rows = (make) => Array.from({ length: 60_000 }, (_, i) => make(i)).join('\n');
+
+const tight = (format) => ({
+  input: { format },
+  maxInputLength: 5_000_000,
+  maxProcessingMs: 0.0001
+});
+
+describe('a structured scan is interruptible on a document with no typeset values', () => {
+  // `where` pins the origin: a value pipeline never ran, so only the scan could have reported.
+  const throwsFrom = (format, document, where) => {
+    assert.throws(
+      () => new MicroTypo(tight(format)).process(document),
+      (error) => {
+        assert.ok(error instanceof MicroTypoBudgetError, `expected a budget error, got ${error}`);
+        assert.equal(error.details.where, where);
+
+        return true;
+      }
+    );
+  };
+
+  // `JSON.parse` runs before the scan and cannot be interrupted, so the budget is read the moment it
+  // returns.
+  test('JSON of numbers stops right after the native parse', () => {
+    const items = Array.from({ length: 200_000 }, (_, i) => i).join(',');
+
+    throwsFrom('json', `[${items}]`, 'json-parse');
+  });
+
+  test('YAML bare scalars', () => {
+    throwsFrom(
+      'yaml',
+      rows((i) => `k${i}: v${i}`),
+      'yaml-scan'
+    );
+  });
+
+  test('TOML numeric values', () => {
+    throwsFrom(
+      'toml',
+      rows((i) => `k${i} = ${i}`),
+      'toml-scan'
+    );
   });
 });
 

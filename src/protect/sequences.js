@@ -5,18 +5,38 @@ import { URL_REGEX, EMAIL_REGEX, IPV6_REGEX, UUID_REGEX } from '../lib/url-email
 
 // Unknown ids are left intact, never blanked — silent erase enables defacement.
 
-// Nonce is a captured group checked against the live instance nonce in restore(), so reset() is a cheap string swap, not a recompile.
-const URL_RESTORE_RE = /http:\/\/simonenko\.xyz\/A0SAFE([0-9A-F]+)NUM(\d+)ID/gms;
-const URL_RESTORE_NOPROTO_RE = /simonenko\.xyz\/A0SAFE([0-9A-F]+)NUM(\d+)ID/gms;
+// The nonce is a captured group checked against the live instance nonce in `restore()`, so `reset()`
+// is a cheap string swap rather than a recompile.
+// The URL host carries no '.': text.autolink ends a match on '.', so a dotted host lets it match a
+// prefix of the placeholder, splitting an opaque token into an unrestorable half.
+const URL_RESTORE_RE = /http:\/\/simonenko-xyz\/A0SAFE([0-9A-F]+)NUM(\d+)ID/gms;
+const URL_RESTORE_NOPROTO_RE = /simonenko-xyz\/A0SAFE([0-9A-F]+)NUM(\d+)ID/gms;
 const EMAIL_RESTORE_RE = /A1SAFE([0-9A-F]+)NUM(\d+)ID@simonenko\.xyz/gms;
 const TOKEN_RESTORE_RE = /AzSAFE([0-9A-F]+)TOK(\d+)TK/gms;
+
+// The four in one frozen list: the forgery budget asks for them once per non-builtin group run, and
+// a getter building a fresh array made that a per-run allocation of a constant.
+const RESTORE_REGEXES = Object.freeze([
+  URL_RESTORE_RE,
+  URL_RESTORE_NOPROTO_RE,
+  EMAIL_RESTORE_RE,
+  TOKEN_RESTORE_RE
+]);
 const SEQUENCE_HINT_RE = /[.:@-]/u;
+
+// The namespace letter an id is minted under, and how a refusal names it to the caller.
+const ENTRY_KINDS = Object.freeze({
+  u: { name: 'URLs', reason: 'url' },
+  e: { name: 'emails', reason: 'email' },
+  t: { name: 'tokens', reason: 'token' }
+});
 
 function freshNonce() {
   return randomBytes(8).toString('hex').toUpperCase();
 }
 
-// Trailing ')' belongs to the URL only if balanced by an earlier '('; one count pass + one trim pass keeps this O(n).
+// A trailing `)` belongs to the URL only where an earlier `(` balances it; one count pass and one
+// trim pass keep this linear.
 function trimUrlParens(url) {
   let open = 0;
   let close = 0;
@@ -43,19 +63,52 @@ export class SafeSequences {
   #urls = [];
   #emails = [];
   #tokens = [];
+  // The same sequence twice is one entry and one placeholder, as in the tag vault: two ids would
+  // make a Markdown reference label read as different text in its definition and in its use.
+  #ids = new Map();
   #nonce = freshNonce();
 
-  // Fresh nonce per process(): a placeholder from a prior call can't match this call's restore(), even if replayed.
+  // A fresh nonce per `process()`, so a placeholder from a prior call cannot match this call's
+  // `restore()` even if replayed.
   reset() {
     this.#nonce = freshNonce();
     this.resetFrame();
   }
 
-  // Clears the id namespace per scalar fragment so one field's placeholder ids can't be referenced by a sibling field's rule.
+  // The id namespace is cleared per scalar fragment, so one field's placeholder ids cannot be
+  // referenced by a sibling field's rule.
   resetFrame() {
     this.#urls = [];
     this.#emails = [];
     this.#tokens = [];
+    this.#ids.clear();
+  }
+
+  // `kind` keeps the three namespaces apart: the same bytes may be both a URL and a token. The
+  // capacity bound sits here rather than at each caller so that no protect path can mint an id
+  // without passing it; checked before the dedup lookup, so a repeat at capacity still refuses.
+  #idOf(kind, entries, content) {
+    if (entries.length >= MAX_ENTRIES) {
+      const { name, reason } = ENTRY_KINDS[kind];
+
+      throw capacityError(`SafeSequences: too many ${name} in input`, {
+        kind: reason,
+        max: MAX_ENTRIES
+      });
+    }
+
+    const key = `${kind}${content}`;
+    const known = this.#ids.get(key);
+
+    if (known !== undefined) {
+      return known;
+    }
+
+    const id = entries.length;
+    entries.push(content);
+    this.#ids.set(key, id);
+
+    return id;
   }
 
   protect(text) {
@@ -66,33 +119,17 @@ export class SafeSequences {
     const nonce = this.#nonce;
 
     let result = text.replace(URL_REGEX, (m) => {
-      if (this.#urls.length >= MAX_ENTRIES) {
-        throw capacityError('SafeSequences: too many URLs in input', {
-          kind: 'url',
-          max: MAX_ENTRIES
-        });
-      }
-
       const url = trimUrlParens(m);
       const tail = m.slice(url.length);
-      const id = this.#urls.length;
-      this.#urls.push(url);
+      const id = this.#idOf('u', this.#urls, url);
 
-      return `http://simonenko.xyz/A0SAFE${nonce}NUM${id}ID${tail}`;
+      return `http://simonenko-xyz/A0SAFE${nonce}NUM${id}ID${tail}`;
     });
 
     // EMAIL_REGEX always requires '@'; skipping the scan when it's absent is behavior-neutral.
     if (result.includes('@')) {
       result = result.replace(EMAIL_REGEX, (m) => {
-        if (this.#emails.length >= MAX_ENTRIES) {
-          throw capacityError('SafeSequences: too many emails in input', {
-            kind: 'email',
-            max: MAX_ENTRIES
-          });
-        }
-
-        const id = this.#emails.length;
-        this.#emails.push(m);
+        const id = this.#idOf('e', this.#emails, m);
 
         return `A1SAFE${nonce}NUM${id}ID@simonenko.xyz`;
       });
@@ -112,15 +149,7 @@ export class SafeSequences {
   }
 
   #storeToken(content) {
-    if (this.#tokens.length >= MAX_ENTRIES) {
-      throw capacityError('SafeSequences: too many tokens in input', {
-        kind: 'token',
-        max: MAX_ENTRIES
-      });
-    }
-
-    const id = this.#tokens.length;
-    this.#tokens.push(content);
+    const id = this.#idOf('t', this.#tokens, content);
 
     return `AzSAFE${this.#nonce}TOK${id}TK`;
   }
@@ -156,8 +185,9 @@ export class SafeSequences {
     return result;
   }
 
-  // Exposes token shapes for the forgery scrub without leaking content; matching ANY nonce is intentionally broad (the scrub only counts), and restore() still enforces the live-nonce gate.
+  // Token shapes for the forgery scrub, without the content. Matching any nonce is deliberately
+  // broad, because the scrub only counts and `restore()` still enforces the live-nonce gate.
   get restoreRegexes() {
-    return [URL_RESTORE_RE, URL_RESTORE_NOPROTO_RE, EMAIL_RESTORE_RE, TOKEN_RESTORE_RE];
+    return RESTORE_REGEXES;
   }
 }

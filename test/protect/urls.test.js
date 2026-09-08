@@ -60,6 +60,26 @@ describe('autolink href escaping', () => {
     assert.ok(out.includes('href="https://example.com/amber"'), out);
   });
 
+  // The URL vault swaps the address for a URL-shaped placeholder that autolink then re-matches, so a
+  // rule matching only a prefix of it strands the rest as unrestorable internal text.
+  test('a character right after a URL never strands vault machinery in the output', () => {
+    const residue = /A0SAFE[0-9A-F]+NUM|A1SAFE[0-9A-F]+NUM|AzSAFE[0-9A-F]+TOK/;
+
+    for (const after of ['"', "'", '“', '»', '`', ')', ';', ':', '=', '~', '#', '%', '&', '*']) {
+      for (const before of ['', 'Корвин ', 'Корвин, ', '«']) {
+        const input = `${before}https://amber.example/pattern${after}Арден`;
+        const out = microtypo(input, html);
+
+        assert.doesNotMatch(out, residue, `vault residue for ${JSON.stringify(input)}: ${out}`);
+        assert.ok(
+          out.includes('https://amber.example/pattern') ||
+            out.includes('href="https://amber.example/pattern"'),
+          `URL lost for ${JSON.stringify(input)}: ${out}`
+        );
+      }
+    }
+  });
+
   test('non-string href from a custom rule does not throw', () => {
     const typo = new MicroTypo({ html: true });
     typo.registerRuleGroup(
@@ -68,5 +88,43 @@ describe('autolink href escaping', () => {
     );
     const out = typo.process('Корвин');
     assert.ok(out.includes('href="5"'), out);
+  });
+
+  // A zone longer than four letters is an ordinary zone, and capping the scheme-less branch at four
+  // leaves the whole URL unprotected.
+  test('a scheme-less host with a long zone is protected whole', () => {
+    const src = 'Смотри arden.technology/t?size=5x3&d=1990-2005&n=100000 сегодня';
+
+    assert.equal(microtypo(src), src);
+  });
+
+  test('a scheme-less host with a short zone stays protected', () => {
+    const src = 'Смотри arden.io/t?size=5x3 сегодня';
+
+    assert.equal(microtypo(src), src);
+  });
+
+  // Consuming both boundaries gives the separator between two addresses to the first match and
+  // leaves the second with no opening boundary of its own.
+  test('two links parted by a single space are both linked', () => {
+    const out = microtypo('https://amber.example http://arden.io', { html: true });
+
+    assert.equal((out.match(/<a /g) ?? []).length, 2, out);
+    assert.ok(!/[\u{E000}-\u{F8FF}]/u.test(out), `placeholder leaked: ${out}`);
+    assert.equal(microtypo(out, { html: true }), out);
+  });
+
+  test('three links in a row are all linked', () => {
+    const out = microtypo('https://amber.example http://arden.io https://rebma.example', {
+      html: true
+    });
+
+    assert.equal((out.match(/<a /g) ?? []).length, 3, out);
+  });
+
+  test('two addresses parted by a single space are both linked', () => {
+    const out = microtypo('corwin@amber.example random@arden.io', { html: true });
+
+    assert.equal((out.match(/mailto:/g) ?? []).length, 2, out);
   });
 });

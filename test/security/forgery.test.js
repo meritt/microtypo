@@ -64,7 +64,7 @@ describe('vault isolation', () => {
     const typo = new MicroTypo();
     typo.process('Корвин http://victim-secret.amber.example');
     // Forge a URL placeholder from the previous call.
-    const out = typo.process('Амбер http://simonenko.xyz/A0SAFESEQNUM0ID Арден');
+    const out = typo.process('Амбер http://simonenko-xyz/A0SAFE0123456789ABCDEFNUM0ID Арден');
     assert.ok(!out.includes('victim-secret'), `Cross-call leak detected: ${out}`);
   });
 
@@ -186,7 +186,8 @@ describe('cycled-rule cap', () => {
 });
 
 describe('JSON PUA forgery', () => {
-  // JSON.parse decodes \uXXXX, reintroducing reserved PUA past the entry strip; the engine must re-strip.
+  // `JSON.parse` decodes `\uXXXX`, reintroducing reserved PUA past the entry strip, so the engine
+  // has to strip again.
 
   test('escaped-PUA forgery of a vault placeholder is neutralized, sibling value intact', () => {
     const out = microtypo('{"a":"\\uE000B0\\uE001","secret":"Корвин - тут"}', {
@@ -204,7 +205,8 @@ describe('JSON PUA forgery', () => {
   });
 
   test('forged placeholder cannot steal a sibling vaulted block content', () => {
-    // <pre> is a default safe block, so "secret" is really vaulted; the forged reference must not resolve to it.
+    // `<pre>` is a default safe block, so `secret` is really vaulted and the forged reference must
+    // not resolve to it.
     const out = microtypo('{"a":"\\uE000B0\\uE001","secret":"<pre>AMBER-DONOTLEAK</pre>"}', {
       input: { format: 'json' }
     });
@@ -237,7 +239,7 @@ describe('JSON PUA forgery', () => {
   });
 
   test('a forged OPEN in one field and a forged CLOSE in an adjacent field never combine', () => {
-    // Each JSON value is typeset independently, so a half-placeholder can't assemble across two fields.
+    // Each JSON value is typeset on its own, so a half-placeholder cannot assemble across two fields.
     const out = microtypo('{"a":"\\uE000T5 Корвин","b":"Рэндом \\uE001 Амбер"}', {
       input: { format: 'json' }
     });
@@ -259,7 +261,8 @@ describe('JSON PUA forgery', () => {
 });
 
 describe('custom-group forgery', () => {
-  // A rule may relocate placeholders and mint fresh ones; any extra occurrence it types must be defused before restore.
+  // A rule may relocate placeholders and mint fresh ones, so any extra occurrence it types has to be
+  // defused before restore.
 
   test('forged block/tag/anchor tokens do not duplicate protected content', () => {
     const typo = new MicroTypo();
@@ -330,13 +333,14 @@ describe('custom-group forgery', () => {
           {
             id: 'f',
             handler(ctx) {
-              // Re-emit the SAME id: occurrence budgeting, not unknown-id handling, must catch it.
-              const url = ctx.text.match(/http:\/\/simonenko\.xyz\/(A0SAFE[0-9A-F]+NUM)\d+(ID)/);
+              // Re-emits the same id, so occurrence budgeting rather than unknown-id handling has
+              // to catch it.
+              const url = ctx.text.match(/http:\/\/simonenko-xyz\/(A0SAFE[0-9A-F]+NUM)\d+(ID)/);
               const email = ctx.text.match(/(A1SAFE[0-9A-F]+NUM)\d+(ID@simonenko\.xyz)/);
               let out = ctx.text;
 
               if (url) {
-                out += ` LEAK-URL:http://simonenko.xyz/${url[1]}0${url[2]}`;
+                out += ` LEAK-URL:http://simonenko-xyz/${url[1]}0${url[2]}`;
               }
 
               if (email) {
@@ -367,9 +371,9 @@ describe('custom-group forgery', () => {
           {
             id: 'leak',
             handler(ctx) {
-              const m = ctx.text.match(/http:\/\/simonenko\.xyz\/(A0SAFE[0-9A-F]+NUM)\d+(ID)/);
+              const m = ctx.text.match(/http:\/\/simonenko-xyz\/(A0SAFE[0-9A-F]+NUM)\d+(ID)/);
 
-              return m ? `${ctx.text} LEAK:http://simonenko.xyz/${m[1]}0${m[2]}` : ctx.text;
+              return m ? `${ctx.text} LEAK:http://simonenko-xyz/${m[1]}0${m[2]}` : ctx.text;
             }
           }
         ]
@@ -439,7 +443,8 @@ describe('custom-group forgery', () => {
         title: 'wrap-then-forge',
         rules: [
           {
-            // Wraps ctx.text (relocating its real anchor) then forges a 2nd reference; mint credit must cover only fresh tokens.
+            // Wraps `ctx.text`, relocating its real anchor, then forges a second reference: mint
+            // credit must cover only fresh tokens.
             id: 'f',
             handler: (ctx) => `${ctx.tag(ctx.text, 'mark', {})}\nSTOLEN:<\uE000A0\uE001>`
           }
@@ -468,7 +473,8 @@ describe('custom-group forgery', () => {
         title: 'mint-then-leak',
         rules: [
           {
-            // One field mints a secret placeholder, another retypes it; mint credit must not carry across the field boundary.
+            // One field mints a secret placeholder and another retypes it, so mint credit must not
+            // carry across the field boundary.
             id: 'f',
             handler(ctx) {
               if (ctx.text.includes('MINT-HERE')) {
@@ -500,6 +506,204 @@ describe('custom-group forgery', () => {
       `hidden secret leaked into leakField: ${out}`
     );
     assert.ok(parsed.mintField.includes('SECRET-PAYLOAD'), `legitimate iblock mint broke: ${out}`);
+  });
+
+  // `ctx.tag()` and `ctx.iblock()` vault what they are handed, where the scrub of the returned text
+  // cannot read it. A group that hid a token there kept a copy the accounting never saw.
+  describe('what a group hands in is budgeted like what it hands back', () => {
+    const withHandler = (handler) => {
+      const typo = new MicroTypo(HTML);
+
+      typo.registerRuleGroup(defineRuleGroup({ title: 'hide', rules: [{ id: 'f', handler }] }), {
+        name: 'hide',
+        position: 'end'
+      });
+
+      return typo.process('<pre>AMBER-RAW</pre> Цель');
+    };
+
+    const forged = `${OPEN}B0${CLOSE}`;
+
+    test('a token hidden in an iblock does not duplicate protected content', () => {
+      const out = withHandler((ctx) => ctx.text + ctx.iblock(forged));
+
+      assert.equal(out.split('AMBER-RAW').length - 1, 1, `<pre> content duplicated: ${out}`);
+      assert.ok(!out.includes(OPEN) && !out.includes(CLOSE), `reserved PUA reached output: ${out}`);
+    });
+
+    test('a token hidden in an attribute value does not duplicate protected content', () => {
+      const out = withHandler((ctx) => ctx.text + ctx.tag('X', 'span', { title: forged }));
+
+      assert.equal(out.split('AMBER-RAW').length - 1, 1, `<pre> content duplicated: ${out}`);
+    });
+
+    test('a token hidden in an href does not duplicate protected content', () => {
+      const out = withHandler((ctx) => ctx.text + ctx.tag('X', 'a', { href: forged }));
+
+      assert.equal(out.split('AMBER-RAW').length - 1, 1, `<pre> content duplicated: ${out}`);
+    });
+
+    // The budget reads strings, and everything that decides which string an attribute carries — a
+    // `String` object, a number, the group's own class-to-style mapping — has to have run before it
+    // looks.
+    test('a token that is not yet a string is budgeted like one', () => {
+      const out = withHandler(
+        (ctx) => ctx.text + ctx.tag('X', 'span', { title: { toString: () => forged } })
+      );
+
+      assert.equal(out.split('AMBER-RAW').length - 1, 1, `<pre> content duplicated: ${out}`);
+    });
+
+    test('a token reached through the group class mapping is budgeted too', () => {
+      const typo = new MicroTypo(HTML);
+
+      typo.registerRuleGroup(
+        defineRuleGroup({
+          title: 'hide',
+          classes: { probe: forged },
+          rules: [
+            { id: 'f', handler: (ctx) => ctx.text + ctx.tag('X', 'span', { class: 'probe' }) }
+          ]
+        }),
+        { name: 'hide', position: 'end' }
+      );
+
+      const out = typo.process('<pre>AMBER-RAW</pre> Цель');
+
+      assert.equal(out.split('AMBER-RAW').length - 1, 1, `<pre> content duplicated: ${out}`);
+    });
+
+    // Escaping is the last thing that can read an attribute value, so what is still opaque when it
+    // runs comes back afterwards — past the escaping — and the quote inside it closes the attribute.
+    test('protected text placed in an attribute cannot open a second attribute', () => {
+      const typo = new MicroTypo({ presets: false, html: true });
+
+      typo.registerRuleGroup(
+        defineRuleGroup({
+          title: 'tooltip',
+          rules: [{ id: 'f', handler: (ctx) => ctx.tag('X', 'span', { title: ctx.text }) }]
+        }),
+        { name: 'tooltip' }
+      );
+
+      const out = typo.process('<pre>" data-probe="injected</pre>');
+
+      assert.ok(
+        !/data-probe=/.test(out.replace(/title="[^"]*"/, '')),
+        `attribute injected: ${out}`
+      );
+      assert.ok(out.includes('&quot;'), `the quote was not escaped: ${out}`);
+    });
+
+    // A paragraph belongs to a document and an attribute holds none, so a marker that cannot become
+    // a `<p>` goes out whole rather than losing only its delimiters.
+    test('a paragraph marker does not reach an attribute', () => {
+      const typo = new MicroTypo({ html: true });
+
+      typo.registerRuleGroup(
+        defineRuleGroup({
+          title: 'tooltip',
+          rules: [{ id: 'f', handler: (ctx) => ctx.tag('X', 'span', { title: ctx.text }) }]
+        }),
+        { name: 'tooltip', position: 'end' }
+      );
+
+      const out = typo.process('Корвин помнит Амбер\n\nДворкин чертит Узор');
+      const title = out.match(/title="([^"]*)"/u)?.[1];
+
+      assert.ok(title?.includes('Корвин помнит Амбер'), out);
+      assert.ok(title?.includes('Дворкин чертит Узор'), out);
+      assert.ok(!/POP|PCL|BR/.test(title), `a paragraph marker reached the attribute: ${out}`);
+    });
+
+    test('wrapping protected content in a tag still works', () => {
+      const out = withHandler((ctx) => ctx.tag(ctx.text, 'span', { class: 'nowrap' }));
+
+      assert.equal(out.split('AMBER-RAW').length - 1, 1, out);
+      assert.ok(out.includes('<span><pre>AMBER-RAW</pre>'), out);
+    });
+
+    test('nesting one minted tag inside another still works', () => {
+      const out = withHandler((ctx) => `${ctx.text}${ctx.tag(ctx.tag('Икс', 'small'), 'sub')}`);
+
+      assert.ok(out.includes('<sub><small>Икс</small></sub>'), out);
+    });
+  });
+
+  // The accounting decides whether the group forged anything, so the group must not be able to
+  // clear it, credit itself, or switch it off — and `builtin` is the switch that turns it off for
+  // every later run.
+  describe('a group cannot reach the accounting behind it', () => {
+    const reachOut = (handler) => {
+      const typo = new MicroTypo(HTML);
+
+      typo.registerRuleGroup(defineRuleGroup({ title: 'reach', rules: [{ id: 'f', handler }] }), {
+        name: 'reach',
+        position: 'end'
+      });
+
+      return typo.process('<pre>AMBER-RAW</pre> Цель');
+    };
+
+    test('ctx carries no minting state', () => {
+      let keys = null;
+
+      reachOut((ctx) => {
+        keys = Object.keys(ctx);
+
+        return ctx.text;
+      });
+
+      assert.deepEqual(
+        keys.filter((key) => /mint|track/i.test(key)),
+        []
+      );
+    });
+
+    test('ctx.group cannot be marked builtin', () => {
+      let outcome = null;
+
+      reachOut((ctx) => {
+        try {
+          ctx.group.builtin = true;
+          outcome = ctx.group.builtin === true ? 'mutated' : 'ignored';
+        } catch {
+          outcome = 'threw';
+        }
+
+        return ctx.text;
+      });
+
+      assert.notEqual(outcome, 'mutated');
+    });
+
+    test('a group still reads its own settings and classes', () => {
+      let seen = null;
+
+      const typo = new MicroTypo(HTML);
+
+      typo.registerRuleGroup(
+        defineRuleGroup({
+          title: 'reads',
+          classes: { nowrap: 'white-space:nowrap;' },
+          rules: [
+            {
+              id: 'f',
+              handler(ctx) {
+                seen = ctx.group.raw.classes.nowrap;
+
+                return ctx.text;
+              }
+            }
+          ]
+        }),
+        { name: 'reads', position: 'end' }
+      );
+
+      typo.process('Корвин');
+
+      assert.equal(seen, 'white-space:nowrap;');
+    });
   });
 
   test('self-duplication neutralizes to empty, not a vault-id fragment', () => {
@@ -536,31 +740,54 @@ describe('paragraph-token forgery', () => {
   });
 });
 
+// The forged nonce is hex and the id is in range, so only the live-nonce check can reject these;
+// a non-hex nonce would be turned away by the literal shape alone and prove nothing.
 describe('deterministic placeholder forgery', () => {
+  const FORGED_URL = 'http://simonenko-xyz/A0SAFE0123456789ABCDEFNUM0ID';
+  const FORGED_EMAIL = 'A1SAFE0123456789ABCDEFNUM0ID@simonenko.xyz';
+
   test('forged unknown safe-sequence URL placeholder stays intact', () => {
-    const out = microtypo('http://simonenko.xyz/A0SAFESEQNUM999ID Амбер', {
+    const out = microtypo(`${FORGED_URL.replace('NUM0ID', 'NUM999ID')} Амбер`, {
       render: { paragraphs: false }
     });
 
-    assert.ok(out.includes('SAFESEQNUM999ID'), `Got: ${out}`);
+    assert.ok(out.includes('A0SAFE0123456789ABCDEFNUM999ID'), `Got: ${out}`);
   });
 
   test('deterministic placeholder cannot hijack a stored URL', () => {
-    const out = microtypo(
-      'Корвин http://amber.example подмена http://simonenko.xyz/A0SAFESEQNUM0ID',
-      HTML
-    );
+    const out = microtypo(`Корвин http://amber.example подмена ${FORGED_URL}`, HTML);
     // The forged placeholder must NOT acquire the real URL's content.
     const linksToExample = (out.match(/href="http:\/\/amber\.example"/g) || []).length;
     assert.equal(linksToExample, 1, `Real URL leaked via forgery: ${out}`);
+    assert.ok(out.includes('A0SAFE0123456789ABCDEFNUM0ID'), `Forgery consumed: ${out}`);
   });
 
   test('deterministic placeholder cannot hijack a stored email', () => {
-    const out = microtypo(
-      'Корвин oberon@amber.example подмена A1SAFESEQNUM0ID@simonenko.xyz',
-      HTML
-    );
+    const out = microtypo(`Корвин oberon@amber.example подмена ${FORGED_EMAIL}`, HTML);
     const linksToAdmin = (out.match(/href="mailto:oberon@amber\.example"/g) || []).length;
     assert.equal(linksToAdmin, 1, `Real email leaked via forgery: ${out}`);
+    assert.ok(out.includes('A1SAFE0123456789ABCDEFNUM0ID'), `Forgery consumed: ${out}`);
+  });
+
+  // An autolink body that allowed the reserved delimiters would run a greedy match through the
+  // vaulted closing tag and the paragraph marker behind it and carry both into the href.
+  test('a link at the end of a paragraph does not swallow a placeholder', () => {
+    const out = microtypo('<p>https://arden.io/1 https://arden.io/2</p>', {
+      input: 'html',
+      html: true
+    });
+
+    assert.ok(
+      !/[\u{E000}\u{E001}\u{E100}\u{E101}]/u.test(out),
+      `reserved codepoint reached the output: ${JSON.stringify(out)}`
+    );
+    assert.ok(!out.includes('PCL'), out);
+  });
+
+  test('many links in one paragraph keep the output free of placeholders', () => {
+    const body = Array.from({ length: 30 }, (_, i) => `https://arden.io/${i}`).join(' ');
+    const out = microtypo(`<p>${body}</p>`, { input: 'html', html: true });
+
+    assert.ok(!/[\u{E000}\u{E001}\u{E100}\u{E101}]/u.test(out), out.slice(0, 200));
   });
 });
