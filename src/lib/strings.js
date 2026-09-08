@@ -69,6 +69,24 @@ export function edgeWhitespace(text) {
   return { start, end };
 }
 
+// Whitespace inside a collection that is not line-structured — a YAML flow collection, a TOML inline
+// table — where a line break separates nothing and is just another space.
+export function isFlowSpace(ch) {
+  return ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r';
+}
+
+// Horizontal whitespace only: every format scanner walks past spaces and tabs without crossing a
+// line break.
+export function skipSpaces(text, i, limit) {
+  let j = i;
+
+  while (j < limit && (text[j] === ' ' || text[j] === '\t')) {
+    j += 1;
+  }
+
+  return j;
+}
+
 export function count(haystack, needle) {
   if (!needle) {
     return 0;
