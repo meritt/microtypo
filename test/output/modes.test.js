@@ -216,7 +216,8 @@ describe('mode matrix', () => {
 });
 
 describe('newline invariants', () => {
-  // html:false disables the text group (paragraphs + breakline), isolating the raw newline-collapse invariant.
+  // `html: false` disables the text group, paragraphs and breakline both, which isolates the raw
+  // newline-collapse invariant.
   test('3+ consecutive newlines collapse to exactly \\n\\n', () => {
     assert.equal(microtypo('Корвин\n\n\n\nЭрик', { html: false }), 'Корвин\n\nЭрик');
   });
@@ -238,5 +239,149 @@ describe('newline invariants', () => {
     const twice = microtypo(once);
 
     assert.equal(twice, once);
+  });
+});
+
+// `html: true` is more than one switch: inline markup plus `<p>` and `<br>`. Markdown source keeps
+// its own block syntax, so only the inline half applies — the other half would wrap the heading, the
+// list and the fence in one paragraph that is neither Markdown nor HTML.
+describe('Markdown keeps its block syntax under html:true', () => {
+  const md = { input: 'markdown', html: true };
+  const source =
+    '# Донесение\n\nКорвин - принц.\n\n- Оберон\n- Рэндом\n\n```js\nconst a = "b" - 1;\n```';
+
+  test('no <p> and no <br> are emitted', () => {
+    const out = microtypo(source, md);
+
+    assert.ok(!out.includes('<p>'), out);
+    assert.ok(!out.includes('<br>'), out);
+    assert.ok(out.startsWith('# Донесение'), out);
+    assert.ok(out.includes('- Оберон\n- Рэндом'), out);
+  });
+
+  test('a second pass leaves the fenced code untouched', () => {
+    const once = microtypo(source, md);
+
+    assert.equal(microtypo(once, md), once);
+    assert.ok(once.includes('const a = "b" - 1;'), once);
+  });
+
+  test('inline markup still comes through', () => {
+    const out = microtypo('Звони 8 800 555-35-35 и смотри https://amber.io/pattern.', md);
+
+    assert.ok(out.includes('white-space:nowrap'), out);
+    assert.ok(out.includes('<a href="https://amber.io/pattern">'), out);
+  });
+
+  test('render.paragraphs opts back in', () => {
+    const out = microtypo('Корвин - принц\n\nРэндом - брат', {
+      ...md,
+      render: { paragraphs: true }
+    });
+
+    assert.ok(out.includes('<p>Корвин'), out);
+  });
+
+  test('a frontmatter body follows the same default', () => {
+    const out = microtypo('---\na: "Корвин - раз"\n---\n\nТекст - вот', {
+      input: 'frontmatter',
+      html: true
+    });
+
+    assert.ok(!out.includes('<p>'), out);
+  });
+
+  test('text and html formats still wrap', () => {
+    assert.ok(microtypo('Корвин - принц', { html: true }).includes('<p>'));
+    assert.ok(microtypo('Корвин - принц', { input: 'html', html: true }).includes('<p>'));
+  });
+});
+
+const wrapped = (input, config) => microtypo(input, { html: true, ...config });
+
+describe('a paragraph of protected content survives <p> wrapping', () => {
+  test('a fenced code block', () => {
+    const out = wrapped('Текст.\n\n```\nкод\n```\n\nЕщё.', { input: 'markdown' });
+
+    assert.ok(out.includes('```\nкод\n```'), out);
+  });
+
+  test('an indented code block', () => {
+    const out = wrapped('Текст.\n\n    код\n\nЕщё.', { input: 'markdown' });
+
+    assert.ok(out.includes('    код'), out);
+  });
+
+  test('a template expression', () => {
+    const out = wrapped('Текст.\n\n{{ ссылка }}\n\nЕщё.', {
+      input: { template: 'handlebars' }
+    });
+
+    assert.ok(out.includes('{{ ссылка }}'), out);
+  });
+
+  test('an HTML comment', () => {
+    const out = wrapped('Текст.\n\n<!-- Дворкин -->\n\nЕщё.', { input: 'html' });
+
+    assert.ok(out.includes('<!-- Дворкин -->'), out);
+  });
+
+  // An unwrap body of `[\\s\\S]*?` pairs an opening block tag in one paragraph with its closing tag
+  // several paragraphs later and swallows every `</p>` and `<p>` between them, which reprocessing
+  // then duplicates.
+  test('a block tag split across blank lines keeps <p> balanced and stable', () => {
+    const src = '<table>\n\n<caption>Пути из Амбера</caption>\n\n</table>';
+    const once = microtypo(src, { input: 'html', html: true });
+
+    let depth = 0;
+    for (const token of once.match(/<\/?p>/gi) ?? []) {
+      depth += token === '<p>' ? 1 : -1;
+      assert.ok(depth >= 0, `a </p> closes a paragraph that was never opened: ${once}`);
+    }
+
+    assert.equal(depth, 0, `unbalanced paragraphs: ${once}`);
+    assert.equal(microtypo(once, { input: 'html', html: true }), once);
+  });
+
+  // The author's own `<p>` inside a block is a paragraph marker like any other by the time the text
+  // group runs, so it splits the block in two and the unwrap can no longer take the block out of the
+  // paragraph around it: the block comes out wrapped, which HTML forbids. Telling the two kinds of
+  // `<p>` apart needs the foreign markup parsed, which this engine deliberately does not do. What
+  // must hold either way is that the document stops moving.
+  test('a block holding an author paragraph comes out wrapped, but settles', () => {
+    const config = { input: 'html', html: true };
+
+    for (const src of [
+      '<table><tr><td><p>Корвин</p></td></tr></table>',
+      '<div><p>Корвин</p></div>',
+      '<blockquote><p>Корвин</p><p>Рэндом</p></blockquote>'
+    ]) {
+      const once = microtypo(src, config);
+
+      assert.equal(microtypo(once, config), once, `never settles: ${once}`);
+    }
+  });
+
+  // HTML forbids a `<br>` across a block boundary, and the rule that turns whitespace into a
+  // paragraph break has to cover all four sides: with `paragraphs` off, a chunk holding only block
+  // markup brings back the two inner ones.
+  test('whitespace inside a block boundary never becomes <br>', () => {
+    const config = { input: 'html', html: true, render: { paragraphs: false } };
+
+    for (const src of [
+      '<div>\nКорвин - принц\n</div>',
+      '<div>\n\nКорвин - принц\n\n</div>',
+      '<blockquote>\nДворкин\n</blockquote>'
+    ]) {
+      const out = microtypo(src, config);
+
+      assert.ok(!out.includes('<br>'), `<br> crossed a block boundary: ${out}`);
+    }
+  });
+
+  test('a line break in ordinary prose still becomes <br>', () => {
+    const out = microtypo('Корвин\nЭрик', { html: true, render: { paragraphs: false } });
+
+    assert.ok(out.includes('<br>'), out);
   });
 });

@@ -1,4 +1,6 @@
 import { MicroTypoInputError } from '../errors/index.js';
+import { isFlowSpace } from '../lib/strings.js';
+import { isTagNameStart } from '../lib/tag-name.js';
 
 // Order matters: comment before pi so '<!--' is never split into '<' + '!--'.
 export const xmlBlocks = [
@@ -6,6 +8,124 @@ export const xmlBlocks = [
   { id: 'xml-cdata', open: '<![CDATA[', close: ']]>' },
   { id: 'xml-pi', open: '<?', close: '?>' }
 ];
+
+const NAME_BODY_RE = /[^\s/>]/;
+
+// Both walkers below ask the same thing of a `<`: which tag, opening or closing, and where its name
+// ends. `null` means the `<` opens no tag, and the caller steps past it.
+function readTagName(masked, i, n) {
+  const isClose = masked[i + 1] === '/';
+  const nameStart = isClose ? i + 2 : i + 1;
+
+  // The first character decides whether there is a name here at all, and it is asked first: scanning
+  // the whole run before rejecting it re-reads the same suffix from every `<` that opens nothing,
+  // and this walk has no budget check of its own.
+  //
+  // The whole code point, not one UTF-16 unit: XML admits names from U+10000 upward, and half a
+  // surrogate pair is not a letter.
+  if (nameStart >= n || !isTagNameStart(masked.codePointAt(nameStart))) {
+    return null;
+  }
+
+  let j = nameStart + 1;
+
+  while (j < n && NAME_BODY_RE.test(masked[j])) {
+    j += 1;
+  }
+
+  return { isClose, name: masked.slice(nameStart, j), end: j };
+}
+
+const ATTR_NAME_RE = /[^\s=/<>]/;
+
+const NAMED_REF = Object.freeze({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" });
+const CHAR_REF_RE = /&(?:#(\d+)|#x([\da-fA-F]+)|(amp|lt|gt|quot|apos));/g;
+
+// An attribute value means the characters its references stand for, and a literal tab or line break
+// in one is a space, so `xml:space="pre&#115;erve"` normalizes to exactly `preserve`. XML §3.3.3.
+//
+// The result is compared with one word and never written back into the document, which is why a
+// decoded reserved codepoint cannot reach the vault from here.
+function normalizedAttrValue(raw) {
+  return raw.replaceAll(/[\t\n\r]/g, ' ').replaceAll(CHAR_REF_RE, (full, dec, hex, named) => {
+    if (named !== undefined) {
+      return NAMED_REF[named];
+    }
+
+    const code = dec === undefined ? Number.parseInt(hex, 16) : Number.parseInt(dec, 10);
+
+    return code <= 0x10ffff ? String.fromCodePoint(code) : full;
+  });
+}
+
+function skipXmlSpace(masked, i, n) {
+  let j = i;
+
+  while (j < n && isFlowSpace(masked[j])) {
+    j += 1;
+  }
+
+  return j;
+}
+
+// One walk over a tag's attributes, and the one place that decides where the tag ends: the validator
+// and the preserve scanner have to agree on how far a malformed tag advances the cursor, or a
+// document of unopened `<` is re-read from every one of them.
+//
+// The attributes are read as attributes rather than matched as one raw substring, where the answer
+// could come from anywhere inside the tag: `note='xml:space="preserve"'` names an attribute called
+// `note`, and `other-xml:space` is a different namespace.
+function readTagAttributes(masked, from, n) {
+  let j = from;
+  let preserve = false;
+
+  while (j < n) {
+    const ch = masked[j];
+
+    if (ch === '<' || ch === '>') {
+      return { end: j, preserve, unterminated: false };
+    }
+
+    if (!ATTR_NAME_RE.test(ch)) {
+      j += 1;
+      continue;
+    }
+
+    const nameStart = j;
+
+    while (j < n && ATTR_NAME_RE.test(masked[j])) {
+      j += 1;
+    }
+
+    const name = masked.slice(nameStart, j);
+
+    j = skipXmlSpace(masked, j, n);
+
+    if (masked[j] !== '=') {
+      continue;
+    }
+
+    j = skipXmlSpace(masked, j + 1, n);
+
+    const quote = masked[j];
+
+    if (quote !== '"' && quote !== "'") {
+      continue;
+    }
+
+    const close = masked.indexOf(quote, j + 1);
+
+    if (close === -1) {
+      return { end: n, preserve, unterminated: true };
+    }
+
+    preserve ||=
+      name === 'xml:space' && normalizedAttrValue(masked.slice(j + 1, close)) === 'preserve';
+    j = close + 1;
+  }
+
+  return { end: n, preserve, unterminated: false };
+}
 
 function unterminated(construct, start) {
   return new MicroTypoInputError(`Unterminated XML ${construct} construct at offset ${start}`, {
@@ -34,13 +154,15 @@ function blockEnd(text, block, start, checkBudget) {
   throw unterminated(block.open, start);
 }
 
-// Close on the first '>' at bracket-depth 0 outside quotes: a '>' inside a quoted value or the '[...]' internal subset doesn't end the DOCTYPE.
+// Closes on the first `>` at bracket depth 0 outside quotes: a `>` inside a quoted value or the
+// `[...]` internal subset does not end the DOCTYPE.
 export function doctypeEnd(text, start, checkBudget) {
   const n = text.length;
   let j = start + '<!DOCTYPE'.length;
   let depth = 0;
   let quote = '';
-  // Threshold, not an i-bitmask: a monotonic counter can alias past every check point; a threshold fires at least once per ~16K chars.
+  // A threshold rather than a mask on `i`: a monotonic counter can alias past every check point,
+  // while a threshold fires at least once per ~16K characters.
   let nextCheck = j + 0x4000;
 
   while (j < n) {
@@ -111,7 +233,8 @@ export function scanDoctype(text, checkBudget) {
   const n = text.length;
   const spans = [];
   let i = 0;
-  // Threshold, not an i-bitmask: a match jumps i by a whole DOCTYPE span, so a fixed mask could stride past every budget check.
+  // A threshold rather than a mask on `i`: a match jumps `i` by a whole DOCTYPE span, so a fixed
+  // mask could stride past every check.
   let nextCheck = 0;
 
   while (i < n) {
@@ -133,14 +256,12 @@ export function scanDoctype(text, checkBudget) {
   return spans;
 }
 
-function scanXmlConstructs(text, checkBudget) {
+function maskXmlConstructs(text, checkBudget) {
   if (!text.includes('<!') && !text.includes('<?')) {
-    return { masked: text, constructs: [], doctypes: [] };
+    return text;
   }
 
   const n = text.length;
-  const constructs = [];
-  const doctypes = [];
   const chunks = [];
   let i = 0;
   let chunkStart = 0;
@@ -158,11 +279,9 @@ function scanXmlConstructs(text, checkBudget) {
     }
 
     let end = -1;
-    let isDoctype = false;
 
     if (text.startsWith('<!DOCTYPE', i)) {
       end = doctypeEnd(text, i, checkBudget);
-      isDoctype = true;
     } else {
       const block = xmlBlocks.find(({ open }) => text.startsWith(open, i));
 
@@ -176,37 +295,22 @@ function scanXmlConstructs(text, checkBudget) {
       continue;
     }
 
-    const span = [i, end];
-    constructs.push(span);
-
-    if (isDoctype) {
-      doctypes.push(span);
-    }
-
     chunks.push(text.slice(chunkStart, i), ' '.repeat(end - i));
     chunkStart = end;
     i = end;
   }
 
-  if (constructs.length === 0) {
-    return { masked: text, constructs, doctypes };
+  if (chunks.length === 0) {
+    return text;
   }
 
   chunks.push(text.slice(chunkStart));
 
-  return {
-    masked: chunks.join(''),
-    constructs,
-    doctypes
-  };
-}
-
-export function maskConstructs(text, checkBudget) {
-  return scanXmlConstructs(text, checkBudget).masked;
+  return chunks.join('');
 }
 
 export function validateXml(text, checkBudget) {
-  const { masked } = scanXmlConstructs(text, checkBudget);
+  const masked = maskXmlConstructs(text, checkBudget);
   const n = masked.length;
   const stack = [];
   let i = 0;
@@ -217,49 +321,18 @@ export function validateXml(text, checkBudget) {
       continue;
     }
 
-    const isClose = masked[i + 1] === '/';
-    let j = isClose ? i + 2 : i + 1;
-    const nameStart = j;
+    const tag = readTagName(masked, i, n);
 
-    while (j < n && /[^\s/>]/.test(masked[j])) {
-      j += 1;
-    }
-
-    const name = masked.slice(nameStart, j);
-
-    if (!name || !/^[A-Za-z]/.test(name)) {
+    if (!tag) {
       i += 1;
       continue;
     }
 
-    let quote = '';
+    const { isClose, name } = tag;
+    const attrs = readTagAttributes(masked, tag.end, n);
+    const j = attrs.end;
 
-    while (j < n) {
-      const ch = masked[j];
-
-      if (quote) {
-        if (ch === quote) {
-          quote = '';
-        }
-
-        j += 1;
-        continue;
-      }
-
-      if (ch === '"' || ch === "'") {
-        quote = ch;
-        j += 1;
-        continue;
-      }
-
-      if (ch === '<' || ch === '>') {
-        break;
-      }
-
-      j += 1;
-    }
-
-    if (quote) {
+    if (attrs.unterminated) {
       throw new MicroTypoInputError(`Unterminated attribute quote in XML tag at offset ${i}`, {
         details: { offset: i }
       });
@@ -294,15 +367,13 @@ export function validateXml(text, checkBudget) {
   }
 }
 
-const XML_SPACE_PRESERVE_RE = /\bxml:space\s*=\s*(["'])preserve\1/;
-
-// Assumes well-formed input: validateXml runs first and would already have thrown on anything malformed.
+// Assumes well-formed input: `validateXml` runs first and has already thrown on anything malformed.
 export function scanXmlSpacePreserve(text, checkBudget) {
   if (!text.includes('xml:space')) {
     return [];
   }
 
-  const { masked } = scanXmlConstructs(text, checkBudget);
+  const masked = maskXmlConstructs(text, checkBudget);
   const n = masked.length;
   const stack = [];
   const spans = [];
@@ -316,51 +387,21 @@ export function scanXmlSpacePreserve(text, checkBudget) {
       continue;
     }
 
-    const isClose = masked[i + 1] === '/';
-    let j = isClose ? i + 2 : i + 1;
-    const nameStart = j;
+    const tag = readTagName(masked, i, n);
 
-    while (j < n && /[^\s/>]/.test(masked[j])) {
-      j += 1;
-    }
-
-    const name = masked.slice(nameStart, j);
-
-    if (!name || !/^[A-Za-z]/.test(name)) {
+    if (!tag) {
       i += 1;
       continue;
     }
 
-    const attrsStart = j;
-    let quote = '';
+    const { isClose, name } = tag;
+    const attrs = readTagAttributes(masked, tag.end, n);
+    const j = attrs.end;
 
-    while (j < n) {
-      const ch = masked[j];
-
-      if (quote) {
-        if (ch === quote) {
-          quote = '';
-        }
-
-        j += 1;
-        continue;
-      }
-
-      if (ch === '"' || ch === "'") {
-        quote = ch;
-        j += 1;
-        continue;
-      }
-
-      if (ch === '<' || ch === '>') {
-        break;
-      }
-
-      j += 1;
-    }
-
-    if (quote || masked[j] !== '>') {
-      i += 1;
+    // Past what has already been read, never one character on: a `<` that opens nothing is where the
+    // next tag may start, and stepping into it re-read the whole suffix from every one of them.
+    if (attrs.unterminated || masked[j] !== '>') {
+      i = j;
       continue;
     }
 
@@ -375,7 +416,7 @@ export function scanXmlSpacePreserve(text, checkBudget) {
         preserveDepth = -1;
       }
     } else if (!selfClosing) {
-      if (preserveDepth === -1 && XML_SPACE_PRESERVE_RE.test(masked.slice(attrsStart, j))) {
+      if (preserveDepth === -1 && attrs.preserve) {
         preserveDepth = stack.length;
         preserveStart = tagEnd;
       }

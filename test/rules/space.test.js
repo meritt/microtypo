@@ -10,7 +10,8 @@ const HTML = { html: true, render: { paragraphs: false } };
 
 const ent = (text) => new MicroTypo({ ...FLAT, entities: true }).process(text);
 
-// html:false skips the text group, so the nowrap tag and nbsp rewrite layer in via separate applyOptions() calls.
+// `html: false` skips the text group, so the nowrap tag and the nbsp rewrite layer in through
+// separate `applyOptions()` calls.
 function plainNoWrap() {
   const instance = new MicroTypo({ html: false, entities: false });
   instance.applyOptions({ render: { nowrap: 'span' } });
@@ -104,7 +105,8 @@ describe('compact Russian phone numbers (EF2)', () => {
 });
 
 describe('nbsp at a word boundary', () => {
-  // The lookbehind is scoped to each rule's character class, so a letter outside it (non-Russian, underscore) still matches.
+  // The lookbehind is scoped to each rule's character class, so a letter outside it — non-Russian,
+  // an underscore — still matches.
   test('word with a non-Russian letter gets nbsp before the dash', () => {
     const out = microtypo('Ђерард — Амбер', { entities: false });
     assert.ok(out.includes(`д${NBSP}—`), out);
@@ -126,7 +128,7 @@ describe('nbsp at a word boundary', () => {
   });
 });
 
-describe('space.nbsp_two_letter — serial acronyms (XTEST-META)', () => {
+describe('space.nbsp_two_letter — serial acronyms', () => {
   test('binds each acronym in a run to the preceding token', () => {
     const out = microtypo('Корвин миновал заставы US UK за день', FLAT);
     assert.ok(out.includes(`заставы${NBSP}US`), `first unbound: ${out}`);
@@ -182,13 +184,16 @@ describe('space.strip_quote_padding (GAP-W2)', () => {
   });
 
   test('multi-phrase angle quotes both get stripped', () => {
-    // The space before the second «» becomes NBSP (one-letter "и" glued to the opener), unrelated to strip_quote_padding.
+    // The space before the second «» becomes an NBSP, the one-letter `и` gluing to the opener, which
+    // has nothing to do with `strip_quote_padding`.
     assert.equal(microtypo('«  a  » и «  b  »', NOP), `«a» и${NBSP}«b»`);
   });
 
-  test('KNOWN LIMITATION: padded straight quotes are not converted or stripped', () => {
-    // This rule targets the angle quotes the engine emits, not the ambiguous raw straight input.
-    assert.equal(microtypo('"   текст   "', NOP), '" текст "');
+  // The gap is a horizontal run, so a padded pair converts and this rule strips the padding as it
+  // does for any other.
+  test('padded straight quotes convert and lose their padding', () => {
+    assert.equal(microtypo('"   текст   "', NOP), '«текст»');
+    assert.equal(microtypo('"  текст  "', NOP), '«текст»');
   });
 
   test('quote.* disabled: close class does not glue a straight quote to the word before it', () => {
@@ -231,7 +236,7 @@ describe('parenthetical ellipsis spacing (EF4)', () => {
   });
 });
 
-describe('space.trim_before_punctuation (XTEST-4)', () => {
+describe('space.trim_before_punctuation', () => {
   test('trim_before_punctuation handles mark runs, spares emoticons', () => {
     assert.equal(microtypo('Амбер !!!'), 'Амбер!!!');
     assert.equal(microtypo('Амбер !?'), 'Амбер?!');
@@ -244,11 +249,140 @@ describe('space.trim_before_punctuation (XTEST-4)', () => {
   });
 
   test('preserves the space between two adjacent suspension-mark runs (REAL-3)', () => {
-    // mark_ellipsis turns each run into a `..` suspension mark; the lone space between them must survive.
+    // `mark_ellipsis` turns each run into a `..` suspension mark, and the lone space between them has
+    // to survive.
     assert.equal(microtypo('Корвин?… !…'), 'Корвин?.. !..');
   });
 
   test('still trims the space before punctuation after an abbreviation period (regression)', () => {
     assert.equal(microtypo('и т.д. , доспехи'), `и${NBSP}т.${NBSP}д., доспехи`);
+  });
+
+  // The rule splits on the length of the word after the dot, and both branches have to ask whether
+  // that word is a domain zone.
+  test('a bare host with a long zone keeps its dot', () => {
+    assert.equal(microtypo('Пиши на arden.online сегодня'), 'Пиши на\u{00A0}arden.online сегодня');
+    assert.equal(
+      microtypo('Пиши на arden.technology сегодня'),
+      'Пиши на\u{00A0}arden.technology сегодня'
+    );
+  });
+
+  test('a real sentence boundary still gets its space', () => {
+    assert.equal(microtypo('Корвин ушёл.Рэндом остался'), 'Корвин ушёл. Рэндом остался');
+  });
+
+  // The zone list can never be complete, so what it must carry is what documents actually write: the
+  // zones RFC 2606 reserves for documentation, the Russian ccTLD beside its `ру` and `ком`
+  // neighbours, and this project's own domain.
+  test('a host in a zone written examples use keeps its dot', () => {
+    for (const host of [
+      'simonenko.xyz',
+      'amber.example',
+      'амбер.рф',
+      'shadow.test',
+      'arden.invalid'
+    ]) {
+      assert.equal(
+        microtypo(`Пиши на ${host} сегодня`),
+        `Пиши на\u{00A0}${host} сегодня`,
+        `${host} lost its dot`
+      );
+    }
+  });
+
+  // The trim closes a gap between two marks, and the punctuation group — which runs four groups
+  // earlier — swallows the pairs it owns. A pair glued together here therefore survives this pass and
+  // is rewritten on the next one, a mark short of what the author typed. The pairs it swallows come
+  // from that group, so this rule and that one cannot drift apart.
+  test('the trim does not glue two runs of the same mark', () => {
+    const once = microtypo('Знаки подряд:!? ?!. Дальше');
+
+    assert.ok(once.includes('!? ?!.'), once);
+    assert.equal(microtypo(once), once);
+  });
+
+  test('the trim does not glue an exclamation onto a question', () => {
+    const once = microtypo('текст ! ? знак');
+
+    assert.equal(once, 'текст! ? знак');
+    assert.equal(microtypo(once), once);
+  });
+
+  // `?!` is not a pair the punctuation group takes apart, so gluing it loses nothing.
+  test('the trim still joins two marks that survive together', () => {
+    assert.equal(
+      microtypo('Корвин крикнул: что? ! потом ушёл'),
+      'Корвин крикнул: что?! потом ушёл'
+    );
+  });
+
+  test('a period and an ellipsis survive being glued', () => {
+    const once = microtypo('Точка и многоточие. … конец');
+
+    assert.equal(once, `Точка и${NBSP}многоточие.… конец`);
+    assert.equal(microtypo(once), once);
+  });
+
+  test('a period already glued to an ellipsis is left as the author had it', () => {
+    const once = microtypo('Корвин ушёл.… и всё');
+
+    assert.equal(microtypo(once), once);
+  });
+
+  // The period of an abbreviation belongs to the word, and `abbr` may take it away four groups
+  // later, so reading it as a sentence mark turns this decision on a character about to disappear.
+  test('an abbreviation period is not a mark this rule refuses to glue onto', () => {
+    const once = microtypo('100 руб. .');
+
+    assert.equal(once, `100${NBSP}₽.`);
+    assert.equal(microtypo(once), once);
+  });
+
+  // A port behind the zone is structure a sentence does not have, and DNS names are case-insensitive,
+  // so the capital letter alone must not break the address apart.
+  test('a capitalized zone with a port is still a host', () => {
+    assert.equal(microtypo('amber.Com:443'), 'amber.Com:443');
+    assert.equal(microtypo('Пиши на amber.Com:443 сегодня'), `Пиши на${NBSP}amber.Com:443 сегодня`);
+  });
+
+  test('a capitalized zone with no port still opens a sentence', () => {
+    assert.equal(microtypo('Это конец.Москва встретила'), 'Это конец. Москва встретила');
+  });
+
+  test('a sum before an ellipsis settles in one pass', () => {
+    const once = microtypo('100 руб. ...');
+
+    assert.equal(once, `100${NBSP}₽…`);
+    assert.equal(microtypo(once), once);
+  });
+});
+
+// An opener list without brackets loses the binding a bare form gets for the very forms an author
+// brackets — an aside, a citation — and one without a newline leaves a short word opening a second
+// line with a breakable space.
+describe('short-word binding across every opener', () => {
+  const NB = '\u{00A0}';
+  const wraps = [
+    (s) => `Текст (${s}) конец`,
+    (s) => `Текст [${s}] конец`,
+    (s) => `Текст {${s}} конец`,
+    (s) => `Первая строка\n${s} конец`
+  ];
+
+  test('nobr.nbsp_short_word binds inside every bracket', () => {
+    for (const wrap of wraps) {
+      const out = microtypo(wrap('в Ардене'), FLAT);
+
+      assert.ok(out.includes(`в${NB}Ардене`), `${JSON.stringify(wrap('в Ардене'))} → ${out}`);
+    }
+  });
+
+  test('space.nbsp_before_quote binds inside every bracket and after a newline', () => {
+    for (const wrap of wraps) {
+      const out = microtypo(wrap('в «Амбере»'), FLAT);
+
+      assert.ok(out.includes(`в${NB}«`), `${JSON.stringify(wrap('в «Амбере»'))} → ${out}`);
+    }
   });
 });

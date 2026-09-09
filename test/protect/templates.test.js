@@ -163,8 +163,7 @@ describe('input.template composes with every input.format', () => {
     const src = '---\ng: "песнь {{u}} - x"\n---\nтело {{v}}, принц - Амбера';
     const out = microtypo(src, { input: { format: 'frontmatter', template: 'handlebars' } });
 
-    // Header dash abuts `}}` (no word boundary) so stays literal; the body dash after ", " converts.
-    assert.equal(out, `---\ng: "песнь {{u}} - x"\n---\nтело {{v}}, принц${NBSP}— Амбера`);
+    assert.equal(out, `---\ng: "песнь {{u}}${NBSP}— x"\n---\nтело {{v}}, принц${NBSP}— Амбера`);
   });
 
   test('liquid {% %} in a markdown body: tag verbatim, surrounding text typeset', () => {
@@ -213,13 +212,13 @@ describe('input.template composes with every input.format', () => {
     );
   });
 
-  test('`}}` is not a word boundary, so a glued dash does not convert', () => {
+  test('a protected expression ends content, so the dash after it converts', () => {
     const withTemplate = microtypo('{{x}} - y', { input: { template: 'handlebars' } });
-    // plainControl (no template) shows the non-conversion is dash needing a letter before ` - `, not span over-reach.
+    // plainControl (no template) shows the conversion comes from the dash rule, not from span over-reach.
     const plainControl = microtypo('a}} - b');
 
-    assert.equal(withTemplate, '{{x}} - y');
-    assert.equal(plainControl, 'a}} - b');
+    assert.equal(withTemplate, `{{x}}${NBSP}— y`);
+    assert.equal(plainControl, `a}}${NBSP}— b`);
   });
 });
 

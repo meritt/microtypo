@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { canonicalGroupName, isOff, isOn, normaliseOptions } from '../../src/core/options.js';
-import { microtypo } from '../../src/index.js';
+import { MicroTypoConfigError } from '../../src/errors/index.js';
+import { microtypo, MicroTypo } from '../../src/index.js';
 
 const NBSP = '\u{00A0}';
 const NNBSP = '\u{202F}';
@@ -151,7 +152,7 @@ describe('rules: semantic bundles', () => {
     ]);
   });
 
-  test('units bundle expands to the six abbr.nbsp_*_unit/volt rules', () => {
+  test('units bundle expands to every abbr unit rule', () => {
     const out = normaliseOptions({ rules: { units: false } });
 
     assert.deepEqual(
@@ -159,6 +160,8 @@ describe('rules: semantic bundles', () => {
       [
         'nbsp_unit',
         'nbsp_weight_unit',
+        'nbsp_volume_unit',
+        'nbsp_time_unit',
         'nbsp_data_unit',
         'nbsp_frequency_unit',
         'nbsp_css_unit',
@@ -452,12 +455,92 @@ describe('render plumbing (end-to-end)', () => {
   });
 });
 
-describe('presets on/off', () => {
-  test('presets off decodes &copy; to its (c) shorthand without converting the glyph', () => {
-    assert.equal(microtypo('&copy; Амбер', { ...NOP, presets: false }), '(c) Амбер');
+// The format is a constructor-only decision, so the default lives there and never reaches the intent
+// layer, where it would let `applyOptions({ input })` flip an engine that stays what it was built as.
+const wrapped = (config) =>
+  new MicroTypo({ html: true, ...config }).process('Корвин - принц\n\nРэндом - брат');
+
+describe('block rendering is off for Markdown source', () => {
+  test('markdown and frontmatter emit no <p> or <br>', () => {
+    for (const format of ['markdown', 'frontmatter']) {
+      const out = wrapped({ input: format });
+
+      assert.ok(!out.includes('<p>'), `${format}: ${out}`);
+      assert.ok(!out.includes('<br>'), `${format}: ${out}`);
+    }
   });
 
-  test('presets on converts the decoded shorthand to the © glyph', () => {
+  test('text and html still wrap', () => {
+    for (const format of ['text', 'html']) {
+      assert.ok(wrapped({ input: format }).includes('<p>'), format);
+    }
+  });
+
+  test('an explicit render or rules entry turns it back on', () => {
+    assert.ok(wrapped({ input: 'markdown', render: { paragraphs: true } }).includes('<p>'));
+    assert.ok(wrapped({ input: 'markdown', rules: { 'text.paragraphs': true } }).includes('<p>'));
+  });
+
+  test('normaliseOptions stays free of format defaults', () => {
+    assert.deepEqual(normaliseOptions({ input: { format: 'markdown' } }).overrides, []);
+  });
+
+  // The format is settled when the instance is built, and a field that cannot take effect is refused
+  // rather than dropped: accepted and ignored, it would leave JSON read as prose.
+  test('applyOptions refuses a format the instance cannot take', () => {
+    const typo = new MicroTypo({ html: true });
+    const before = typo.process('Корвин - принц');
+
+    assert.throws(() => typo.applyOptions({ input: { format: 'markdown' } }), MicroTypoConfigError);
+    assert.throws(() => typo.applyOptions({ input: 'json' }), MicroTypoConfigError);
+    assert.throws(() => typo.applyOptions({ presets: false }), MicroTypoConfigError);
+    assert.equal(typo.process('Корвин - принц'), before);
+    assert.ok(before.includes('<p>'), before);
+  });
+
+  // An absent `input` is filled in by validation as `text`, so comparing that against the real format
+  // reads every partial update as a request to become a plain-text engine.
+  test('applyOptions accepts an update that names no input at all', () => {
+    const typo = new MicroTypo({ input: { format: 'json', exclude: ['slug'] } });
+
+    typo.applyOptions({ entities: false });
+    typo.applyOptions({});
+
+    assert.equal(
+      typo.process('{"title":"Корвин - принц","slug":"korvin - amber"}'),
+      `{"title":"Корвин${NBSP}— принц","slug":"korvin - amber"}`
+    );
+  });
+
+  test('applyOptions accepts the input the instance already has', () => {
+    const typo = new MicroTypo({ input: { format: 'json', exclude: ['slug'] } });
+
+    typo.applyOptions({ input: { format: 'json', exclude: ['slug'] }, html: true });
+
+    assert.equal(
+      typo.process('{"title":"Корвин - принц","slug":"korvin - amber"}'),
+      `{"title":"Корвин${NBSP}— принц","slug":"korvin - amber"}`
+    );
+  });
+});
+
+describe('presets on/off', () => {
+  // © is its own canonical form: with every rule off the entity still decodes to the glyph rather
+  // than to the `(c)` shorthand, which no rule would then be there to undo.
+  test('presets off decodes &copy; to the glyph itself', () => {
+    assert.equal(microtypo('&copy; Амбер', { ...NOP, presets: false }), '© Амбер');
+  });
+
+  test('presets on binds the glyph to the word after it', () => {
     assert.equal(microtypo('&copy; Амбер', NOP), `©${NBSP}Амбер`);
+  });
+
+  // All three spellings of the same character must land in the same place.
+  test('glyph, shorthand and entity agree', () => {
+    const expected = `Право ©${NBSP}Дворкина`;
+
+    assert.equal(microtypo('Право © Дворкина', NOP), expected);
+    assert.equal(microtypo('Право (c) Дворкина', NOP), expected);
+    assert.equal(microtypo('Право &copy; Дворкина', NOP), expected);
   });
 });

@@ -2,7 +2,9 @@ const OPEN_TOKENS = new Set(['---', '+++']);
 
 const MALFORMED = Object.freeze({ malformed: true });
 
-// Tri-state return: null = no opening delimiter (caller falls back to Markdown); MALFORMED = opener found but no close (caller must reject, never reparse as a body); else the split.
+// A tri-state answer: `null` where there is no opening delimiter and the caller falls back to
+// Markdown, MALFORMED where an opener has no close and the caller must reject rather than reparse it
+// as a body, and otherwise the split.
 export function splitFrontmatter(src) {
   const n = src.length;
   const offset = src.startsWith('\u{FEFF}') ? 1 : 0;

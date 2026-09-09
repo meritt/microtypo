@@ -56,6 +56,29 @@ describe('JSON input: node selection', () => {
     assert.equal(parsed.posts[1].body, 'c');
   });
 
+  // Past eight selectors the bucket is indexed by tail, and it has to be keyed by the same spelling
+  // the plain list compares against, or adding selectors that match nothing changes the choice.
+  test('selectors that match nothing do not change the choice', () => {
+    const misses = Array.from({ length: 8 }, (_, i) => `absent${i}`);
+
+    for (const [src, selector] of [
+      ['{"a.b":"Корвин - принц"}', 'b'],
+      ['{"x":{"c.d":"Корвин - принц"}}', 'x.c.d'],
+      ['{"posts":[{"c.d":"Корвин - принц"}]}', 'posts.0.c.d'],
+      ['{"a":{"b":"Корвин - принц"}}', '/a/b'],
+      ['{"posts":[{"body":"Корвин - принц"}]}', 'posts.*.body']
+    ]) {
+      for (const bucket of ['fields', 'exclude']) {
+        const few = microtypo(src, { input: { format: 'json', [bucket]: [selector] } });
+        const many = microtypo(src, {
+          input: { format: 'json', [bucket]: [selector, ...misses] }
+        });
+
+        assert.equal(many, few, `${bucket} ${selector} on ${src}`);
+      }
+    }
+  });
+
   test('json pointer selector targets nested path unambiguously, not the literal dotted key', () => {
     const src = '{"profile.name":"Корвин - Эрик","profile":{"name":"Оберон - Дворкин"}}';
     const out = microtypo(src, { input: { format: 'json', fields: ['/profile/name'] } });
@@ -138,7 +161,8 @@ describe('JSON input: node selection', () => {
   });
 
   test('throws typed error on a scan-balanced but parse-invalid value', () => {
-    // Scanner balances by escape count without validating the escape: `\z` scans closed, JSON.parse rejects.
+    // The scanner balances by escape count without validating the escape, so `\z` scans closed while
+    // `JSON.parse` rejects it.
     assert.throws(
       () => microtypo('{"a":"\\z"}', { input: { format: 'json' } }),
       MicroTypoInputError
@@ -252,8 +276,12 @@ describe('scanJson', () => {
     const spans = scanJson(src);
 
     assert.equal(spans.length, 1);
-    assert.deepEqual(spans[0], { start: 0, end: 7, isKey: false, path: '', segments: [] });
-    assert.equal(src.slice(spans[0].start, spans[0].end), '"Амбер"');
+
+    const [span] = spans;
+    assert.equal(span.isKey, false);
+    assert.equal(span.path, '');
+    assert.deepEqual(span.segments, []);
+    assert.equal(src.slice(span.start, span.end), '"Амбер"');
   });
 
   test('dot-joins nested array-of-object paths with the array index', () => {
@@ -262,6 +290,43 @@ describe('scanJson', () => {
     const value = spans.find((s) => !s.isKey && src.slice(s.start, s.end) === '"x"');
 
     assert.equal(value.path, 'p.0.b');
+  });
+
+  // Ancestry is a shared chain read at emit time, not a copy taken at push time. A sibling that
+  // advances its own key or index after a container closes must not reach back into a span the
+  // closed container already produced.
+  test('a span keeps the path it was emitted at while its siblings advance', () => {
+    const src = '{"a":{"b":"первый"},"c":["x","y"],"d":"последний"}';
+    const spans = scanJson(src).filter((s) => !s.isKey);
+
+    assert.deepEqual(
+      spans.map((s) => s.path),
+      ['a.b', 'c.0', 'c.1', 'd']
+    );
+    assert.deepEqual(
+      spans.map((s) => s.segments),
+      [['a', 'b'], ['c', 0], ['c', 1], ['d']]
+    );
+  });
+
+  test('an empty key keeps the lossy join the path selector is built on', () => {
+    const src = '{"":{"b":"x"}}';
+    const value = scanJson(src).find((s) => !s.isKey);
+
+    assert.equal(value.path, 'b');
+    assert.deepEqual(value.segments, ['', 'b']);
+  });
+
+  test('paths stay correct at a nesting depth a copying scanner could not reach', () => {
+    const depth = 4000;
+    const src = `${'{"a":'.repeat(depth)}"Корвин"${'}'.repeat(depth)}`;
+    const value = scanJson(src).find((s) => !s.isKey);
+
+    assert.equal(value.segments.length, depth);
+    assert.ok(
+      value.segments.every((segment) => segment === 'a'),
+      'every segment is the repeated key'
+    );
   });
 
   test('throws on an unterminated string', () => {

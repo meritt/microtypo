@@ -1,7 +1,16 @@
+import { CONTENT_START_GROUP } from '../lib/boundaries.js';
 import { G } from '../lib/glyphs.js';
+import { collapsesAsRepeat } from './punctmark.js';
 
+// The zone list and URL_REGEX's scheme-less branch answer different questions and cannot share a
+// definition: there a trailing slash proves the author meant a URL, so any 2-24 letter zone is
+// accepted, while here nothing proves it and an unlisted zone means `simonenko.xyz` comes out
+// `simonenko. xyz`. The list can never be complete — ~1500 zones exist — so what belongs in it is
+// what documents actually carry, and the reserved zones of RFC 2606 are the ones documentation
+// itself is required to use.
 const DOMAIN_ZONES = new Set([
   'ru',
+  'рф',
   'ру',
   'ком',
   'орг',
@@ -35,7 +44,42 @@ const DOMAIN_ZONES = new Set([
   'br',
   'in',
   'au',
-  'ai'
+  'ai',
+  'xyz',
+  // RFC 2606 reserves these for documentation and testing, so they are exactly the zones a written
+  // example uses and the ones a typography engine must not break.
+  'example',
+  'test',
+  'invalid',
+  // Zones longer than four letters are ordinary, and a host is far likelier than a sentence that
+  // forgot its space.
+  'online',
+  'store',
+  'cloud',
+  'email',
+  'site',
+  'website',
+  'agency',
+  'digital',
+  'systems',
+  'software',
+  'technology',
+  'network',
+  'solutions',
+  'studio',
+  'space',
+  'world',
+  'group',
+  'media',
+  'center',
+  'expert',
+  'academy',
+  'community',
+  'moscow',
+  'рус',
+  'онлайн',
+  'сайт',
+  'москва'
 ]);
 
 const TECH_SUFFIXES = new Set([
@@ -120,8 +164,17 @@ const TECH_SUFFIXES = new Set([
   'rpm'
 ]);
 
-function isKnownTld(afterDotLower) {
-  return DOMAIN_ZONES.has(afterDotLower);
+// A zone written Capitalized is the first word of a sentence, not a host: the list carries ordinary
+// nouns — `москва`, `сайт`, `онлайн`, `store`, `media` — so `Это конец.Москва` must keep the space it
+// is missing. An all-caps `REBMA.RU` is still a host, so only the Capitalized shape is out.
+const SENTENCE_WORD_RE = /^\p{Lu}\p{Ll}/u;
+
+// A port behind the zone is structure a sentence does not have, and DNS names are case-insensitive
+// (RFC 4343), so `amber.Com:443` is a host however it is spelled.
+function isKnownTld(afterDot, portFollows) {
+  return (
+    DOMAIN_ZONES.has(afterDot.toLowerCase()) && (portFollows || !SENTENCE_WORD_RE.test(afterDot))
+  );
 }
 
 function isKnownExtension(afterDotLower) {
@@ -136,11 +189,30 @@ function isPartOfMultiSegmentId(terminator) {
   return terminator === '.' || /^\d/.test(terminator);
 }
 
-function shouldKeepGlued(beforeDot, afterDot, terminator) {
+const WORD_CHAR_RE = /[\p{L}\p{N}]/u;
+
+// Whether closing this gap would glue two marks into a pair the punctuation group swallows. That
+// group runs four groups earlier, so the pair would survive this pass and be rewritten on the next
+// one, a mark short of what the author typed. It owns the table.
+//
+// A period attached to a word is the exception: it is that word's abbreviation period, not a
+// sentence mark, and `abbr` may take it away four groups later, so this decision must not turn on a
+// character that is about to disappear.
+function glueingSwallowsAMark(source, at, marks) {
+  const mark = source[at - 1];
+
+  if (mark === '.' && WORD_CHAR_RE.test(source[at - 2] ?? '')) {
+    return false;
+  }
+
+  return collapsesAsRepeat(mark, marks[0]);
+}
+
+function shouldKeepGlued(beforeDot, afterDot, terminator, portFollows) {
   const lower = afterDot.toLowerCase();
 
   return (
-    isKnownTld(lower) ||
+    isKnownTld(afterDot, portFollows) ||
     isKnownExtension(lower) ||
     isCapitalizedTechName(beforeDot, afterDot) ||
     isPartOfMultiSegmentId(terminator)
@@ -154,16 +226,22 @@ export const spaceGroup = {
     {
       id: 'nbsp_two_letter',
       description: 'Неразрывный пробел перед 2-символьной аббревиатурой',
-      // Both boundaries are lookarounds: in an acronym run the shared space would strand the middle one if consumed.
+      // Both boundaries are lookarounds: consumed, the shared space of an acronym run would strand
+      // the middle one.
       pattern: /(?<=[a-zA-Zа-яёА-ЯЁ])( |\t)+([A-ZА-ЯЁ]{2})(?=[\s;.?!:("»“]|$)/gu,
       replacement: `${G.NBSP}$2`
     },
     {
       id: 'trim_before_punctuation',
       description: 'Удаление пробела перед знаками препинания',
-      // (?<!\.\.) excludes only the ?.. / !.. suspension mark, not periods in general, so abbreviation trims still fire.
-      pattern: /(?<!\.\.)(?<![ \t\u{00A0}])(( |\t|\u{00A0})+)([,:.;?!…]+)(\s+|$)/gu,
-      replacement: '$3$4'
+      // `(?<!\.\.)` excludes only the `?..` and `!..` suspension marks and not periods in general, so
+      // abbreviation trims still fire.
+      // Neither boundary is consumed: taking the character before the gap would stop two adjacent
+      // runs from both matching in one pass, and taking the whitespace after the marks would swallow
+      // the leading whitespace of the next candidate — either way two runs on one line settle a pass
+      // apart. What may not be glued is decided by `glueingSwallowsAMark` from the text itself.
+      pattern: /(?<!\.\.)(?<=[^ \t\u{00A0}])(( |\t|\u{00A0})+)([,:.;?!…]+)(?=\s|$)/gu,
+      replacement: (m) => (glueingSwallowsAMark(m.at(-1), m.at(-2), m[3]) ? m[0] : m[3])
     },
     {
       id: 'space_after_comma',
@@ -181,18 +259,22 @@ export const spaceGroup = {
     {
       id: 'space_after_period',
       description: 'Пробел после точки',
+      // Both branches ask the same question, so they hand it to one callback: the gap the long
+      // branch tolerates is non-capturing, which puts the host, the zone and the follower in the
+      // same three slots.
       pattern: [
-        /( |\t|\u{00A0}|^)([a-zа-яё0-9]+)( |\t|\u{00A0})?\.([а-яёa-z]{5,})($|[^a-zа-яё])/giu,
+        /( |\t|\u{00A0}|^)([a-zа-яё0-9]+)(?: |\t|\u{00A0})?\.([а-яёa-z]{5,})($|[^a-zа-яё])/giu,
         /( |\t|\u{00A0}|^)([a-zа-яё0-9]+)\.([а-яёa-z]{1,4})($|[^a-zа-яё])/giu
       ],
-      replacement: [
-        (m) => `${m[1]}${m[2]}.${m[5] === '.' ? '' : ' '}${m[4]}${m[5]}`,
-        (m) => {
-          const sep = shouldKeepGlued(m[2], m[3], m[4]) || m[4] === '.' ? '' : ' ';
+      replacement: (m) => {
+        const [full, lead, host, zone, next, offset, source] = m;
+        // `next` is the one character the pattern consumed after the zone; a port needs the digit
+        // behind it too, which only the source can answer.
+        const portFollows = next === ':' && /^\d/.test(source.slice(offset + full.length));
+        const sep = shouldKeepGlued(host, zone, next, portFollows) ? '' : ' ';
 
-          return `${m[1]}${m[2]}.${sep}${m[3]}${m[4]}`;
-        }
-      ]
+        return `${lead}${host}.${sep}${zone}${next}`;
+      }
     },
     {
       id: 'space_after_ellipsis',
@@ -222,7 +304,9 @@ export const spaceGroup = {
     {
       id: 'nbsp_before_quote',
       description: 'Неразрывный пробел перед открывающей кавычкой',
-      pattern: /(^| |\t|>)([a-zа-яё]{1,2}) ([«„])/gu,
+      // The shared left boundary carries brackets and a newline, so `(в «Амбере»)` and a short word
+      // opening a second line lose the same breakable space a bare one does.
+      pattern: new RegExp(`${CONTENT_START_GROUP}([a-zа-яё]{1,2}) ([${G.LAQUO}${G.BDQUO}])`, 'gu'),
       replacement: `$1$2${G.NBSP}$3`
     },
     {
@@ -242,13 +326,13 @@ export const spaceGroup = {
       id: 'no_space_after_opening_ellipsis',
       description: 'Отсутствие пробела после … после открывающей кавычки',
       pattern: /([«„(])( |\u{00A0})?…( |\u{00A0})?([a-zа-яё])/giu,
-      replacement: `$1…$4`
+      replacement: `$1${G.HELLIP}$4`
     },
     {
       id: 'trim_before_parenthetical_ellipsis',
       description: 'Удаление пробела перед многоточием в конце скобок',
       pattern: /([a-zа-яё0-9])(?: |\t|\u{00A0})+…(\))/giu,
-      replacement: '$1…$2'
+      replacement: `$1${G.HELLIP}$2`
     },
     {
       id: 'space_after_year',

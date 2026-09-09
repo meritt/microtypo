@@ -49,7 +49,8 @@ test('urls still autolink after linearization', () => {
   }
 });
 
-// Autolink fires only after whitespace/start, so a leading '(' suppresses linking; here just prove ')' survives.
+// Autolink fires only after whitespace or the start, so a leading `(` suppresses linking; what this
+// proves is that the `)` survives.
 test('paren-wrapped url keeps its closing paren', () => {
   const seq = new SafeSequences();
   const stored = seq.protect('(http://example.com)');
@@ -131,7 +132,8 @@ test('embedded wildcard disables only prefixed rules', () => {
   );
 });
 
-// The quote scan must check the budget WHILE it runs; a throwing stub proves the in-loop check fires.
+// The quote scan has to check the budget while it runs, which a throwing stub proves by firing
+// inside the loop.
 test('quote scan checks budget inside its loop', () => {
   let calls = 0;
   assert.throws(

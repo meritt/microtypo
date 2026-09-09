@@ -33,13 +33,15 @@ describe('markup degrades under html:false', () => {
     assert.doesNotMatch(out, /<span[\s>]/i);
   });
 
-  // The 3+ newline collapse is a standalone engine step, so it survives html:false disabling the text group.
+  // The three-or-more newline collapse is a standalone engine step, so it survives `html: false`
+  // disabling the text group.
   test('html:false still collapses 3+ consecutive newlines to \\n\\n', () => {
     assert.equal(microtypo('Корвин\n\n\n\nОберон', { html: false }), 'Корвин\n\nОберон');
   });
 });
 
-// sub/sup are markup-only: under html:false they must skip entirely, not fire and drop the marker they consumed.
+// sub and sup are markup-only, so under `html: false` they skip entirely rather than firing and
+// dropping the marker they consumed.
 describe('sub/sup skip cleanly under html:false', () => {
   test('html:false leaves "2^10" untouched (no <sup>, no dropped "^")', () => {
     const out = microtypo('2^10', { html: false });

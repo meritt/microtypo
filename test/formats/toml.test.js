@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
+import { parse } from 'smol-toml';
+
 import { MicroTypoInputError } from '../../src/errors/index.js';
 import { microtypo, MicroTypo } from '../../src/index.js';
 import { scanToml } from '../../src/input/toml.js';
@@ -88,12 +90,12 @@ describe('TOML quoted-string values', () => {
     assert.equal(out, src);
   });
 
-  test('inline array with a string value plus a comment: no throw, array skipped whole', () => {
+  test('inline array with a string value plus a comment: values typeset, comment verbatim', () => {
     const src = 'a = [ "Амбер - Тень", # Козырь\n "Корвин" ]';
     const out = microtypo(src, { input: { format: 'toml' } });
 
-    assert.equal(out, src);
-    assert.equal(scanToml(src).length, 0);
+    assert.equal(out, `a = [ "Амбер${NBSP}— Тень", # Козырь\n "Корвин" ]`);
+    assert.equal(scanToml(src).length, 2);
   });
 
   test('quote-bearing comment in a multi-line inline table: no throw, table skipped whole', () => {
@@ -148,6 +150,49 @@ describe('TOML quoted-string values', () => {
     );
   });
 
+  // A header names a path through the tables already open, so a leading segment that names an array
+  // of tables means that array's current element: resolved against the document root, these paths
+  // name tables no pointer to the document can reach.
+  test('a header under an array of tables carries its element index', () => {
+    const src = '[[posts]]\n[posts.meta]\ntitle = "Корвин - Эрик"';
+
+    assert.deepEqual(parse(src).posts[0].meta, { title: 'Корвин - Эрик' });
+    assert.equal(
+      microtypo(src, { input: { format: 'toml', fields: ['/posts/0/meta/title'] } }),
+      `[[posts]]\n[posts.meta]\ntitle = "Корвин${NBSP}— Эрик"`
+    );
+  });
+
+  test('a new parent element starts the arrays nested under it over', () => {
+    const src =
+      '[[posts]]\n[[posts.tags]]\nname = "Арден - лес"\n[[posts]]\n[[posts.tags]]\nname = "Рэбма - город"';
+
+    assert.deepEqual(parse(src).posts[1].tags[0], { name: 'Рэбма - город' });
+    assert.equal(
+      microtypo(src, { input: { format: 'toml', fields: ['/posts/1/tags/0/name'] } }),
+      `[[posts]]\n[[posts.tags]]\nname = "Арден - лес"\n[[posts]]\n[[posts.tags]]\nname = "Рэбма${NBSP}— город"`
+    );
+  });
+
+  // `[["a.b"]]` is one segment and `[[a.b]]` is two — different arrays, which counting by their
+  // dot-joined paths would give one counter. No separator exists that a quoted TOML key cannot itself
+  // contain, so the identity has to be the segment list.
+  test('a quoted header and a dotted one number their elements apart', () => {
+    const src = '[["a.b"]]\nx = "Корвин - Эрик"\n[[a.b]]\nx = "Рэндом - Блейз"';
+
+    assert.equal(
+      microtypo(src, { input: { format: 'toml', fields: ['/a/b/0/x'] } }),
+      `[["a.b"]]\nx = "Корвин - Эрик"\n[[a.b]]\nx = "Рэндом${NBSP}— Блейз"`
+    );
+
+    const swapped = '[[a.b]]\nx = "Корвин - Эрик"\n[["a.b"]]\nx = "Рэндом - Блейз"';
+
+    assert.equal(
+      microtypo(swapped, { input: { format: 'toml', fields: ['/a/b/0/x'] } }),
+      `[[a.b]]\nx = "Корвин${NBSP}— Эрик"\n[["a.b"]]\nx = "Рэндом - Блейз"`
+    );
+  });
+
   test('a MicroTypo instance typesets a value like the one-shot call', () => {
     const src = '[server]\nname = "Амбер - Колвир"';
     const cfg = { input: { format: 'toml' } };
@@ -198,6 +243,12 @@ describe('TOML well-formedness guards', () => {
     );
   });
 
+  test('a collection where an inline-table key belongs leaves the document alone', () => {
+    const src = 'a = {[1]}';
+
+    assert.equal(microtypo(src, { input: { format: 'toml' } }), src);
+  });
+
   test('a well-formed table header plus trailing comment is accepted', () => {
     const src = '[server] # Колвир\nname = "Амбер - Отражение"';
     const out = microtypo(src, { input: { format: 'toml' } });
@@ -207,24 +258,81 @@ describe('TOML well-formedness guards', () => {
 });
 
 describe('scanToml spans', () => {
-  test('multiline basic string is skipped whole: no span emitted', () => {
-    assert.deepEqual(literals('a = """Корвин - Эрик"""'), []);
+  test('a multiline basic string without a backslash is a span', () => {
+    assert.deepEqual(literals('a = """Корвин - Эрик"""'), [
+      { text: '"""Корвин - Эрик"""', isKey: false, eligible: true, path: 'a' }
+    ]);
   });
 
-  test('multiline literal string is skipped whole: no span emitted', () => {
-    assert.deepEqual(literals("a = '''Корвин - Эрик'''"), []);
+  test('a multiline basic string with an escape is not eligible', () => {
+    assert.deepEqual(literals('a = """Корвин \\t Эрик"""'), [
+      { text: '"""Корвин \\t Эрик"""', isKey: false, eligible: false, path: 'a' }
+    ]);
   });
 
-  test('inline array is skipped whole: no span for a string nested inside it', () => {
-    assert.deepEqual(literals('arr = [1, 2, "Корвин - Эрик"]'), []);
+  test('a multiline literal string is always eligible: it has no escapes', () => {
+    assert.deepEqual(literals("a = '''Корвин \\t Эрик'''"), [
+      { text: "'''Корвин \\t Эрик'''", isKey: false, eligible: true, path: 'a' }
+    ]);
   });
 
-  test('inline table is skipped whole, a brace inside a nested string is tolerated, scan resumes next line', () => {
+  test('an inline array element carries its index in the path', () => {
+    assert.deepEqual(literals('arr = [1, 2, "Корвин - Эрик"]'), [
+      { text: '"Корвин - Эрик"', isKey: false, eligible: true, path: 'arr.2' }
+    ]);
+  });
+
+  test('an inline table value carries its key, and a brace inside a string is tolerated', () => {
     const src = 't = { a = "x } y" }\nk = "Корвин - Рэндом"';
 
     assert.deepEqual(literals(src), [
+      { text: '"x } y"', isKey: false, eligible: true, path: 't.a' },
       { text: '"Корвин - Рэндом"', isKey: false, eligible: true, path: 'k' }
     ]);
+  });
+
+  test('a nested inline table inside an array indexes then keys', () => {
+    assert.deepEqual(literals('a = [{ n = "x" }, "y"]'), [
+      { text: '"x"', isKey: false, eligible: true, path: 'a.0.n' },
+      { text: '"y"', isKey: false, eligible: true, path: 'a.1' }
+    ]);
+  });
+
+  test('a multi-line string inside an array is typeset', () => {
+    const src = 'a = ["""\nКорвин - раз\n"""]';
+
+    assert.equal(
+      microtypo(src, { input: { format: 'toml' } }),
+      `a = ["""\nКорвин${NBSP}— раз\n"""]`
+    );
+  });
+
+  // The three-character delimiter is what may not appear in the result; one or two quotes inside a
+  // basic multi-line string are legal TOML and must survive.
+  test('quotes inside a multi-line string are kept, a full delimiter refuses the splice', () => {
+    assert.equal(
+      microtypo('a = """Он крикнул: ""Стой!"" - и тень замерла."""', { input: 'toml' }),
+      `a = """Он${NBSP}крикнул: «„Стой!“»${NBSP}— и${NBSP}тень замерла."""`
+    );
+
+    const escaped = 'a = """Печать: \\"""Амбер\\""" - указ."""';
+    assert.equal(microtypo(escaped, { input: 'toml' }), escaped);
+  });
+
+  test('fields select a single array element', () => {
+    assert.equal(
+      microtypo('a = ["Корвин - раз", "Рэндом - два"]', {
+        input: { format: 'toml', fields: ['a.0'] }
+      }),
+      `a = ["Корвин${NBSP}— раз", "Рэндом - два"]`
+    );
+  });
+
+  test('a quoted key inside an inline table stays verbatim', () => {
+    assert.equal(
+      microtypo('a = { "к - люч" = "Корвин - раз" }', { input: { format: 'toml' } }),
+      `a = { "к - люч" = "Корвин${NBSP}— раз" }`
+    );
   });
 
   test('hash and equals inside a value are consumed atomically as one span', () => {
@@ -309,13 +417,31 @@ describe('scanToml spans', () => {
     ]);
   });
 
-  test('key with an escape outside the JSON subset falls back to its raw text', () => {
-    const src = '"a\\ec" = "val"';
+  test('key with an escape TOML does not have falls back to its raw text', () => {
+    const src = '"a\\qc" = "val"';
 
     assert.deepEqual(literals(src), [
-      { text: '"a\\ec"', isKey: true, eligible: false, path: 'a\\ec' },
-      { text: '"val"', isKey: false, eligible: true, path: 'a\\ec' }
+      { text: '"a\\qc"', isKey: true, eligible: false, path: 'a\\qc' },
+      { text: '"val"', isKey: false, eligible: true, path: 'a\\qc' }
     ]);
+  });
+
+  // The three escapes TOML has and JSON does not make `JSON.parse` throw, and a key that comes back
+  // as its own source text names no field a selector can reach. `smol-toml` is the oracle for what
+  // each of them means.
+  test('a key spelled with a TOML-only escape names the field it decodes to', () => {
+    for (const [src, key] of [
+      ['"\\U00000074itle" = "Корвин - принц"', 'title'],
+      ['"\\x74itle" = "Корвин - принц"', 'title'],
+      ['"tit\\u006ce" = "Корвин - принц"', 'title']
+    ]) {
+      assert.deepEqual(Object.keys(parse(src)), [key], src);
+      assert.equal(
+        microtypo(src, { input: { format: 'toml', exclude: [key] } }),
+        src,
+        `exclude did not reach ${key}`
+      );
+    }
   });
 
   test('unterminated basic string throws', () => {
@@ -328,5 +454,64 @@ describe('scanToml spans', () => {
 
   test('unterminated multiline string throws', () => {
     assert.throws(() => scanToml('a = """Корвин'), MicroTypoInputError);
+  });
+
+  // Silently swallowing the opener would drop every later value from the scan without a word.
+  test('unterminated inline array throws instead of skipping the rest of the document', () => {
+    assert.throws(
+      () => scanToml('trumps = [1, 2\ntitle = "Корвин - принц Амбера"'),
+      MicroTypoInputError
+    );
+    assert.throws(
+      () => microtypo('trumps = [1, 2\ntitle = "Корвин - принц"', { input: { format: 'toml' } }),
+      MicroTypoInputError
+    );
+  });
+
+  test('unterminated inline table throws', () => {
+    assert.throws(() => scanToml('court = { king = "Оберон"'), MicroTypoInputError);
+  });
+
+  test('closed inline collection still typesets the values after it', () => {
+    const out = microtypo('trumps = [1, 2]\ntitle = "Корвин - принц"', {
+      input: { format: 'toml' }
+    });
+    assert.equal(out, `trumps = [1, 2]\ntitle = "Корвин${NBSP}— принц"`);
+  });
+
+  // A TOML literal string has no escape mechanism at all, so a scalar whose typeset form carries its
+  // own wrapping quote can only be left alone.
+  test('a scalar that would close its own quote stays verbatim', () => {
+    const src = 'roles = ["Ребма”, “admin", "чтец"]';
+
+    assert.equal(microtypo(src, { input: 'toml' }), src);
+  });
+
+  test('a literal string keeps its apostrophe and its neighbour still typesets', () => {
+    const out = microtypo("path = ['Арден’ лес', 'Ребма - глубина']", { input: 'toml' });
+
+    assert.equal(out, `path = ['Арден’ лес', 'Ребма${NBSP}— глубина']`);
+  });
+
+  // Protect-or-reject admits one answer per malformation, and `a = [ 1` and `a = [ 1 }` are the same
+  // document spelled two ways.
+  describe('an inline collection closes with the bracket it opened', () => {
+    for (const src of [
+      'a = [ 1 }',
+      'a = { x = 1 ]',
+      'a = [ "Корвин - принц" }',
+      'a = [ [1, 2} ]'
+    ]) {
+      test(`${src} is rejected`, () => {
+        assert.throws(() => microtypo(src, { input: 'toml' }), MicroTypoInputError);
+      });
+    }
+
+    test('a matched pair is still read', () => {
+      assert.equal(
+        microtypo('a = [ { x = "Корвин - принц" } ]', { input: 'toml' }),
+        `a = [ { x = "Корвин${NBSP}— принц" } ]`
+      );
+    });
   });
 });

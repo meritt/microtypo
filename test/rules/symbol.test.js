@@ -122,7 +122,35 @@ describe('symbol.apostrophe — double apostrophe (GAP-A2)', () => {
   });
 });
 
-describe('symbol.registered — adjacency (XTEST-META)', () => {
+// Glyph normalization folds © to (c) before any rule runs, so the rule has to be total:
+// a context it does not cover turns an author's © into a literal (c).
+describe('symbol.copyright — © survives normalization', () => {
+  const contexts = [
+    'Хроники ©',
+    'Хроники © Дворкин',
+    'Хроники ©.',
+    'Хроники ©Дворкин',
+    'Хроники ©<b>Дворкин</b>',
+    'Хроники (©) Дворкин',
+    'Хроники ©; Дворкин',
+    'Хроники ©: Дворкин',
+    '<b>©</b> Амбер'
+  ];
+
+  for (const src of contexts) {
+    test(`© kept in ${JSON.stringify(src)}`, () => {
+      const out = microtypo(src, NOP);
+      assert.ok(out.includes('©'), `© lost: ${out}`);
+      assert.ok(!out.includes('(c)'), `residual ASCII form: ${out}`);
+    });
+  }
+
+  test('&copy; decodes to © even where no spacing pattern applies', () => {
+    assert.equal(microtypo('Хроники &copy;; Дворкин', NOP), 'Хроники ©; Дворкин');
+  });
+});
+
+describe('symbol.registered — adjacency', () => {
   test('converts both marks in an adjacent pair', () => {
     const out = microtypo('Печати (r)(r) на Козырях', NOP);
     assert.ok(!out.includes('(r)'), `residual mark: ${out}`);
@@ -130,7 +158,7 @@ describe('symbol.registered — adjacency (XTEST-META)', () => {
   });
 });
 
-describe('symbol.arrows — <-- half-mangle guard (XTEST-2)', () => {
+describe('symbol.arrows — <-- half-mangle guard', () => {
   test('arrows: <-- is not half-converted to ←-', () => {
     assert.ok(!microtypo('Корвин <-- Эрик', NOP).includes('←'), 'must not arrow-ify <--');
     assert.ok(microtypo('Корвин <- Эрик', NOP).includes('←'), 'real <- still converts');
@@ -146,5 +174,27 @@ describe('fahrenheit toggle', () => {
     const out = microtypo('100F в Тени', { ...NOP, rules: { 'symbol.fahrenheit': false } });
     assert.ok(out.includes('100F'));
     assert.ok(!out.includes('°'));
+  });
+
+  // `symbol.apostrophe` is the only way back from ASCII and fires only between letters, so a folded
+  // `‘…’` pair would come out as two straight quotes.
+  describe('single curly quotes are their own canonical form', () => {
+    test('an authored pair survives in every spelling', () => {
+      assert.equal(microtypo('Дворкин ‘Амбер’ вечен'), 'Дворкин ‘Амбер’ вечен');
+      assert.equal(microtypo('Дворкин &lsquo;Амбер&rsquo; вечен'), 'Дворкин ‘Амбер’ вечен');
+      assert.equal(microtypo('Дворкин &#8216;Амбер&#8217; вечен'), 'Дворкин ‘Амбер’ вечен');
+    });
+
+    test('the apostrophe rule still promotes a straight quote between letters', () => {
+      assert.equal(microtypo("Corwin's Pattern"), 'Corwin’s Pattern');
+      assert.equal(microtypo('Corwin’s Pattern'), 'Corwin’s Pattern');
+    });
+
+    test('entity mode emits both back', () => {
+      assert.equal(
+        microtypo('Дворкин ‘Амбер’ вечен', { entities: true }),
+        'Дворкин &lsquo;Амбер&rsquo; вечен'
+      );
+    });
   });
 });

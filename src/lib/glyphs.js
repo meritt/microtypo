@@ -7,6 +7,7 @@ export const G = Object.freeze({
   RAQUO: '»',
   BDQUO: '„',
   LDQUO: '“',
+  LSQUO: '‘',
   RSQUO: '’',
   PRIME: '″',
 
@@ -31,6 +32,7 @@ export const G = Object.freeze({
   LE: '≤',
   GE: '≥',
   CONG: '≅',
+  EQUIV: '≡',
 
   LARR: '←',
   RARR: '→',
@@ -54,6 +56,7 @@ export const GLYPH_TO_ENTITY = Object.freeze({
   [G.RAQUO]: '&raquo;',
   [G.BDQUO]: '&bdquo;',
   [G.LDQUO]: '&ldquo;',
+  [G.LSQUO]: '&lsquo;',
   [G.RSQUO]: '&rsquo;',
   [G.PRIME]: '&Prime;',
   [G.MDASH]: '&mdash;',
@@ -74,6 +77,7 @@ export const GLYPH_TO_ENTITY = Object.freeze({
   [G.LE]: '&le;',
   [G.GE]: '&ge;',
   [G.CONG]: '&cong;',
+  [G.EQUIV]: '&equiv;',
   [G.LARR]: '&larr;',
   [G.RARR]: '&rarr;',
   [G.SUP2]: '&sup2;',
@@ -84,13 +88,16 @@ export const GLYPH_TO_ENTITY = Object.freeze({
   [G.COMBINING_ACUTE]: '&#769;'
 });
 
-const GLYPH_RE = new RegExp(`[${Object.keys(GLYPH_TO_ENTITY).join('')}]`, 'gu');
+// Escaped per glyph: an unescaped `-`, `]` or `^` added to `G` later would silently redefine the
+// class.
+const GLYPH_RE = new RegExp(`[${Object.keys(GLYPH_TO_ENTITY).map(RegExp.escape).join('')}]`, 'gu');
 
 export function unicodeToEntities(text) {
   return text.replace(GLYPH_RE, (g) => GLYPH_TO_ENTITY[g] ?? g);
 }
 
-// XML 1.0 predefines only amp/lt/gt/quot/apos; named entities need numeric refs to stay well-formed.
+// XML 1.0 predefines only `amp`, `lt`, `gt`, `quot` and `apos`, so a named entity has to be spelled
+// as a numeric reference to stay well-formed.
 const GLYPH_TO_NUMERIC = Object.freeze(
   Object.fromEntries(Object.keys(GLYPH_TO_ENTITY).map((g) => [g, `&#${g.codePointAt(0)};`]))
 );

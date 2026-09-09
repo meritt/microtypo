@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { microtypo } from '../../src/index.js';
 import { scanXmlSpacePreserve, validateXml } from '../../src/input/xml.js';
 
-// Calls validateXml directly, bypassing the maxInputLength cap, to measure the scan (maskConstructs) itself; it must stay O(n), not O(n^2).
+// Calls validateXml directly, bypassing the maxInputLength cap, to measure the construct mask itself; it must stay O(n), not O(n^2).
 function build(n) {
   let s = '<root>';
 
@@ -70,6 +70,28 @@ test('scanXmlSpacePreserve returns promptly when xml:space is absent', () => {
 
   assert.deepEqual(spans, []);
   assert.ok(ms < 8, `absent xml:space scan took ${ms.toFixed(1)}ms (expected < 8ms)`);
+});
+
+// A `<` that opens no tag is the cheapest thing an attacker writes. Scanning the whole name run
+// before asking whether the first character may start one re-read the same suffix from every one of
+// them, and this walk has no budget check of its own to interrupt it.
+function bareAngleScan(n) {
+  const src = '<'.repeat(n);
+  const start = performance.now();
+
+  validateXml(src);
+
+  return performance.now() - start;
+}
+test('a run of bare `<` scales ~linearly, not quadratically', () => {
+  bareAngleScan(2000); // warm up the JIT
+  const base = Math.max(bareAngleScan(8000), 0.5);
+  const ratio = bareAngleScan(16_000) / base;
+
+  assert.ok(
+    ratio < 3,
+    `quadratic bare-'<' scan: doubling input scaled ${ratio.toFixed(1)}x (expected < 3)`
+  );
 });
 
 test('full XML pipeline with xml:space="preserve" siblings scales ~linearly', () => {

@@ -8,7 +8,7 @@ export const numberGroup = {
     {
       id: 'time',
       description: 'Нормализация времени: 08 : 59 → 08:59, 9:30 не трогаем',
-      // Run BEFORE space.trim_before_punctuation so both sides collapse at once.
+      // Runs before `space.trim_before_punctuation`, so both sides collapse at once.
       pattern: /(?<![\d:])(\d{1,2})\s*:\s*(\d{2})(?:\s*:\s*(\d{2}))?(?![\d:])/g,
       replacement: (m) => {
         const [, h, mm, ss] = m;
@@ -19,7 +19,8 @@ export const numberGroup = {
     {
       id: 'en_range',
       description: 'Среднее тире для диапазонов чисел: 100-500 → 100–500',
-      // Lookarounds exclude longer digit-dash chains (phones, ISO dates) so only a lone NNN-dash-NNN range matches.
+      // The lookarounds exclude longer digit-dash chains — phones, ISO dates — so only a lone
+      // `NNN-NNN` range matches.
       pattern: /(?<![\d—−-])(\d+)[—−-](\d+)(?![\d—−-])/gu,
       replacement: `$1${G.NDASH}$2`
     },
@@ -43,7 +44,7 @@ export const numberGroup = {
     {
       id: 'sub',
       description: 'Нижний индекс',
-      // htmlOnly: under html:false the consumed _ marker would vanish and corrupt input.
+      // Under `html: false` the consumed `_` marker would vanish and corrupt the input.
       htmlOnly: true,
       pattern: /([a-zа-яё0-9])_(\d{1,3})([^@а-яёa-z0-9]|$)/giu,
       replacement: (m, ctx) => {
@@ -72,8 +73,10 @@ export const numberGroup = {
     },
     {
       id: 'math',
-      description: 'Математические знаки',
+      description: 'Математические знаки: !=, <=, >=, ~=, +-',
       // >= excludes PUA chars so it can't eat a tag-placeholder > (CLOSE precedes it).
+      // No == → ≡: it would eat a Markdown setext underline and ==highlight== markers. ≡ needs no
+      // rule anyway — it is its own canonical form in CHARS_TABLE.
       pattern: [
         /!=/g,
         /<=/g,
@@ -86,8 +89,10 @@ export const numberGroup = {
     {
       id: 'thin_space_triads',
       description: 'Триады чисел через узкий неразрывный пробел',
-      // Lookarounds skip digit-space chains so phone numbers and IBANs (non-triadic groups) aren't chewed.
-      pattern: /(?<!\d)(?<!\d )([0-9]{1,3}( [0-9]{3}){1,})(?!\d)(.|$)/gu,
+      // The lookarounds skip digit-space chains, so phone numbers and IBANs — non-triadic groups —
+      // are left whole. The letter guard is the one `split_triads` already carries: digits stuck to a
+      // word are part of that word, not a quantity, and without it `ab12 345678` never settles.
+      pattern: /(?<!\d)(?<!\p{L})(?<!\d )([0-9]{1,3}( [0-9]{3}){1,})(?!\d)(.|$)/gu,
       replacement: (m) => {
         const [m0, p1, , p4, offset, str] = m;
 
@@ -95,7 +100,8 @@ export const numberGroup = {
           return m0;
         }
 
-        // The greedy {1,} already took every legit space-NNN triad; a digit one space further is a phone/IBAN tail, leave whole.
+        // The greedy `{1,}` already took every legitimate space-triad, so a digit one space further
+        // is the tail of a phone number or an IBAN and stays whole.
         if (p4 === ' ' && /\d/.test(str[offset + m0.length] ?? '')) {
           return m0;
         }

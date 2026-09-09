@@ -3,7 +3,16 @@ import { describe, test } from 'node:test';
 
 import { MicroTypoInputError } from '../../src/errors/index.js';
 import { microtypo } from '../../src/index.js';
-import { doctypeEnd, validateXml } from '../../src/input/xml.js';
+import { doctypeEnd, scanXmlSpacePreserve, validateXml } from '../../src/input/xml.js';
+
+const preserveScanNanos = (k) => {
+  const src = `${'<a'.repeat(k)} xml:space`;
+  const at = process.hrtime.bigint();
+
+  scanXmlSpacePreserve(src);
+
+  return Number(process.hrtime.bigint() - at);
+};
 
 const NBSP = '\u{00A0}';
 
@@ -217,6 +226,35 @@ describe('XML input: text nodes typeset, structure verbatim', () => {
     assert.equal(out, `<r><x xml:space="preserve">a  b</x><y>c${NBSP}— d</y></r>`);
   });
 
+  // Which attribute asks for preservation is a question about that attribute's own name and its
+  // normalized value, never about the raw source of the tag around it.
+  test('preserve is decided by the attribute, not by the bytes of the tag', () => {
+    const cases = [
+      [`<r><x note='xml:space="preserve"'>Корвин - принц</x></r>`, true],
+      ['<r><x other-xml:space="preserve">Корвин - принц</x></r>', true],
+      ['<r><x xml:space="pre&#115;erve">Корвин - принц</x></r>', false],
+      ['<r><x xml:space = "preserve">Корвин - принц</x></r>', false],
+      ['<r><x xml:space="default">Корвин - принц</x></r>', true]
+    ];
+
+    for (const [src, typeset] of cases) {
+      const out = microtypo(src, { input: { format: 'xml' } });
+
+      assert.equal(out.includes(`Корвин${NBSP}— принц`), typeset, src);
+    }
+  });
+
+  // A `<` that opens no tag is where the next one may start, so the walk resumes there rather than
+  // one character on.
+  test('a malformed run does not re-read the suffix from every opener', () => {
+    preserveScanNanos(2000);
+
+    const small = preserveScanNanos(1000);
+    const large = preserveScanNanos(4000);
+
+    assert.ok(large < small * 8, `quadratic: ${small}ns at k=1000, ${large}ns at k=4000`);
+  });
+
   test('an unrecognized "<b <c>" opener inside the preserve scan does not misfire', () => {
     const src = '<a><b <c>d - e</c></a>';
     const out = microtypo(src, { input: { format: 'xml' } });
@@ -245,6 +283,22 @@ describe('XML input: text nodes typeset, structure verbatim', () => {
 
     assert.ok(!out.includes('<p>') && !out.includes('<a '), out);
     assert.ok(tagsBalanced(out));
+  });
+});
+
+// XML admits names from U+10000 upward, and half a surrogate pair is not a letter, so an element
+// read one UTF-16 unit at a time is not recognised at all.
+describe('an element named past the BMP', () => {
+  test('its xml:space="preserve" is honoured', () => {
+    const src = '<𐐀 xml:space="preserve">a - "b"</𐐀>';
+
+    assert.equal(microtypo(src, { input: { format: 'xml' } }), src);
+  });
+
+  test('without preserve its text is still typeset', () => {
+    const out = microtypo('<𐐀>a - "b"</𐐀>', { input: { format: 'xml' } });
+
+    assert.ok(out.includes('—'), out);
   });
 });
 
@@ -392,5 +446,26 @@ describe('doctypeEnd: comment/PI bracket-awareness in the internal subset', () =
     const end = doctypeEnd(src, 0);
 
     assert.equal(src.slice(0, end), '<!DOCTYPE d [ <?pi a > b?> ]>');
+  });
+
+  // XML NameStartChar is any letter plus `_` and `:`, so an element may be named `книга`, and
+  // recognising only ASCII leaves such a tag for the rules to typeset.
+  test('a non-ASCII element name protects its own tag', () => {
+    const src =
+      '<книга xmlns:t="https://arden.io/ns" xml:lang="ru" номер="1">Корвин - принц</книга>';
+
+    assert.equal(
+      microtypo(src, { input: 'xml' }),
+      `<книга xmlns:t="https://arden.io/ns" xml:lang="ru" номер="1">Корвин${NBSP}— принц</книга>`
+    );
+  });
+
+  test('an element name starting with an underscore protects its own tag', () => {
+    const src = '<_книга xml:lang="ru" номер="1">Корвин - принц</_книга>';
+
+    assert.equal(
+      microtypo(src, { input: 'xml' }),
+      `<_книга xml:lang="ru" номер="1">Корвин${NBSP}— принц</_книга>`
+    );
   });
 });

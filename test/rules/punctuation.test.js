@@ -46,6 +46,24 @@ describe('collapse repeated separators', () => {
   test('mixed comma-semicolon run collapses', () => {
     assert.equal(microtypo('Корвин,;,;Эрик', PLAIN), 'Корвин,;Эрик');
   });
+
+  // A doubled period is a slip of the finger only at a sentence boundary. Without one the rule took
+  // a character out of every `..` it met, and a path, a range and a revision range each lost a dot.
+  test('a doubled period at a sentence boundary collapses', () => {
+    assert.equal(microtypo('Корвин ушёл.. Эрик остался', PLAIN), 'Корвин ушёл. Эрик остался');
+    assert.equal(microtypo('Корвин ушёл..', PLAIN), 'Корвин ушёл.');
+  });
+
+  test('a doubled period inside a token keeps both', () => {
+    for (const src of ['путь ../pattern.txt', 'диапазон 1..10', 'ревизии 1a2b3c4..5d6e7f8']) {
+      assert.equal(microtypo(src, PLAIN), src);
+    }
+  });
+
+  // `mark_ellipsis` writes this form one rule earlier; collapsing it would undo that.
+  test('the question-ellipsis form survives', () => {
+    assert.equal(microtypo('Кто там?...', PLAIN), 'Кто там?..');
+  });
 });
 
 describe('punctuation.collapse_repeated — spaced comma repeats (PUNCT-1)', () => {
@@ -214,7 +232,7 @@ describe('punctuation presets', () => {
   });
 });
 
-describe('punctuation.bracket_spaces spares emoticons (XTEST-7)', () => {
+describe('punctuation.bracket_spaces spares emoticons', () => {
   test('bracket_spaces spares emoticons but still trims real brackets', () => {
     assert.equal(
       microtypo('Корвин помрачнел :( Эрик молчал', PLAIN),
@@ -263,7 +281,7 @@ describe('punctuation bracket terminal cleanup (EF4)', () => {
   });
 });
 
-describe('punctuation.mark_ellipsis: ?… / !… drop a dot (XTEST-6)', () => {
+describe('punctuation.mark_ellipsis: ?… / !… drop a dot', () => {
   // nobr.nbsp_short_word would glue "Ты" to the next word, masking the assertion; disabled to isolate mark_ellipsis.
   const NO_NBSP_GLUE = { rules: { 'nobr.nbsp_short_word': false } };
 

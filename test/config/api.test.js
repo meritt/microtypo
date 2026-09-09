@@ -136,6 +136,64 @@ test('defineRuleGroup returns the definition', () => {
   assert.equal(def.title, 'Амбер');
 });
 
+// The object belongs to the caller and stays theirs; registration takes its own snapshot, so the
+// engine never reads the live one either way.
+test('defineRuleGroup leaves the caller class map writable', () => {
+  const classes = { nowrap: 'white-space:nowrap;' };
+  const def = defineRuleGroup({ title: 'Дворкин', classes, rules: [] });
+
+  assert.equal(Object.isFrozen(classes), false);
+  assert.equal(Object.isFrozen(def), true);
+
+  classes.nowrap = 'white-space:pre;';
+  assert.equal(classes.nowrap, 'white-space:pre;');
+});
+
+// Appending silently puts the group last, which is a different pipeline and says nothing about it.
+test('registerRuleGroup rejects a position it cannot honour', () => {
+  const typo = new MicroTypo();
+  const def = defineRuleGroup({ title: 'Мерлин', rules: [] });
+  const before = typo.listRuleGroups().map((g) => g.name);
+
+  for (const position of ['before:никого', 'after:никого', 'middle', 'befor:quote']) {
+    assert.throws(
+      () => typo.registerRuleGroup(def, { name: 'Мерлин', position }),
+      MicroTypoConfigError,
+      position
+    );
+  }
+
+  assert.deepEqual(
+    typo.listRuleGroups().map((g) => g.name),
+    before,
+    'instance changed anyway'
+  );
+  assert.equal(typo.getRuleGroup('Мерлин'), undefined);
+});
+
+test('registerRuleGroup honours a position it can', () => {
+  const typo = new MicroTypo();
+  const def = defineRuleGroup({ title: 'Мерлин', rules: [] });
+
+  typo.registerRuleGroup(def, { name: 'Мерлин', position: 'before:quote' });
+
+  const names = typo.listRuleGroups().map((g) => g.name);
+  assert.equal(names.indexOf('мерлин'), names.indexOf('quote') - 1);
+});
+
+// Silently keeping the previous layout makes a misspelt call look like it was applied.
+test('setLayout rejects a layout it does not have', () => {
+  const typo = new MicroTypo();
+
+  for (const layout of ['чепуха', undefined, null, 'STYLE']) {
+    assert.throws(() => typo.setLayout(layout), MicroTypoConfigError, String(layout));
+  }
+
+  for (const layout of ['style', 'class', 'both']) {
+    assert.equal(typo.setLayout(layout), typo);
+  }
+});
+
 test('custom group registers after construction', () => {
   const typo = new MicroTypo();
 
@@ -308,7 +366,8 @@ test('glob then specific overrides apply in order', () => {
 });
 
 test('prototype-lookalike selectors are rejected', () => {
-  // "toString" is a prototype member, not a real quote rule id: a config error, not a silent no-op.
+  // `toString` is a prototype member rather than a real quote rule id: a config error, not a silent
+  // no-op.
   assert.throws(
     () => microtypo('Corwin', { rules: { 'quote.toString': 'on' } }),
     MicroTypoConfigError
@@ -336,7 +395,8 @@ test('instances stay independent', () => {
 });
 
 test('nowrap compile cache stays bounded', () => {
-  // Cache must key on structural (open, close) shape, not the id-bearing sample, or it grows one entry per distinct id.
+  // The cache keys on the structural open and close shape rather than on the id-bearing sample, or
+  // it grows one entry per distinct id.
   const typo = new MicroTypo({ html: true });
   let callCount = 0;
 
@@ -439,6 +499,21 @@ describe('safe blocks and tags', () => {
 
     const out = typo.process('Корвин [skip1]"сырое"[/skip1] Эрик');
     assert.ok(out.includes('[skip1]"сырое"[/skip1]'), `Got: ${out}`);
+  });
+
+  // toNonCapturing reads the caller's source without parsing it, so a truncated construct reaches
+  // `new RegExp` verbatim. Config errors leave through the typed hierarchy, never as a bare
+  // SyntaxError from a constructor the caller never called.
+  test('addSafeBlock: a delimiter that will not compile is a config error', () => {
+    const typo = new MicroTypo(opts);
+
+    assert.throws(
+      () => typo.addSafeBlock({ id: 'broken', open: '(?<', close: ']]', unsafeRegex: true }),
+      (error) =>
+        error instanceof MicroTypoConfigError &&
+        error.code === 'ERR_MICROTYPO_CONFIG' &&
+        error.cause instanceof SyntaxError
+    );
   });
 
   test('addSafeBlock: default escapes regex meta', () => {

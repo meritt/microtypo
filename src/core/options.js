@@ -175,6 +175,8 @@ const BUNDLES = {
   units: [
     'abbr.nbsp_unit',
     'abbr.nbsp_weight_unit',
+    'abbr.nbsp_volume_unit',
+    'abbr.nbsp_time_unit',
     'abbr.nbsp_data_unit',
     'abbr.nbsp_frequency_unit',
     'abbr.nbsp_css_unit',
@@ -185,7 +187,8 @@ const BUNDLES = {
 
 export const BUNDLE_NAMES = new Set(Object.keys(BUNDLES));
 
-// Dotted rules keys routing to a quote group setting, not a rule id — exempt from the rule-id-match check.
+// Dotted `rules` keys routing to a quote group setting rather than a rule id, and so exempt from
+// the rule-id-match check.
 export const SETTING_SELECTORS = new Set(['quote.nested', 'quote.inch']);
 
 function pushDotted(out, key, value) {
@@ -210,7 +213,8 @@ function applyRules(rulesObj, out) {
       continue;
     }
 
-    // Route quote.nested/quote.inch before the generic dotted path: they are settings, not rule ids.
+    // `quote.nested` and `quote.inch` route before the generic dotted path: they are settings, not
+    // rule ids.
     if (SETTING_SELECTORS.has(key)) {
       if (key === 'quote.nested') {
         pushSetting(out, 'quote', 'allowNested', isOn(value));

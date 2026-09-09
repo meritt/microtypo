@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 const CLI = fileURLToPath(new URL('../../src/cli/index.js', import.meta.url));
 
-// util.promisify(execFile) with the `input` option hangs on this toolchain (Node 24-26, arm64/darwin); write to child.stdin directly instead.
+// `util.promisify(execFile)` with the `input` option hangs on this toolchain (Node 24-26,
+// arm64/darwin), so the child's stdin is written directly instead.
 function run(args, input) {
   return new Promise((resolveRun, reject) => {
     const child = execFile(process.execPath, [CLI, ...args], (err, stdout, stderr) => {

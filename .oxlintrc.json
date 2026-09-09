@@ -18,6 +18,7 @@
     "no-duplicate-imports": "error",
     "no-promise-executor-return": "error",
     "no-self-compare": "error",
+    "no-unmodified-loop-condition": ["error", { "checkConditionalExpressions": true }],
     "no-unreachable-loop": "error",
     "no-await-in-loop": "off",
     "no-template-curly-in-string": "error",

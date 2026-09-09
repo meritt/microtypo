@@ -10,9 +10,7 @@ export function defineRuleGroup(def) {
     ? Object.freeze(def.rules.map((r) => deepFreeze({ ...r })))
     : Object.freeze({ ...def.rules });
 
-  if (def.classes) {
-    deepFreeze(def.classes);
-  }
-
+  // `classes` is deliberately left alone: registration clones and freezes it (`snapshotRaw`), so
+  // freezing it here protects nothing the engine reads and takes the caller's own object with it.
   return Object.freeze({ ...def, rules });
 }
