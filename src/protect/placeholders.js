@@ -3,6 +3,8 @@ export const CLOSE = '\u{E001}';
 const PARA_DELIM_OPEN = '\u{E100}';
 const PARA_DELIM_CLOSE = '\u{E101}';
 
+export const RESERVED_CHARS = [OPEN, CLOSE, PARA_DELIM_OPEN, PARA_DELIM_CLOSE];
+
 // The four delimiters that carry placeholder structure, as a character-class fragment. A rule whose
 // body is a negated class must exclude them, or a greedy match runs straight through a vaulted tag
 // or a paragraph marker and carries it off — an autolink would put both inside its href.

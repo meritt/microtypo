@@ -24,6 +24,7 @@ import { edgeWhitespace, trimBlankLines } from './lib/strings.js';
 import { SafeBlocks } from './protect/blocks.js';
 import { TokenBudget } from './protect/forgery.js';
 import { dropParagraphs, restoreParagraphs, stripReservedPua } from './protect/placeholders.js';
+import { escapeReserved, hasReserved } from './protect/reserved.js';
 import { SafeSequences } from './protect/sequences.js';
 import { tagSpans } from './protect/tag-spans.js';
 import { assertTagName, SafeTags } from './protect/tags.js';
@@ -97,6 +98,10 @@ export class MicroTypo {
   #presets;
   #select;
   #processing = false; // reentrancy guard
+  // Whether a fragment of the current document can carry a reserved character. Only a JSON value
+  // can hold one its document does not spell, since `JSON.parse` decodes ``; elsewhere one look
+  // at the document spares a structured format the check on every value.
+  #reservedPossible = false;
   onCycleLimit = null;
 
   constructor(config = {}) {
@@ -518,6 +523,7 @@ export class MicroTypo {
     let result;
 
     try {
+      this.#reservedPossible = this.#input.format === 'json' || hasReserved(text);
       result = this.#typeset(text, checkBudget);
     } finally {
       this.#processing = false;
@@ -531,8 +537,8 @@ export class MicroTypo {
   }
 
   #typeset(text, checkBudget) {
-    // Strip reserved PUA first; otherwise crafted input could forge placeholders.
-    let result = stripReservedPua(text);
+    // Reserved PUA is escaped per fragment before it reaches a vault.
+    let result = text;
     // Snapshot the hook so a rule callback can't swap it mid-process.
     const hook = this.onCycleLimit;
     this.#resetVaults();
@@ -628,9 +634,7 @@ export class MicroTypo {
       let decoded;
 
       try {
-        // `JSON.parse` can decode `\uXXXX` back into reserved PUA the raw strip never saw, so the
-        // decoded value is stripped again.
-        decoded = stripReservedPua(JSON.parse(text.slice(start, end)));
+        decoded = JSON.parse(text.slice(start, end));
       } catch (error) {
         throw new MicroTypoInputError(`Malformed JSON string literal: ${error.message}`, {
           details: { start, end }
@@ -740,7 +744,24 @@ export class MicroTypo {
   }
 
   // `ctx` is reused across calls, so `ctx.html` is mutated to reflect this call's destination.
-  #runPipeline(text, session, checkBudget, { destination = 'html' } = {}) {
+  // Every fragment a document is typeset in passes through here, so this is the one place the
+  // reserved characters are escaped: a JSON value carries them only once `JSON.parse` decodes it.
+  #runPipeline(text, session, checkBudget, options) {
+    const escaped = this.#reservedPossible ? escapeReserved(text) : null;
+
+    if (escaped === null) {
+      return this.#typesetFragment(text, session, checkBudget, options);
+    }
+
+    return escaped.unescape(this.#typesetFragment(escaped.text, session, checkBudget, options));
+  }
+
+  #typesetFragment(
+    text,
+    session,
+    checkBudget,
+    { destination = 'html' } = {}
+  ) {
     const effHtml = destination === 'html' && this.#html;
     session.ctx.html = effHtml;
 
