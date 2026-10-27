@@ -29,16 +29,19 @@
     "microtypo": "./src/cli/index.js"
   },
   "files": [
+    "dist",
     "src"
   ],
   "type": "module",
   "sideEffects": false,
   "exports": {
     ".": "./src/index.js",
+    "./browser": "./dist/microtypo.browser.js",
     "./define-rule": "./src/define-rule.js",
     "./errors": "./src/errors/index.js"
   },
   "scripts": {
+    "build:browser": "node scripts/build-browser.mjs",
     "coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-lines=98 --test-coverage-branches=94 --test-coverage-functions=96 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info 'test/**/*.test.js'",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
@@ -48,7 +51,9 @@
     "perf:profile": "node test/tools/perf-profile.mjs",
     "perf:profile:json": "node test/tools/perf-profile.mjs --json",
     "perf:scenarios": "node test/tools/perf-scenario-report.mjs",
+    "prepack": "node scripts/build-browser.mjs",
     "test": "node --test 'test/**/*.test.js'",
+    "test:browser": "node --test 'test/browser/*.browser.js'",
     "test:perf": "node --test --test-concurrency=1 'test/perf/**/*.perf.js'",
     "test:watch": "node --test --watch 'test/**/*.test.js'"
   },
@@ -56,6 +61,7 @@
     "oxfmt": "^0.74.0",
     "oxlint": "^1.89.0",
     "redos-detector": "^6.1.4",
+    "rolldown": "^1.2.15",
     "smol-toml": "^1.9.1",
     "yaml": "^2.9.1"
   },

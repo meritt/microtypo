@@ -45,6 +45,10 @@ jobs:
       - name: Coverage
         run: pnpm coverage
 
+      # Apart from coverage: the build is heavy enough to skew the suite's timing assertions.
+      - name: Browser bundle
+        run: pnpm test:browser
+
       - name: Coveralls
         uses: coverallsapp/github-action@v2
         with:
