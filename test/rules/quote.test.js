@@ -165,6 +165,53 @@ describe('quote state machine', () => {
     test('inch fallbacks then a balanced pair', () => {
       assert.equal(processQuotes('3»7» «Козырь»'), `3${PRIME}7${PRIME} «Козырь»`);
     });
+
+    // The conversion re-reads the quotes from the balanced point before the inch: the close that was
+    // unmatched now closes the outer pair, and the next one finds no balanced point left to reach
+    // the remaining inch from.
+    test('an inch inside nested quotes converts and the quotes pair again', () => {
+      assert.equal(processQuotes('««5»«5»»»»'), `«${BDQUO}5${LDQUO}${BDQUO}5${PRIME}${LDQUO}»"`);
+    });
+
+    // Low quotes the author typed are nested marks to the walk: a conversion that re-reads them
+    // reads them as the quotes they stand for.
+    test('typed low quotes re-read by a conversion pair as angle quotes', () => {
+      assert.equal(processQuotes(`${BDQUO}5${LDQUO} »`), `«5${PRIME} »`);
+    });
+
+    test('a later inch converts from the balanced point before its own quotation', () => {
+      assert.equal(processQuotes('1» «Амбер» «5» »'), `1${PRIME} «Амбер» «5${PRIME} »`);
+    });
+
+    test('after an inch a reversed opening quote still opens', () => {
+      assert.equal(processQuotes('5» »Амбер»'), `5${PRIME} «Амбер»`);
+    });
+
+    test('an astral character before the quotes keeps the conversion in place', () => {
+      assert.equal(
+        processQuotes('𝔸 «Амбер «Корвин» 5» »'),
+        `𝔸 «Амбер ${BDQUO}Корвин${LDQUO} 5${PRIME} »`
+      );
+    });
+
+    // Past a few dozen quote marks the conversions run over an index of the marks; the same input
+    // gives the same output either way.
+    describe('in a paragraph with many quote marks', () => {
+      const pad = '«а» '.repeat(17);
+
+      for (const [input, expected] of [
+        ['««5»«5»»»»', `«${BDQUO}5${PRIME}${BDQUO}5${PRIME}${LDQUO}${LDQUO}»`],
+        [`${BDQUO}5${LDQUO} »`, `«5${PRIME} »`],
+        ['1» «Амбер» «5» »', `1${PRIME} «Амбер» «5${PRIME} »`],
+        ['5» »Амбер»', `5${PRIME} «Амбер»`],
+        ['𝔸 «Амбер «Корвин» 5» »', `𝔸 «Амбер ${BDQUO}Корвин${LDQUO} 5${PRIME} »`],
+        ['3»7» «Козырь»', `3${PRIME}7${PRIME} «Козырь»`]
+      ]) {
+        test(input, () => {
+          assert.equal(processQuotes(pad + input), pad + expected);
+        });
+      }
+    });
   });
 
   describe('straight quotes left alone', () => {
