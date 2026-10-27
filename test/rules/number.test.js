@@ -180,6 +180,28 @@ describe('minus range', () => {
     assert.ok(microtypo('в Ардене -5...10 градусов', cfg).includes('−5'));
   });
 
+  test('the second bound keeps the sign it was written with', () => {
+    assert.equal(microtypo('в Ардене -5...10 градусов', cfg), `в${NBSP}Ардене −5…10 градусов`);
+
+    const cases = [
+      ['-5...10', '−5…10'],
+      ['-5...+10', '−5…+10'],
+      ['-5...-10', '−5…−10'],
+      ['-5...−10', '−5…−10'],
+      ['-5…10', '−5…10'],
+      ['-5…+10', '−5…+10'],
+      ['−5...10', '−5…10'],
+      ['−5…−10', '−5…−10'],
+      ['-5... 10', '−5… 10'],
+      ['-5... -10', '−5… −10']
+    ];
+
+    for (const [src, expected] of cases) {
+      assert.equal(microtypo(src), expected, src);
+      assert.equal(microtypo(src, cfg), expected, src);
+    }
+  });
+
   test('number.minus_range:false leaves the hyphen', () => {
     const out = microtypo('в Ардене -5...10 градусов', {
       ...cfg,
