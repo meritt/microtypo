@@ -140,12 +140,6 @@ export function scanJson(src, checkBudget) {
   return spans;
 }
 
-function lastPathSegment(path) {
-  const dot = path.lastIndexOf('.');
-
-  return dot === -1 ? path : path.slice(dot + 1);
-}
-
 // `dotted` says which spelling of a span's tail this selector compares against: the last piece of
 // the dot-joined path, or the last real structural segment. They part exactly where a key carries a
 // literal dot, and the bucket index below has to key spans by the same one — an index keyed by the
@@ -161,23 +155,18 @@ function compileSelector(raw) {
 
     return Object.freeze({
       raw,
-      kind: 'pointer',
       dotted: false,
-      size: wanted.length,
       tail: wanted.at(-1),
-      test: (segments) =>
-        segments.length === wanted.length &&
-        wanted.every((seg, i) => seg === '*' || seg === String(segments[i]))
+      test: (span) => span.segmentsMatch(wanted)
     });
   }
 
   if (!raw.includes('.')) {
     return Object.freeze({
       raw,
-      kind: 'bare',
       dotted: true,
       tail: raw,
-      test: (path) => lastPathSegment(path) === raw
+      test: (span) => span.dottedTail === raw
     });
   }
 
@@ -185,13 +174,9 @@ function compileSelector(raw) {
 
   return Object.freeze({
     raw,
-    kind: 'glob',
     dotted: true,
-    size: wanted.length,
     tail: wanted.at(-1),
-    test: (segments) =>
-      segments.length === wanted.length &&
-      wanted.every((seg, i) => seg === '*' || seg === segments[i])
+    test: (span) => span.dottedMatch(wanted)
   });
 }
 
@@ -250,48 +235,8 @@ function compileSelectorBucket(raws) {
   });
 }
 
-// Each kind is handed only the spelling of the span its own test reads: a pointer reads the real
-// segments and nothing else, so passing the dot-joined path beside them builds a string per span for
-// a predicate that never looks at it.
-function pathMatches(span, selector, dottedSegments) {
-  if (selector.kind === 'bare') {
-    return selector.test(span.path);
-  }
-
-  // A structural tail that cannot match makes the whole pointer impossible, and the chain answers
-  // that from its own head, before the segment array is built — where a run of k nested values would
-  // materialize k(k+1)/2 positions to reject every one of them.
-  if (selector.kind === 'pointer' && selector.tail !== '*' && span.tail !== selector.tail) {
-    return false;
-  }
-
-  const segments = selector.kind === 'glob' ? dottedSegments : span.segments;
-
-  if (segments.length !== selector.size) {
-    return false;
-  }
-
-  if (selector.tail !== '*' && String(segments.at(-1) ?? '') !== selector.tail) {
-    return false;
-  }
-
-  return selector.test(segments);
-}
-
 function listMatches(span, selectors) {
-  let dottedSegments;
-
-  for (const selector of selectors) {
-    if (selector.kind === 'glob') {
-      dottedSegments ??= span.path.split('.');
-    }
-
-    if (pathMatches(span, selector, dottedSegments)) {
-      return true;
-    }
-  }
-
-  return false;
+  return selectors.some((selector) => selector.test(span));
 }
 
 function indexMatches(span, index, tail) {
@@ -300,8 +245,7 @@ function indexMatches(span, index, tail) {
   return group !== undefined && listMatches(span, group);
 }
 
-// Each index is asked with the tail its own selectors compare against, and only when it holds any:
-// materializing the dot-joined path is what the index is there to avoid.
+// Each index is asked with the tail its own selectors compare against, and only when it holds any.
 function anyMatches(span, selectors) {
   if (Array.isArray(selectors)) {
     return listMatches(span, selectors);
@@ -309,7 +253,7 @@ function anyMatches(span, selectors) {
 
   const { byDottedTail, bySegmentTail, star } = selectors;
 
-  if (byDottedTail.size > 0 && indexMatches(span, byDottedTail, lastPathSegment(span.path))) {
+  if (byDottedTail.size > 0 && indexMatches(span, byDottedTail, span.dottedTail)) {
     return true;
   }
 
@@ -330,17 +274,28 @@ function isCompiled(selectors) {
   return typeof first?.test === 'function';
 }
 
-export function selectValueSpans(spans, selectors = {}) {
+export function selectValueSpans(spans, selectors = {}, checkBudget) {
   const compiled = isCompiled(selectors) ? selectors : compileSpanSelectors(selectors);
   const { fields, exclude } = compiled;
-  let selected = spans.filter((span) => !span.isKey);
+  const restricted = firstSelector(fields) !== undefined || firstSelector(exclude) !== undefined;
+  const selected = [];
 
-  if (fields) {
-    selected = selected.filter((span) => anyMatches(span, fields));
-  }
+  for (let i = 0; i < spans.length; i += 1) {
+    if ((i & 0x3ff) === 0) {
+      checkBudget?.('select');
+    }
 
-  if (exclude) {
-    selected = selected.filter((span) => !anyMatches(span, exclude));
+    const span = spans[i];
+
+    // A span no path reaches is neither selected nor proven unexcluded by any selector.
+    if (
+      !span.isKey &&
+      !(span.unaddressed && restricted) &&
+      (!fields || anyMatches(span, fields)) &&
+      !(exclude && anyMatches(span, exclude))
+    ) {
+      selected.push(span);
+    }
   }
 
   return selected;

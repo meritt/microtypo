@@ -618,7 +618,7 @@ export class MicroTypo {
     checkBudget('json-parse');
 
     const spans = scanJson(text, checkBudget);
-    const selected = selectValueSpans(spans, this.#select);
+    const selected = selectValueSpans(spans, this.#select, checkBudget);
 
     return this.#spliceSpans(text, selected, ({ start, end }) => {
       let decoded;
@@ -663,7 +663,7 @@ export class MicroTypo {
     // Keys are dropped by `selectValueSpans`, which every format goes through, so filtering them
     // here would copy the whole span array for a predicate already known false.
     const spans = scan(text, checkBudget).filter((span) => span.eligible);
-    const selected = selectValueSpans(spans, this.#select);
+    const selected = selectValueSpans(spans, this.#select, checkBudget);
 
     return this.#spliceQuotedSpans(text, selected, session, checkBudget);
   }

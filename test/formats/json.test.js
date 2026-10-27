@@ -3,9 +3,14 @@ import { describe, test } from 'node:test';
 
 import { MicroTypoInputError } from '../../src/errors/index.js';
 import { microtypo, MicroTypo } from '../../src/index.js';
-import { scanJson } from '../../src/input/json.js';
+import { scanJson, selectValueSpans } from '../../src/input/json.js';
+import { scanToml } from '../../src/input/toml.js';
+import { scanYaml } from '../../src/input/yaml.js';
 
 const NBSP = '\u{00A0}';
+
+const run = (src, bucket, selector) =>
+  microtypo(src, { input: { format: 'json', [bucket]: [selector] } });
 
 describe('JSON input: node selection', () => {
   test('typesets every value, keeps keys byte-identical, output re-parses', () => {
@@ -77,6 +82,61 @@ describe('JSON input: node selection', () => {
         assert.equal(many, few, `${bucket} ${selector} on ${src}`);
       }
     }
+  });
+
+  test('a leading empty segment in a dotted selector names the empty key', () => {
+    const typed = `Корвин${NBSP}— принц`;
+    const root = '{"title":"Корвин - принц"}';
+    const nested = '{"":{"title":"Корвин - принц"}}';
+    const deeper = '{"":{"":{"title":"Корвин - принц"}}}';
+
+    for (const selector of ['.title', '//title']) {
+      assert.equal(run(nested, 'exclude', selector), nested, selector);
+      assert.equal(run(nested, 'fields', selector), `{"":{"title":"${typed}"}}`, selector);
+      assert.equal(run(root, 'exclude', selector), `{"title":"${typed}"}`, selector);
+      assert.equal(run(root, 'fields', selector), root, selector);
+      assert.equal(run(deeper, 'exclude', selector), `{"":{"":{"title":"${typed}"}}}`, selector);
+      assert.equal(run(deeper, 'fields', selector), deeper, selector);
+    }
+
+    for (const selector of ['..title', '///title']) {
+      assert.equal(run(deeper, 'exclude', selector), deeper, selector);
+      assert.equal(run(deeper, 'fields', selector), `{"":{"":{"title":"${typed}"}}}`, selector);
+      assert.equal(run(nested, 'fields', selector), nested, selector);
+    }
+
+    for (const src of [root, nested, deeper]) {
+      assert.equal(run(src, 'exclude', 'title'), src, `bare title on ${src}`);
+    }
+  });
+
+  test('a dotted selector no longer skips an empty key in front of the path', () => {
+    const src = '{"":{"a":{"b":"Корвин - принц"}}}';
+    const typed = `{"":{"a":{"b":"Корвин${NBSP}— принц"}}}`;
+
+    assert.equal(run(src, 'fields', 'a.b'), src);
+    assert.equal(run(src, 'exclude', 'a.b'), typed);
+    assert.equal(run(src, 'fields', '.a.b'), typed);
+    assert.equal(run(src, 'exclude', '.a.b'), src);
+    assert.equal(run(src, 'exclude', '/a/b'), typed);
+    assert.equal(run(src, 'exclude', '//a/b'), src);
+  });
+
+  // The documented ambiguity stays: a key with a literal dot and nesting share one dotted path.
+  test('a key with a literal dot shares its dotted path with nesting', () => {
+    const src = '{"a.b":"Корвин - принц","a":{"b":"Оберон - Дворкин"},"":{"a.b":"Рэндом - брат"}}';
+    assert.equal(
+      run(src, 'exclude', 'a.b'),
+      `{"a.b":"Корвин - принц","a":{"b":"Оберон - Дворкин"},"":{"a.b":"Рэндом${NBSP}— брат"}}`
+    );
+    assert.equal(
+      run(src, 'exclude', '.a.b'),
+      `{"a.b":"Корвин${NBSP}— принц","a":{"b":"Оберон${NBSP}— Дворкин"},"":{"a.b":"Рэндом - брат"}}`
+    );
+    assert.equal(
+      run(src, 'exclude', '/a.b'),
+      `{"a.b":"Корвин - принц","a":{"b":"Оберон${NBSP}— Дворкин"},"":{"a.b":"Рэндом${NBSP}— брат"}}`
+    );
   });
 
   test('json pointer selector targets nested path unambiguously, not the literal dotted key', () => {
@@ -309,12 +369,19 @@ describe('scanJson', () => {
     );
   });
 
-  test('an empty key keeps the lossy join the path selector is built on', () => {
-    const src = '{"":{"b":"x"}}';
-    const value = scanJson(src).find((s) => !s.isKey);
+  test('an empty key keeps its place in the dot-joined path', () => {
+    for (const [src, path, segments] of [
+      ['{"":"x"}', '', ['']],
+      ['{"":{"b":"x"}}', '.b', ['', 'b']],
+      ['{"":{"":{"b":"x"}}}', '..b', ['', '', 'b']],
+      ['{"a":{"":"x"}}', 'a.', ['a', '']],
+      ['{"":["x"]}', '.0', ['', 0]]
+    ]) {
+      const value = scanJson(src).find((s) => !s.isKey);
 
-    assert.equal(value.path, 'b');
-    assert.deepEqual(value.segments, ['', 'b']);
+      assert.equal(value.path, path, src);
+      assert.deepEqual(value.segments, segments, src);
+    }
   });
 
   test('paths stay correct at a nesting depth a copying scanner could not reach', () => {
@@ -339,6 +406,183 @@ describe('scanJson', () => {
 
   test('throws on an unclosed object', () => {
     assert.throws(() => scanJson('{"a":"b"'), MicroTypoInputError);
+  });
+});
+
+// The documented selector grammar spelled out over the materialized path and segments, so the
+// selection can be checked against it without sharing any of its code.
+function matchesSpec(span, raw) {
+  if (raw.startsWith('/')) {
+    const wanted = raw
+      .slice(1)
+      .split('/')
+      .map((seg) => seg.replaceAll('~1', '/').replaceAll('~0', '~'));
+
+    return (
+      span.segments.length === wanted.length &&
+      wanted.every((seg, i) => seg === '*' || seg === String(span.segments[i]))
+    );
+  }
+
+  if (!raw.includes('.')) {
+    return span.path.slice(span.path.lastIndexOf('.') + 1) === raw;
+  }
+
+  const wanted = raw.split('.');
+  const pieces = span.path.split('.');
+
+  return (
+    pieces.length === wanted.length && wanted.every((seg, i) => seg === '*' || seg === pieces[i])
+  );
+}
+
+function bySpec(spans, { fields, exclude }) {
+  return spans.filter(
+    (span) =>
+      !span.isKey &&
+      (!fields || fields.some((raw) => matchesSpec(span, raw))) &&
+      !exclude?.some((raw) => matchesSpec(span, raw))
+  );
+}
+
+describe('selectValueSpans', () => {
+  const documents = [
+    scanJson(
+      '{"a.b":"1","a":{"b":"2","c.d":"3"},"":{"b":"4","":{"c":"5"}},"n":["6",["7"]],' +
+        '"1":{"0":"8"},"t.":"9",".u":"10","x":{"":{"":"11"}},"s/l":{"~t":"12"}}'
+    ),
+    scanJson('"корень"'),
+    scanJson(`${'["x",'.repeat(40)}"x"${']'.repeat(40)}`),
+    scanJson(`${'{"":'.repeat(20)}{"b":"x"}${'}'.repeat(20)}`),
+    scanYaml(
+      'a.b: "1"\na:\n  b: "2"\n  list:\n    - "3"\n    - [ "4", "ключ": "5" ]\n"": {b: "6"}\n'
+    ),
+    scanToml('"a.b" = "1"\n[a]\nb = "2"\n[[n]]\nc = "3"\n[[n]]\nc = "4"\n[t]\n"" = "5"\n')
+  ];
+  const selectors = [
+    'b',
+    'c',
+    'd',
+    '0',
+    '',
+    'a.b',
+    '*.b',
+    '.b',
+    '..c',
+    'a.*',
+    '*.*',
+    'n.0',
+    'n.1.0',
+    '1.0',
+    't.',
+    '.u',
+    'x..',
+    'a.c.d',
+    '*.*.*',
+    '1.1.1.0',
+    '/a/b',
+    '/a.b',
+    '//b',
+    '///c',
+    '/*/b',
+    '/n/1/0',
+    '/*',
+    '/',
+    '/x//',
+    '/s~1l/~0t',
+    '/1/1/*',
+    'absent',
+    'a.absent',
+    '/absent'
+  ];
+  const misses = ['m0', 'm1.m', '/m2', 'm3.*', '/*/m4', 'm5', '*.m6', '/m7/*'];
+
+  test('picks exactly what the documented grammar picks, plain and indexed alike', () => {
+    for (const [d, spans] of documents.entries()) {
+      for (const raw of selectors) {
+        for (const choice of [
+          { fields: [raw] },
+          { exclude: [raw] },
+          { fields: [raw, ...misses] },
+          { exclude: [...misses, raw] },
+          { fields: ['*', raw, ...misses], exclude: [raw, ...misses] }
+        ]) {
+          assert.deepEqual(
+            selectValueSpans(spans, choice),
+            bySpec(spans, choice),
+            `document ${d}: ${JSON.stringify(choice)}`
+          );
+        }
+      }
+    }
+  });
+
+  test('reads the budget while selecting, also when nothing is selected', () => {
+    const spans = scanJson(`${'["x",'.repeat(4999)}"x"${']'.repeat(4999)}`);
+    const stop = new Error('budget');
+
+    for (const choice of [{ fields: ['absent'] }, { exclude: ['/absent'] }, {}]) {
+      let reads = 0;
+
+      selectValueSpans(spans, choice, () => {
+        reads += 1;
+      });
+      assert.ok(reads > 1, JSON.stringify(choice));
+      assert.throws(
+        () =>
+          selectValueSpans(spans, choice, () => {
+            throw stop;
+          }),
+        (error) => error === stop
+      );
+    }
+  });
+
+  // A selector compared against the full path walks the whole ancestry of every span; a chain of
+  // k nested values is then k(k+1)/2 segments for one selection.
+  test('a deep chain costs each selector a bounded walk per span', () => {
+    const depth = 4999;
+    const spans = scanJson(`${'["x",'.repeat(depth)}"x"${']'.repeat(depth)}`);
+    const nine = ['absent', 'a.absent', '/absent', ...misses.slice(0, 6)];
+
+    for (const [list, picked] of [
+      [['absent'], 0],
+      [['a.absent'], 0],
+      [['/1/*'], 1],
+      [['*.0'], 1],
+      [['0'], depth],
+      [nine, 0]
+    ]) {
+      for (const bucket of ['fields', 'exclude']) {
+        const started = performance.now();
+        const selected = selectValueSpans(spans, { [bucket]: list });
+        const elapsed = performance.now() - started;
+
+        assert.equal(selected.length, bucket === 'fields' ? picked : depth + 1 - picked);
+        assert.ok(elapsed < 50, `${bucket} ${list}: ${elapsed.toFixed(1)}ms`);
+      }
+    }
+  });
+
+  // Every value of the chain sits at index 0 but the innermost, at 1, so `exclude` names both to
+  // leave nothing for the pipeline and time the selection alone. Nothing selected means nothing
+  // after the selection reads the budget, so only the wall clock shows a selection that overran it.
+  test('deep JSON selection through the public API stays inside a small budget', () => {
+    const depth = 4999;
+    const src = `${'["x",'.repeat(depth)}"x"${']'.repeat(depth)}`;
+
+    for (const selector of ['absent', 'a.absent', '/absent', '/1/*']) {
+      for (const choice of [{ fields: [selector] }, { exclude: [selector, '0', '1'] }]) {
+        const typo = new MicroTypo({
+          input: { format: 'json', ...choice },
+          maxProcessingMs: 100
+        });
+        const started = performance.now();
+
+        assert.equal(typo.process(src), src, JSON.stringify(choice));
+        assert.ok(performance.now() - started < 150, JSON.stringify(choice));
+      }
+    }
   });
 });
 
