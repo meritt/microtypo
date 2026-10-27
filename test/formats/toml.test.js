@@ -156,7 +156,7 @@ describe('TOML quoted-string values', () => {
   test('a header under an array of tables carries its element index', () => {
     const src = '[[posts]]\n[posts.meta]\ntitle = "Корвин - Эрик"';
 
-    assert.deepEqual(parse(src).posts[0].meta, { title: 'Корвин - Эрик' });
+    assert.deepEqual({ ...parse(src).posts[0].meta }, { title: 'Корвин - Эрик' });
     assert.equal(
       microtypo(src, { input: { format: 'toml', fields: ['/posts/0/meta/title'] } }),
       `[[posts]]\n[posts.meta]\ntitle = "Корвин${NBSP}— Эрик"`
@@ -167,7 +167,7 @@ describe('TOML quoted-string values', () => {
     const src =
       '[[posts]]\n[[posts.tags]]\nname = "Арден - лес"\n[[posts]]\n[[posts.tags]]\nname = "Рэбма - город"';
 
-    assert.deepEqual(parse(src).posts[1].tags[0], { name: 'Рэбма - город' });
+    assert.deepEqual({ ...parse(src).posts[1].tags[0] }, { name: 'Рэбма - город' });
     assert.equal(
       microtypo(src, { input: { format: 'toml', fields: ['/posts/1/tags/0/name'] } }),
       `[[posts]]\n[[posts.tags]]\nname = "Арден - лес"\n[[posts]]\n[[posts.tags]]\nname = "Рэбма${NBSP}— город"`
