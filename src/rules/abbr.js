@@ -290,14 +290,12 @@ export const abbrGroup = {
       id: 'nbsp_money_magnitude',
       description: 'Денежные сокращения с тыс/млн/млрд + у.е.',
       pattern:
-        /(\d)(( |\u{00A0})?(тыс|млн|млрд)\.?( |\u{00A0})?)?( |\u{00A0})?(у\.? ?е\.?(\s|$))/giu,
+        /(\d)(( |\u{00A0})?(тыс|млн|млрд)\.?( |\u{00A0})?)?( |\u{00A0})?у\.? ?е\.?(?=\s|$)/giu,
       replacement: (m) => {
-        const [, p1, , , p4, , , p7] = m;
+        const [, p1, , , p4] = m;
         const mid = p4 ? `${G.NBSP}${p4}${p4 === 'тыс' ? '.' : ''}` : '';
-        const isUe = /^у\.? ?е\.?/iu.test(p7);
-        const tail = isUe ? 'у.е.' : p7;
 
-        return `${p1}${mid}${G.NBSP}${tail}`;
+        return `${p1}${mid}${G.NBSP}у.е.`;
       }
     },
     {
