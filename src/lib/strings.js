@@ -69,6 +69,16 @@ export function edgeWhitespace(text) {
   return { start, end };
 }
 
+const LONE_CR_RE = /\r(?!\n)/g;
+
+// A CR of its own ends a line too, CommonMark §2.1 and YAML §5.4, while every line walk splits at
+// LF. A walk reads this copy, where each such CR is a LF: it is as long as the document, so every
+// offset it yields addresses the document's own bytes, and a protected span or a value keeps the CR
+// it was written with.
+export function lineView(text) {
+  return text.includes('\r') ? text.replace(LONE_CR_RE, '\n') : text;
+}
+
 // Whitespace inside a collection that is not line-structured — a YAML flow collection, a TOML inline
 // table — where a line break separates nothing and is just another space.
 export function isFlowSpace(ch) {

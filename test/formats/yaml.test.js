@@ -20,6 +20,56 @@ const literals = (src) =>
     path: s.path
   }));
 
+// Where the reference parser puts each scalar it read, by offset: a key names its container, a
+// value its own position.
+function referencePaths(src) {
+  const found = new Map();
+  const walk = (node, path) => {
+    if (YAML.isScalar(node)) {
+      found.set(node.range[0], { isKey: false, path });
+    } else if (YAML.isMap(node)) {
+      for (const { key, value } of node.items) {
+        if (YAML.isScalar(key)) {
+          found.set(key.range[0], { isKey: true, path });
+        }
+
+        walk(value, [...path, YAML.isScalar(key) ? String(key.value) : '']);
+      }
+    } else if (YAML.isSeq(node)) {
+      node.items.forEach((item, index) => walk(item, [...path, String(index)]));
+    }
+  };
+
+  for (const doc of YAML.parseAllDocuments(src)) {
+    walk(doc.contents, []);
+  }
+
+  return found;
+}
+
+// Keys, nesting and the type of every value, with string contents left out.
+const shape = (text) =>
+  JSON.stringify(parse(text), (key, value) => (typeof value === 'string' ? 'string' : value));
+
+// Every span the scanner reports stands on a node the reference parser read, in the same role, and
+// a value at the same path. A key is never selected, so the path its span carries is not compared,
+// and neither is a span no selector reaches.
+function assertReferencePaths(src) {
+  const reference = referencePaths(src);
+
+  for (const span of scanYaml(src).filter((s) => !s.unaddressed)) {
+    const text = src.slice(span.start, span.end);
+    const expected = reference.get(span.start);
+
+    assert.ok(expected, `no reference node for ${JSON.stringify(text)}`);
+    assert.equal(span.isKey, expected.isKey, text);
+
+    if (!span.isKey) {
+      assert.deepEqual(span.segments.map(String), expected.path, text);
+    }
+  }
+}
+
 describe('YAML typesetting', () => {
   test('quoted values typeset; keys and structure stay verbatim', () => {
     const out = microtypo('title: "Корвин - принц Амбера"\nslug: "korvin-amber"', {
@@ -693,13 +743,36 @@ describe('a multiline quoted key is named what the parser names it', () => {
   }
 
   // The fold is one left-to-right pass per line, so a run of backslashes costs the run and not its
-  // square.
+  // square. A ratio of warm best-of-three runs, because a single cold call is mostly JIT and a
+  // wall-clock limit tracks the machine and coverage: 4x the lines measured 3.5-4.3x linear, and 15x
+  // with a fold that re-reads the accumulated value per line.
   test('a long run of escaped breaks stays linear', () => {
-    const source = `? "${`${'\\'.repeat(3)}\n  `.repeat(2560)}x"\n: "value"`;
-    const started = performance.now();
+    const config = { input: 'yaml', maxInputLength: 200_000, maxProcessingMs: 0 };
+    const time = (k) => {
+      const source = `? "${`${'\\'.repeat(3)}\n  `.repeat(k)}x"\n: "value"`;
+      const started = performance.now();
+      const output = microtypo(source, config);
+      const ms = performance.now() - started;
 
-    assert.equal(microtypo(source, { input: 'yaml', maxProcessingMs: 0 }), source);
-    assert.ok(performance.now() - started < 25, 'fold re-read the accumulated tail');
+      assert.equal(output, source);
+
+      return ms;
+    };
+
+    time(2560);
+
+    let smallMs = Infinity;
+    let largeMs = Infinity;
+
+    for (let round = 0; round < 3; round += 1) {
+      smallMs = Math.min(smallMs, time(5120));
+      largeMs = Math.min(largeMs, time(20_480));
+    }
+
+    assert.ok(
+      largeMs < smallMs * 8,
+      `4x the lines cost ${(largeMs / smallMs).toFixed(1)}x the time (${smallMs.toFixed(1)}ms -> ${largeMs.toFixed(1)}ms)`
+    );
   });
 });
 
@@ -1593,17 +1666,20 @@ describe('scanYaml', () => {
     }
   });
 
-  // A key that is not one string on one line spells no name a path can carry, so its value stays
-  // addressed by an empty segment rather than by a name the document never wrote.
+  // A key that is not one string on one line spells no name a path can carry — neither a name the
+  // document never wrote nor the empty key — so no selector reaches its value.
   test('an explicit key that spells no string names nothing', () => {
     for (const src of [
       '? |\n  title\n: "Корвин - принц"',
       '? [title]\n: "Корвин - принц"',
       '? title\n  ещё\n: "Корвин - принц"'
     ]) {
-      const out = microtypo(src, { input: { format: 'yaml', exclude: ['title'] } });
+      const run = (selector) => microtypo(src, { input: { format: 'yaml', ...selector } });
 
-      assert.match(out, /Корвин\u{00A0}— принц/u, `exclude should not have reached: ${src}`);
+      assert.match(run({}), /Корвин\u{00A0}— принц/u, src);
+      assert.equal(run({ exclude: ['title'] }), src);
+      assert.equal(run({ fields: ['title'] }), src);
+      assert.equal(run({ fields: ['/'] }), src);
     }
   });
 
@@ -1802,5 +1878,637 @@ describe('a comment inside a node a property settled', () => {
     const source = 'a: Дворкин - мудрец\n   и чародей Амбера\n';
 
     assert.equal(microtypo(source, { input: 'yaml' }), source);
+  });
+});
+
+// In a flow collection a `:` separates a key only where whitespace or a flow delimiter follows it, or
+// right behind a quoted or bracketed key. Anywhere else it is a character of the plain scalar.
+describe('a colon inside a flow mapping key', () => {
+  const cases = [
+    ['{foo:Корвин - принц}', '{foo:Корвин - принц}'],
+    ['{foo:bar: "Корвин - принц"}', `{foo:bar: "Корвин${NBSP}— принц"}`],
+    ['{http://arden.io/путь: "Корвин - принц"}', `{http://arden.io/путь: "Корвин${NBSP}— принц"}`],
+    ['{? foo:Корвин - принц : "Арден - лес"}', `{? foo:Корвин - принц : "Арден${NBSP}— лес"}`],
+    [
+      '{foo:Корвин - принц, title: "Арден - лес"}',
+      `{foo:Корвин - принц, title: "Арден${NBSP}— лес"}`
+    ],
+    ['{a :Корвин - принц}', '{a :Корвин - принц}'],
+    ['{:Корвин - принц}', '{:Корвин - принц}'],
+    ['{"foo":Корвин - принц}', `{"foo":Корвин${NBSP}— принц}`],
+    ['{"foo" :"Корвин - принц"}', `{"foo" :"Корвин${NBSP}— принц"}`],
+    [
+      '{a: {foo:Корвин - принц}, b: [foo:bar: "Арден - лес"]}',
+      `{a: {foo:Корвин - принц}, b: [foo:bar: "Арден${NBSP}— лес"]}`
+    ]
+  ];
+
+  for (const [src, expected] of cases) {
+    test(JSON.stringify(src), () => {
+      const out = microtypo(src, { input: 'yaml' });
+
+      assert.equal(out, expected);
+      assert.equal(shape(out), shape(src));
+      assertReferencePaths(src);
+    });
+  }
+
+  test('the value is selected by the whole key', () => {
+    const src = '{foo:bar: "Корвин - принц", url: "Арден - лес"}';
+    const typeset = (selector) =>
+      new MicroTypo({ input: { format: 'yaml', ...selector } }).process(src);
+
+    assert.equal(
+      typeset({ exclude: ['/foo:bar'] }),
+      `{foo:bar: "Корвин - принц", url: "Арден${NBSP}— лес"}`
+    );
+    assert.equal(
+      typeset({ fields: ['foo:bar'] }),
+      `{foo:bar: "Корвин${NBSP}— принц", url: "Арден - лес"}`
+    );
+    assert.equal(
+      typeset({ exclude: ['/foo'] }),
+      `{foo:bar: "Корвин${NBSP}— принц", url: "Арден${NBSP}— лес"}`
+    );
+  });
+});
+
+// A block sequence may stand at its parent key's column, and a compact mapping opened by `-` has its
+// own column too: each is a container of its own, and a value's path runs through all of them.
+const typeset = (src, selector) =>
+  new MicroTypo({ input: { format: 'yaml', ...selector } }).process(src);
+
+describe('a block sequence keeps the path of every container around it', () => {
+  test('an indentless sequence lives under its key', () => {
+    const src = 'title:\n- "Корвин - принц"';
+    const typesetSrc = `title:\n- "Корвин${NBSP}— принц"`;
+
+    assertReferencePaths(src);
+    assert.equal(typeset(src, { exclude: ['/title/0'] }), src);
+    assert.equal(typeset(src, { exclude: ['title.0'] }), src);
+    assert.equal(typeset(src, { fields: ['/title/0'] }), typesetSrc);
+    assert.equal(typeset(src, { fields: ['title.0'] }), typesetSrc);
+  });
+
+  test('a sibling after a nested mapping returns to the item', () => {
+    const src = 'items:\n  - nested:\n      title: "Корвин - принц"\n    slug: "Рэндом - брат"';
+
+    assertReferencePaths(src);
+    assert.equal(
+      typeset(src, { exclude: ['/items/0/slug'] }),
+      `items:\n  - nested:\n      title: "Корвин${NBSP}— принц"\n    slug: "Рэндом - брат"`
+    );
+    assert.equal(
+      typeset(src, { fields: ['items.0.slug'] }),
+      `items:\n  - nested:\n      title: "Корвин - принц"\n    slug: "Рэндом${NBSP}— брат"`
+    );
+  });
+
+  test('two indentless sequences each start at index 0', () => {
+    const src = 'a:\n- "Корвин - принц"\nb:\n- "Рэндом - брат"\n- "Эрик - король"';
+
+    assertReferencePaths(src);
+    assert.equal(
+      typeset(src, { fields: ['/b/0'] }),
+      `a:\n- "Корвин - принц"\nb:\n- "Рэндом${NBSP}— брат"\n- "Эрик - король"`
+    );
+  });
+
+  for (const src of [
+    'a:\n- x: "Корвин - принц"\n  y: "Рэндом - брат"\nb: "Эрик - король"',
+    '- key:\n  - "Корвин - принц"\n  other: "Рэндом - брат"\n- "Эрик - король"',
+    '- - a: "Корвин - принц"\n    b: "Рэндом - брат"\n  - "Эрик - король"',
+    'items:\n- nested:\n    deep:\n    - "Корвин - принц"\n  slug: "Рэндом - брат"\nnext: "Эрик - король"',
+    'root:\n  list:\n  - one: "Корвин - принц"\n    two:\n    - "Рэндом - брат"\n  after: "Эрик - король"',
+    '-   wide: "Корвин - принц"\n    next: "Рэндом - брат"',
+    '? q\n:\n- "Корвин - принц"\nz: "Рэндом - брат"',
+    'title: &a\n- "Корвин - принц"\nnext: "Рэндом - брат"'
+  ]) {
+    test(`paths match the reference parser: ${JSON.stringify(src)}`, () => {
+      assertReferencePaths(src);
+      assert.equal(shape(microtypo(src, { input: 'yaml' })), shape(src));
+    });
+  }
+});
+
+// An anchor, a tag or a byte order mark stands in front of a key and is no part of its name.
+describe('a key is named past its node properties', () => {
+  const VALUE = '"Корвин - принц"';
+  const TYPESET = `"Корвин${NBSP}— принц"`;
+
+  for (const [src, pointer, dotted] of [
+    [`&a title: ${VALUE}`, '/title', 'title'],
+    [`!!str title: ${VALUE}`, '/title', 'title'],
+    [`!<tag:yaml.org,2002:str> title: ${VALUE}`, '/title', 'title'],
+    [`&a !!str title: ${VALUE}`, '/title', 'title'],
+    [`&a "title": ${VALUE}`, '/title', 'title'],
+    [`!!str 'title': ${VALUE}`, '/title', 'title'],
+    [`\u{FEFF}title: ${VALUE}`, '/title', 'title'],
+    [`\u{FEFF}"title": ${VALUE}`, '/title', 'title'],
+    [`root:\n  &a title: ${VALUE}`, '/root/title', 'root.title'],
+    [`- &a title: ${VALUE}`, '/0/title', '0.title'],
+    [`? &a title\n: ${VALUE}`, '/title', 'title'],
+    [`{&a title: ${VALUE}}`, '/title', 'title'],
+    [`{!!str "title": ${VALUE}}`, '/title', 'title'],
+    [`[&a title: ${VALUE}]`, '/0/title', '0.title'],
+    [`\u{FEFF}{title: ${VALUE}}`, '/title', 'title'],
+    [`\u{FEFF}- ${VALUE}`, '/0', '0'],
+    [`!!int 1: ${VALUE}`, '/1', '1']
+  ]) {
+    test(JSON.stringify(src), () => {
+      const typesetSrc = src.replace(VALUE, TYPESET);
+
+      assertReferencePaths(src);
+      assert.equal(typeset(src, { exclude: [pointer] }), src);
+      assert.equal(typeset(src, { exclude: [dotted] }), src);
+      assert.equal(typeset(src, { fields: [pointer] }), typesetSrc);
+      assert.equal(typeset(src, { fields: [dotted] }), typesetSrc);
+    });
+  }
+
+  test('a property in front of a quoted value still keeps its bytes', () => {
+    for (const src of [`title: !!str ${VALUE}`, `- &a ${VALUE}`, `&a ${VALUE}`]) {
+      assert.equal(microtypo(src, { input: 'yaml' }), src);
+    }
+  });
+});
+
+// A sequence may share its key's column, and a property on that key's value settles the sequence
+// all the same: it keeps its bytes exactly as the indented one does.
+describe('an indentless sequence behind a property', () => {
+  const NEXT = 'next: "Эрик - король"';
+  const NEXT_TYPESET = `next: "Эрик${NBSP}— король"`;
+
+  for (const property of ['&a', '!!seq', '!<tag:yaml.org,2002:seq>', '&a !!seq']) {
+    test(property, () => {
+      const src = `title: ${property}\n- "Корвин - принц"\n# Рэндом - брат\n- Рэндом - брат\n${NEXT}`;
+      const out = microtypo(src, { input: 'yaml' });
+
+      assert.equal(out, src.replace(NEXT, NEXT_TYPESET));
+      assert.equal(shape(out), shape(src));
+      assertReferencePaths(src);
+    });
+  }
+
+  test('nested under a mapping', () => {
+    const src = `root:\n  list: &a\n  - "Корвин - принц"\n  ${NEXT}`;
+    const out = microtypo(src, { input: 'yaml' });
+
+    assert.equal(out, src.replace(NEXT, NEXT_TYPESET));
+    assert.equal(shape(out), shape(src));
+    assertReferencePaths(src);
+  });
+
+  test('the same sequence without a property is still typeset', () => {
+    const src = `title:\n- "Корвин - принц"\n# Рэндом - брат\n- Рэндом - брат\n${NEXT}`;
+    const out = microtypo(src, { input: 'yaml' });
+
+    assert.equal(
+      out,
+      `title:\n- "Корвин${NBSP}— принц"\n# Рэндом - брат\n- Рэндом${NBSP}— брат\n${NEXT_TYPESET}`
+    );
+    assert.equal(shape(out), shape(src));
+    assertReferencePaths(src);
+  });
+});
+
+// A quoted scalar behind a property is one node whichever lines it covers, and none of them is a
+// line of structure or prose of its own.
+describe('a multi-line quoted value behind a property', () => {
+  const NEXT = 'next: "Эрик - король"';
+  const NEXT_TYPESET = `next: "Эрик${NBSP}— король"`;
+
+  for (const src of [
+    `title: !!str "Корвин,\n  принц - сын"\n${NEXT}`,
+    `title: &a 'Корвин,\n  принц - сын'\n${NEXT}`,
+    `title: &a "Корвин\n  - принц - сын"\n${NEXT}`,
+    `title: !<tag:yaml.org,2002:str> "Корвин,\n\n  принц - сын"\n${NEXT}`,
+    `--- !!str "Корвин,\n  принц - сын"\n`,
+    `- !!str "Корвин,\n  принц - сын"\n- "Эрик - король"`
+  ]) {
+    test(JSON.stringify(src), () => {
+      const out = microtypo(src, { input: 'yaml' });
+
+      assert.equal(
+        out,
+        src.replace(NEXT, NEXT_TYPESET).replace('- "Эрик - король"', `- "Эрик${NBSP}— король"`)
+      );
+      assert.equal(shape(out), shape(src));
+      assertReferencePaths(src);
+    });
+  }
+
+  test('a single-line one keeps its bytes too, and its neighbour is typeset', () => {
+    const src = `title: &a "Корвин - принц"\n${NEXT}`;
+
+    assert.equal(microtypo(src, { input: 'yaml' }), src.replace(NEXT, NEXT_TYPESET));
+    assertReferencePaths(src);
+  });
+
+  test('the same values without a property behave as before', () => {
+    const multi = `title: "Корвин,\n  принц - сын"\n${NEXT}`;
+    const single = `title: "Корвин - принц"\n${NEXT}`;
+
+    assert.equal(microtypo(multi, { input: 'yaml' }), multi.replace(NEXT, NEXT_TYPESET));
+    assert.equal(
+      microtypo(single, { input: 'yaml' }),
+      `title: "Корвин${NBSP}— принц"\n${NEXT_TYPESET}`
+    );
+    assertReferencePaths(multi);
+    assertReferencePaths(single);
+  });
+});
+
+// `&` and `!` start a plain scalar too: a line where a quote has more behind it is plain text, not
+// a property and a quoted node with junk after it.
+describe('a plain scalar that starts like a property', () => {
+  for (const src of ['текст\n&lt;b&gt; "x" - y', 'текст\n!важно "x" - y']) {
+    test(`the continuation ${JSON.stringify(src)} is read and kept as written`, () => {
+      assert.doesNotThrow(() => YAML.parse(src));
+      assert.equal(microtypo(src, { input: 'yaml' }), src);
+    });
+  }
+
+  // Not YAML a strict parser accepts, but read as the plain text it always was rather than refused.
+  for (const src of ['key: !важно "x" - y', 'key: &a "x" - y', '!важно "x" - y']) {
+    test(`${JSON.stringify(src)} is kept as written`, () => {
+      assert.equal(microtypo(src, { input: 'yaml' }), src);
+    });
+  }
+});
+
+// Every value position the reference parser reads, as a JSON pointer.
+const referencePointers = (src) =>
+  new Set(
+    [...referencePaths(src).values()]
+      .filter((node) => !node.isKey)
+      .map((node) => `/${node.path.join('/')}`)
+  );
+
+// A property may stand on a line of its own under the key whose value it belongs to, and that value
+// may still be a sequence sharing the key's column: `title:\n  &a\n- …` is `title: &a\n- …`.
+describe('a property on its own line before an indentless sequence', () => {
+  const NEXT = 'next: "Эрик - король"';
+  const NEXT_TYPESET = `next: "Эрик${NBSP}— король"`;
+
+  for (const [src, item, next = '/next'] of [
+    [`title:\n  &a\n- "Корвин - принц"\n${NEXT}`, '/title/0'],
+    [`title:\n  !!seq\n- "Корвин - принц"\n- Корвин - принц\n${NEXT}`, '/title/1'],
+    [`title:\n  &a !!seq\n- "Корвин - принц"\n${NEXT}`, '/title/0'],
+    [`title:\n  &a\n  !!seq\n- "Корвин - принц"\n${NEXT}`, '/title/0'],
+    [`title:\n  &a # якорь\n  # Корвин - принц\n- "Корвин - принц"\n${NEXT}`, '/title/0'],
+    [`title: # заголовок\n  &a\n- "Корвин - принц"\n${NEXT}`, '/title/0'],
+    [`title:\n# заголовок\n  &a\n\n- "Корвин - принц"\n${NEXT}`, '/title/0'],
+    [`title:\n  &a\n- - "Корвин - принц"\n  - Корвин - принц\n${NEXT}`, '/title/0/1'],
+    [`title:\n  &a\n- name: "Корвин - принц"\n  slug: Корвин - принц\n${NEXT}`, '/title/0/slug'],
+    [`root:\n  list:\n    &a\n  - "Корвин - принц"\n  ${NEXT}`, '/root/list/0', '/root/next'],
+    [`- title:\n    &a\n  - "Корвин - принц"\n  ${NEXT}`, '/0/title/0', '/0/next']
+  ]) {
+    test(JSON.stringify(src), () => {
+      const typesetNext = src.replace(NEXT, NEXT_TYPESET);
+
+      assert.ok(referencePointers(src).has(item), `${item} is not a value the parser reads`);
+      assertReferencePaths(src);
+      assert.equal(typeset(src, {}), typesetNext);
+      assert.equal(typeset(src, { exclude: [item] }), typesetNext);
+      assert.equal(typeset(src, { fields: [item] }), src);
+      assert.equal(typeset(src, { fields: [next] }), typesetNext);
+      assert.equal(shape(typeset(src, {})), shape(src));
+    });
+  }
+
+  // The same sequence indented under the property, and the same property behind the colon.
+  for (const src of [
+    `title:\n  &a\n  - "Корвин - принц"\n${NEXT}`,
+    `title: &a\n- "Корвин - принц"\n${NEXT}`
+  ]) {
+    test(`control ${JSON.stringify(src)}`, () => {
+      assertReferencePaths(src);
+      assert.equal(typeset(src, {}), src.replace(NEXT, NEXT_TYPESET));
+    });
+  }
+});
+
+// An explicit key may begin on the line under its `?`, behind properties written alone on theirs,
+// and it names its entry from there exactly as `? title` does.
+describe('an explicit key that begins below its indicator', () => {
+  const VALUE = '"Корвин - принц"';
+  const VALUE_TYPESET = `"Корвин${NBSP}— принц"`;
+  const NEXT = 'next: "Эрик - король"';
+  const NEXT_TYPESET = `next: "Эрик${NBSP}— король"`;
+
+  for (const [src, pointer, next = '/next'] of [
+    [`? &a\n  title\n: ${VALUE}\n${NEXT}`, '/title'],
+    [`? !!str\n  title\n: ${VALUE}\n${NEXT}`, '/title'],
+    [`? !!str\n  0x10\n: ${VALUE}\n${NEXT}`, '/0x10'],
+    [`? &a\n  "title"\n: ${VALUE}\n${NEXT}`, '/title'],
+    [`? &a\n  'title' # ключ\n: ${VALUE}\n${NEXT}`, '/title'],
+    [`? &a\n  !!str\n  title\n: ${VALUE}\n${NEXT}`, '/title'],
+    [`? &a # якорь\n  # Корвин - принц\n\n  title\n: ${VALUE}\n${NEXT}`, '/title'],
+    [`? &a\n  "ti\n  tle"\n: ${VALUE}\n${NEXT}`, '/ti tle'],
+    [`?\n  title\n: ${VALUE}\n${NEXT}`, '/title'],
+    [`root:\n  ? &a\n    title\n  : ${VALUE}\n  ${NEXT}`, '/root/title', '/root/next'],
+    [`- ? &a\n    title\n  : ${VALUE}\n  ${NEXT}`, '/0/title', '/0/next']
+  ]) {
+    test(JSON.stringify(src), () => {
+      assert.ok(referencePointers(src).has(pointer), `${pointer} is not a value the parser reads`);
+      assertReferencePaths(src);
+      assert.equal(typeset(src, { exclude: [pointer] }), src.replace(NEXT, NEXT_TYPESET));
+      assert.equal(typeset(src, { fields: [pointer] }), src.replace(VALUE, VALUE_TYPESET));
+      assert.equal(typeset(src, { fields: [next] }), src.replace(NEXT, NEXT_TYPESET));
+    });
+  }
+
+  // A key that is not one string spells no name, and one with a non-string tag has none this scanner
+  // can tell: neither borrows the name of a line near it nor becomes the empty key.
+  for (const src of [
+    `? &a\n  |\n    title\n: ${VALUE}`,
+    `? &a\n  [title]\n: ${VALUE}`,
+    `? &a\n  title\n  ещё\n: ${VALUE}`,
+    `? &a\n  title: x\n: ${VALUE}`,
+    `? title: x\n: ${VALUE}`
+  ]) {
+    test(`unnamed ${JSON.stringify(src)}`, () => {
+      assert.equal(typeset(src, {}), src.replace(VALUE, VALUE_TYPESET));
+      assert.equal(typeset(src, { exclude: ['/title'] }), src);
+      assert.equal(typeset(src, { fields: ['/title'] }), src);
+      assert.equal(typeset(src, { fields: ['/title: x'] }), src);
+      assert.equal(typeset(src, { fields: ['/'] }), src);
+    });
+  }
+
+  test('a key with a non-string tag below its indicator keeps its value', () => {
+    const src = `? &a\n  !!int\n  0x10\n: ${VALUE}\n${NEXT}`;
+
+    assertReferencePaths(src);
+    assert.equal(typeset(src, { exclude: ['/16'] }), src.replace(NEXT, NEXT_TYPESET));
+    assert.equal(typeset(src, { fields: ['/16'] }), src);
+    assert.equal(typeset(src, { fields: ['/0x10'] }), src);
+  });
+});
+
+// A tag that makes a key something other than a string names it by the value it resolves to, not
+// by its spelling: `!!int 0x10` is the key 16. The scanner does not resolve types, so no selector
+// reaches the value under such a key: `fields` never picks it and `exclude` always keeps it. With
+// nothing selecting, it is a string value like any other.
+describe('a key with a non-string tag', () => {
+  const VALUE = '"Корвин - принц"';
+  const NEXT = 'next: "Эрик - король"';
+  const NEXT_TYPESET = `next: "Эрик${NBSP}— король"`;
+  // How each resolved key below is spelled in the source.
+  const SPELLED = { 16: '0x10', true: 'TRUE', 1: '1.0' };
+
+  for (const [src, pointer, next = '/next'] of [
+    [`!!int 0x10: ${VALUE}\n${NEXT}`, '/16'],
+    [`!!bool TRUE: ${VALUE}\n${NEXT}`, '/true'],
+    [`!!float 1.0: ${VALUE}\n${NEXT}`, '/1'],
+    [`!!int "0x10": ${VALUE}\n${NEXT}`, '/16'],
+    [`!!int '0x10': ${VALUE}\n${NEXT}`, '/16'],
+    [`&a !!int 0x10: ${VALUE}\n${NEXT}`, '/16'],
+    [`!<tag:yaml.org,2002:int> 0x10: ${VALUE}\n${NEXT}`, '/16'],
+    [`!!int 0x10: Корвин - принц\n${NEXT}`, '/16'],
+    [`!!int 0x10: |\n  Корвин - принц\n${NEXT}`, '/16'],
+    [`!!int 0x10:\n  title: ${VALUE}\n${NEXT}`, '/16/title'],
+    [`!!int 0x10:\n- ${VALUE}\n${NEXT}`, '/16/0'],
+    [`!!int 0x10:\n  - ${VALUE}\n  # комментарий\n  - ${VALUE}\n${NEXT}`, '/16/0'],
+    [`root:\n  !!int 0x10: ${VALUE}\n  ${NEXT}`, '/root/16', '/root/next'],
+    [`- !!int 0x10: ${VALUE}\n  ${NEXT}`, '/0/16', '/0/next'],
+    [`? !!int 0x10\n: ${VALUE}\n${NEXT}`, '/16'],
+    [`? !!bool TRUE\n:\n  title: ${VALUE}\n${NEXT}`, '/true/title'],
+    [`{!!int 0x10: ${VALUE}, ${NEXT}}`, '/16'],
+    [`{!!int "0x10": ${VALUE}, ${NEXT}}`, '/16'],
+    [`{!!int 0x10: {title: ${VALUE}}, ${NEXT}}`, '/16/title'],
+    [`{!!int 0x10: [${VALUE}, Корвин - принц], ${NEXT}}`, '/16/1'],
+    [`{? !!int 0x10 : ${VALUE}, ${NEXT}}`, '/16'],
+    [`items: [!!int 0x10: ${VALUE}]\n${NEXT}`, '/items/0/16'],
+    [`items: [!!int 0x10: Корвин - принц, ${NEXT}]`, '/items/0/16', '/items/1/next']
+  ]) {
+    test(JSON.stringify(src), () => {
+      const typesetNext = src.replace(NEXT, NEXT_TYPESET);
+      const typesetAll = typesetNext.replaceAll('Корвин - принц', `Корвин${NBSP}— принц`);
+      const misnamed = pointer.replace(/\/(16|true|1)(?=\/|$)/u, (_, name) => `/${SPELLED[name]}`);
+
+      assert.ok(referencePointers(src).has(pointer), `${pointer} is not a value the parser reads`);
+      assertReferencePaths(src);
+      assert.equal(typeset(src, {}), typesetAll);
+      assert.equal(typeset(src, { exclude: [] }), typesetAll);
+      assert.equal(typeset(src, { exclude: [pointer] }), typesetNext);
+      assert.equal(typeset(src, { exclude: ['/nothing'] }), typesetNext);
+      assert.equal(typeset(src, { fields: [pointer] }), src);
+      assert.equal(typeset(src, { fields: [misnamed] }), src);
+      assert.equal(typeset(src, { fields: [next] }), typesetNext);
+      assert.equal(shape(typeset(src, {})), shape(src));
+    });
+  }
+
+  // An unknown local tag settles nothing a path could carry either.
+  test('a key with a local tag', () => {
+    const src = `!local key: ${VALUE}\n${NEXT}`;
+    const typesetNext = src.replace(NEXT, NEXT_TYPESET);
+
+    assert.equal(typeset(src, {}), typesetNext.replace(VALUE, `"Корвин${NBSP}— принц"`));
+    assert.equal(typeset(src, { exclude: ['/nothing'] }), typesetNext);
+    assert.equal(typeset(src, { fields: ['/key'] }), src);
+  });
+
+  // A property on the value itself is a different matter: that node keeps its bytes regardless.
+  test('a property on the value under it still keeps the value', () => {
+    const src = `!!int 0x10: &a ${VALUE}\n${NEXT}`;
+
+    assert.equal(typeset(src, {}), src.replace(NEXT, NEXT_TYPESET));
+  });
+
+  // A string tag, the non-specific one included, leaves the spelling the name, and a tag whose value
+  // prints as written names the key exactly as the reference parser does.
+  for (const [src, pointer] of [
+    [`!!str 0x10: ${VALUE}`, '/0x10'],
+    [`! 0x10: ${VALUE}`, '/0x10'],
+    [`!!str "0x10": ${VALUE}`, '/0x10'],
+    [`!!int 16: ${VALUE}`, '/16'],
+    [`!!int -5: ${VALUE}`, '/-5'],
+    [`!!bool true: ${VALUE}`, '/true'],
+    [`? !!str 0x10\n: ${VALUE}`, '/0x10'],
+    [`{!!str 0x10: ${VALUE}}`, '/0x10'],
+    [`[!!str 0x10: ${VALUE}]`, '/0/0x10']
+  ]) {
+    test(`control ${JSON.stringify(src)}`, () => {
+      const typesetSrc = src.replace(VALUE, `"Корвин${NBSP}— принц"`);
+
+      assert.ok(referencePointers(src).has(pointer), `${pointer} is not a value the parser reads`);
+      assertReferencePaths(src);
+      assert.equal(typeset(src, { exclude: [pointer] }), src);
+      assert.equal(typeset(src, { fields: [pointer] }), typesetSrc);
+    });
+  }
+});
+
+// The type the reference parser gives each key it reads as a scalar.
+function keyTypes(src) {
+  const doc = YAML.parseDocument(src);
+  const types = [];
+
+  assert.deepEqual(doc.errors, [], `the reference parser rejects ${JSON.stringify(src)}`);
+  YAML.visit(doc, {
+    Pair(_, pair) {
+      types.push(YAML.isScalar(pair.key) ? typeof pair.key.value : 'node');
+    }
+  });
+
+  return types;
+}
+
+// A key whose name this scanner cannot tell — a non-string tag on a block scalar, on a key written
+// on the lines below its `?`, or on no scalar at all — is no key a path reaches, the empty one
+// included. Only a key the document spells as the empty string is `/`.
+describe('a key with no name a path can carry', () => {
+  const VALUE = '"Корвин - принц"';
+  const VALUE_TYPESET = `"Корвин${NBSP}— принц"`;
+  const NEXT = 'next: "Эрик - король"';
+  const NEXT_TYPESET = `next: "Эрик${NBSP}— король"`;
+  // More selectors than a bucket keeps as a list, so the indexed lookup answers.
+  const MANY = Array.from({ length: 9 }, (_, i) => `/nothing${i}`);
+
+  for (const [src, pointer, next = '/next'] of [
+    [`? !!int |-\n  0x10\n: ${VALUE}\n${NEXT}`, '/16'],
+    [`? !!int >-\n  0x10\n: ${VALUE}\n${NEXT}`, '/16'],
+    [`? !!int\n  |-\n    0x10\n: ${VALUE}\n${NEXT}`, '/16'],
+    [`? &a\n  !!int\n  |-\n    0x10\n: ${VALUE}\n${NEXT}`, '/16'],
+    [`? !!int |-\n  0x10\n:\n  title: ${VALUE}\n${NEXT}`, '/16/title'],
+    [`? !!null\n: ${VALUE}\n${NEXT}`, '/null'],
+    [`? !!null # ключ\n: ${VALUE}\n${NEXT}`, '/null'],
+    [`? &a\n  !!null\n: ${VALUE}\n${NEXT}`, '/null'],
+    [`root:\n  ? !!int |-\n    0x10\n  : ${VALUE}\n  ${NEXT}`, '/root/16', '/root/next'],
+    [`- ? !!null\n  : ${VALUE}\n  ${NEXT}`, '/0/null', '/0/next'],
+    [`{ !!null : ${VALUE}, ${NEXT} }`, '/null'],
+    [`{ ? !!null : ${VALUE}, ${NEXT} }`, '/null'],
+    [`[ !!null : ${VALUE}, ${NEXT} ]`, '/0/null', '/1/next'],
+    [`[ ? !!null : ${VALUE}, ${NEXT} ]`, '/0/null', '/1/next']
+  ]) {
+    test(JSON.stringify(src), () => {
+      const typesetNext = src.replace(NEXT, NEXT_TYPESET);
+      const typesetAll = typesetNext.replace(VALUE, VALUE_TYPESET);
+
+      assert.ok(
+        keyTypes(src).some((type) => type !== 'string'),
+        'the reference parser reads a non-string key'
+      );
+      assert.ok(referencePointers(src).has(pointer), `${pointer} is not a value the parser reads`);
+      assertReferencePaths(src);
+      assert.equal(typeset(src, {}), typesetAll);
+      assert.equal(typeset(src, { exclude: [] }), typesetAll);
+      assert.equal(typeset(src, { exclude: [pointer] }), typesetNext);
+      assert.equal(typeset(src, { exclude: ['/'] }), typesetNext);
+      assert.equal(typeset(src, { exclude: ['/nothing'] }), typesetNext);
+      assert.equal(typeset(src, { exclude: [...MANY, pointer, '/'] }), typesetNext);
+      assert.equal(typeset(src, { fields: ['/'] }), src);
+      assert.equal(typeset(src, { fields: [pointer] }), src);
+      assert.equal(typeset(src, { fields: [...MANY, pointer, '/'] }), src);
+      assert.equal(typeset(src, { fields: [next] }), typesetNext);
+      assert.equal(typeset(src, { fields: [...MANY, next] }), typesetNext);
+      assert.equal(shape(typeset(src, {})), shape(src));
+    });
+  }
+
+  // The empty string is a key like any other, however it is written.
+  for (const src of [
+    `"": ${VALUE}\n${NEXT}`,
+    `? ""\n: ${VALUE}\n${NEXT}`,
+    `? !!str\n: ${VALUE}\n${NEXT}`,
+    `{ "": ${VALUE}, ${NEXT} }`,
+    `{ !!str : ${VALUE}, ${NEXT} }`
+  ]) {
+    test(`control ${JSON.stringify(src)}`, () => {
+      const typesetNext = src.replace(NEXT, NEXT_TYPESET);
+      const typesetValue = src.replace(VALUE, VALUE_TYPESET);
+
+      assert.ok(keyTypes(src).every((type) => type === 'string'));
+      assert.ok(referencePointers(src).has('/'), '/ is not a value the parser reads');
+      assertReferencePaths(src);
+      assert.equal(typeset(src, { exclude: ['/'] }), typesetNext);
+      assert.equal(typeset(src, { exclude: [...MANY, '/'] }), typesetNext);
+      assert.equal(typeset(src, { exclude: ['/16'] }), typesetNext.replace(VALUE, VALUE_TYPESET));
+      assert.equal(typeset(src, { fields: ['/'] }), typesetValue);
+      assert.equal(typeset(src, { fields: [...MANY, '/'] }), typesetValue);
+    });
+  }
+});
+
+// A collection behind `?` is an explicit key of its own and spells no name either, whatever tag it
+// carries: the spelling `[a]` is not a key the document has. Without `?` the same collection is
+// named as written, which is a separate, stated reading.
+describe('an explicit flow collection key', () => {
+  const VALUE = '"Корвин - принц"';
+  const VALUE_TYPESET = `"Корвин${NBSP}— принц"`;
+  const NEXT = 'next: "Эрик - король"';
+  const NEXT_TYPESET = `next: "Эрик${NBSP}— король"`;
+  const MANY = Array.from({ length: 9 }, (_, i) => `/nothing${i}`);
+
+  for (const [src, next] of [
+    [`{ ? [a] : ${VALUE}, ${NEXT} }`, '/next'],
+    [`{ ? !!seq [a] : ${VALUE}, ${NEXT} }`, '/next'],
+    [`{ ? !!map {a: b} : ${VALUE}, ${NEXT} }`, '/next'],
+    [`{ ? {a: [b, c]} : { inner: ${VALUE} }, ${NEXT} }`, '/next'],
+    [`{ ? [a] : [ ${VALUE} ], ${NEXT} }`, '/next'],
+    [`[ ? [a] : ${VALUE}, { ${NEXT} } ]`, '/1/next'],
+    [`[ ? !!seq [a] : ${VALUE}, { ${NEXT} } ]`, '/1/next'],
+    [`root:\n  { ? [a] : ${VALUE}, ${NEXT} }`, '/root/next']
+  ]) {
+    test(JSON.stringify(src), () => {
+      const typesetNext = src.replace(NEXT, NEXT_TYPESET);
+      const typesetAll = typesetNext.replace(VALUE, VALUE_TYPESET);
+
+      assert.equal(typeset(src, {}), typesetAll);
+      assert.equal(typeset(src, { exclude: ['/absent'] }), typesetNext);
+      assert.equal(typeset(src, { exclude: ['/'] }), typesetNext);
+      assert.equal(typeset(src, { exclude: ['/[a]', '[a]'] }), typesetNext);
+      assert.equal(typeset(src, { exclude: [...MANY] }), typesetNext);
+      assert.equal(typeset(src, { fields: ['/[a]'] }), src);
+      assert.equal(typeset(src, { fields: ['/'] }), src);
+      assert.equal(typeset(src, { fields: ['inner'] }), src);
+      assert.equal(typeset(src, { fields: [...MANY, '/[a]', '/'] }), src);
+      assert.equal(typeset(src, { fields: [next] }), typesetNext);
+      assert.equal(typeset(src, { fields: [...MANY, next] }), typesetNext);
+      assert.equal(shape(typeset(src, {})), shape(src));
+    });
+  }
+
+  test('in a frontmatter header', () => {
+    const src = `---\n{ ? !!seq [a] : ${VALUE}, ${NEXT} }\n---\nКорвин - принц`;
+    const body = `Корвин${NBSP}— принц`;
+    const run = (extra) => microtypo(src, { input: { format: 'frontmatter', ...extra } });
+
+    assert.equal(
+      run({ exclude: ['/absent'] }),
+      src.replace(NEXT, NEXT_TYPESET).replace(/Корвин - принц$/u, body)
+    );
+    assert.equal(run({ fields: ['/[a]'] }), src.replace(/Корвин - принц$/u, body));
+  });
+
+  // The implicit form stays named by its spelling, and an explicit key written as one scalar still
+  // names its entry.
+  test('controls', () => {
+    assert.equal(typeset(`{ [a]: ${VALUE} }`, { fields: ['/[a]'] }), `{ [a]: ${VALUE_TYPESET} }`);
+    assert.equal(typeset(`{ ? a : ${VALUE} }`, { fields: ['/a'] }), `{ ? a : ${VALUE_TYPESET} }`);
+    assert.equal(typeset(`{ ? a : ${VALUE} }`, { exclude: ['/a'] }), `{ ? a : ${VALUE} }`);
+  });
+});
+
+// A CR of its own ends a line, YAML §5.4, as it does in a frontmatter header.
+describe('a document on CR line endings', () => {
+  const LF =
+    'title: "Корвин - принц"\nslug: Арден - лес\nbody: |\n  Эрик - король\n  Рэндом - брат\n';
+  const cr = LF.replaceAll('\n', '\r');
+
+  test('reads every value the LF document has, at the same paths', () => {
+    assert.equal(typeset(cr), typeset(LF).replaceAll('\n', '\r'));
+    assert.equal(
+      typeset(cr, { fields: ['slug'] }),
+      typeset(LF, { fields: ['slug'] }).replaceAll('\n', '\r')
+    );
+    assert.deepEqual(
+      literals(cr).map(({ path, isKey }) => ({ path, isKey })),
+      literals(LF).map(({ path, isKey }) => ({ path, isKey }))
+    );
+    assert.notEqual(typeset(cr), cr);
   });
 });
