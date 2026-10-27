@@ -99,6 +99,96 @@ test('a backslash-escaped quote does not end the expression string early', () =>
   assert.equal(out, '{{ "a \\" }} b - c" }}');
 });
 
+const run = (src, template) =>
+  microtypo(src, { input: { template }, render: { paragraphs: false } });
+
+describe('a quote inside a template comment does not open a string', () => {
+  test('handlebars: a dashed comment longer than the scan bound still closes at --}}', () => {
+    const body = '<li class="item">{{title}} - {{price}}</li>\n'.repeat(200);
+    const src = `{{!--\n${body}--}}\n<p>Цена "по запросу" - звоните</p>`;
+
+    assert.equal(
+      microtypo(src, { input: { format: 'html', template: 'handlebars' } }),
+      `{{!--\n${body}--}}\n<p>Цена «по${NBSP}запросу»${NBSP}— звоните</p>`
+    );
+  });
+
+  test('erb: a Ruby # comment runs to the end of the line', () => {
+    const src = '<% x = 1 # don\'t change\n y = "hello" %>';
+
+    assert.equal(microtypo(src, { input: { format: 'html', template: 'erb' } }), src);
+  });
+
+  test('erb: a Ruby # comment still ends at %>', () => {
+    assert.equal(
+      run('<% x = 1 # it\'s "a %> "b" - c', 'erb'),
+      `<% x = 1 # it's "a %> «b»${NBSP}— c`
+    );
+  });
+
+  test('erb: a <%# %> comment tag spans lines and ignores both quotes', () => {
+    const src = '<%# Don\'t change "hello\n - world %> "z"';
+
+    assert.equal(run(src, 'erb'), '<%# Don\'t change "hello\n - world %> «z»');
+  });
+
+  test('erb: # inside a string is not a comment, so the string still hides %>', () => {
+    const src = '<% s = "#{a} %> b - c" %>';
+
+    assert.equal(run(src, 'erb'), src);
+  });
+
+  for (const template of ['jinja', 'twig', 'nunjucks']) {
+    test(`${template}: {# #} ends at #} regardless of quotes`, () => {
+      const src = '{# Don\'t change "hello" - world #}';
+
+      assert.equal(microtypo(src, { input: { template } }), src);
+      assert.equal(
+        run('{#- it\'s\n "a - b -#} "z" {{ "c #} d" }}', template),
+        '{#- it\'s\n "a - b -#} «z» {{ "c #} d" }}'
+      );
+    });
+  }
+
+  test('handlebars: {{! }} ends at the first }}', () => {
+    assert.equal(run('{{! don\'t "x" - y }} "z"', 'handlebars'), '{{! don\'t "x" - y }} «z»');
+    assert.equal(run('{{~! it\'s ~}} "z"', 'handlebars'), "{{~! it's ~}} «z»");
+  });
+
+  test('handlebars: {{!-- --}} ends at --}}, past quotes and inner }}', () => {
+    const src = '{{!-- it\'s {{x}} "y\n - z --}} "w"';
+
+    assert.equal(run(src, 'handlebars'), '{{!-- it\'s {{x}} "y\n - z --}} «w»');
+    assert.equal(run('{{~!-- don\'t - a --~}} "w"', 'handlebars'), "{{~!-- don't - a --~}} «w»");
+    assert.equal(run('{{!--}} "w"', 'handlebars'), '{{!--}} «w»');
+  });
+
+  test('handlebars: a {{!-- with no --}} anywhere is still vaulted to the first }}', () => {
+    assert.equal(run('{{!-- a - b }} "w"', 'handlebars'), '{{!-- a - b }} «w»');
+  });
+
+  test('mustache: {{! }} ends at the first }}', () => {
+    assert.equal(run('{{! don\'t "x" - y }} "z"', 'mustache'), '{{! don\'t "x" - y }} «z»');
+  });
+
+  test('liquid: an inline # comment ignores quotes', () => {
+    assert.equal(
+      run('{%- # don\'t change "x" - y -%} "z"', 'liquid'),
+      '{%- # don\'t change "x" - y -%} «z»'
+    );
+
+    const block = '{% liquid\n  # it\'s\n  assign x = "a %} b - c"\n%}';
+
+    assert.equal(run(`${block} "z"`, 'liquid'), `${block} «z»`);
+  });
+
+  test('liquid: # inside a string is not a comment, so the string still hides %}', () => {
+    const src = '{% assign t = "#" | append: "a %} b - c" %}';
+
+    assert.equal(run(src, 'liquid'), src);
+  });
+});
+
 test('an unclosed opening delimiter is left as literal text, typeset normally', () => {
   const out = microtypo('{{ a - b', {
     input: { template: 'handlebars' },
