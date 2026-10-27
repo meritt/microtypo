@@ -179,6 +179,30 @@ test('--write rewrites the file in place', async () => {
   assert.match(await readFile(join(dir, 'in.txt'), 'utf8'), /«Амбер»/);
 });
 
+test('a config file that holds an array exits 2 before any file is written', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'tg-shape-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await writeFile(join(dir, 'cfg.json'), '[]');
+  await writeFile(join(dir, 'in.txt'), '"Амбер"');
+
+  const stdout = collector();
+  const stderr = collector();
+  const code = await run(['--config', 'cfg.json', '--write', 'in.txt'], {
+    stdin: stdinFrom(''),
+    stdout,
+    stderr,
+    cwd: dir
+  });
+
+  assert.equal(code, 2);
+  assert.equal(stdout.text(), '');
+  assert.equal(
+    stderr.text(),
+    `error: config file must hold an object, got an array: ${join(dir, 'cfg.json')}\nrun \`microtypo --help\` for usage\n`
+  );
+  assert.equal(await readFile(join(dir, 'in.txt'), 'utf8'), '"Амбер"');
+});
+
 test('an object config file merges with CLI overrides', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'tg-shape-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
