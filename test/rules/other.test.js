@@ -149,6 +149,20 @@ describe('other.split_triads', () => {
     assert.equal(microtypo('a15000', NOP), 'a15000');
   });
 
+  test('leaves the digits of an identifier after any letter unsplit', () => {
+    for (const src of ['А12345', 'а12345', 'ё12345', 'α12345', 'А123456789', 'AB12345']) {
+      assert.equal(microtypo(src, NOP), src);
+    }
+    assert.equal(microtypo('Модель А12345', NOP), 'Модель А12345');
+  });
+
+  test('a standalone number and a unit on the right still split', () => {
+    assert.equal(microtypo('12345', NOP), `12${NNBSP}345`);
+    assert.equal(microtypo('-12345', NOP), `-12${NNBSP}345`);
+    assert.equal(microtypo('12345м', NOP), `12${NNBSP}345${NBSP}м`);
+    assert.equal(microtypo('12345кг', NOP), `12${NNBSP}345${NBSP}кг`);
+  });
+
   // Grouping it would build `8 100 644`, which the next pass reads as one number and glues.
   test('a bare digit and a space to the left refuse the split', () => {
     for (const src of ['8 100644', 'Плата 8 100644 монет', '12 345678']) {

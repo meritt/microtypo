@@ -6,4 +6,4 @@ export function microtypo(text, options) {
 
 export { DEFAULT_MAX_INPUT_LENGTH, MicroTypo };
 
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';

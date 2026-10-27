@@ -1,6 +1,6 @@
 import { MicroTypoInputError } from '../errors/index.js';
 import { decodeEscapes } from '../lib/escape-decoder.js';
-import { isFlowSpace, skipSpaces } from '../lib/strings.js';
+import { isFlowSpace, lineView, skipSpaces } from '../lib/strings.js';
 import { chainAppend, LocatedSpan } from './span-path.js';
 
 // The words YAML resolves to something other than a string. `y`/`n` are in because 1.1 booleans are,
@@ -255,10 +255,16 @@ function scanQuoted(src, i, lineEnd) {
   return null;
 }
 
-function assertNoTrailingLineTokens(src, from, lineEnd) {
+function hasTrailingLineTokens(src, from, lineEnd) {
   const p = skipSpaces(src, from, lineEnd);
 
-  if (p < lineEnd && src[p] !== '#') {
+  return p < lineEnd && src[p] !== '#';
+}
+
+function assertNoTrailingLineTokens(src, from, lineEnd) {
+  if (hasTrailingLineTokens(src, from, lineEnd)) {
+    const p = skipSpaces(src, from, lineEnd);
+
     throw new MicroTypoInputError(`Unexpected trailing content after YAML scalar at offset ${p}`, {
       details: { offset: p }
     });
@@ -319,6 +325,64 @@ function endOfNodeProperties(src, i, n) {
   return j;
 }
 
+// The tag among the node properties in `[from, to)`, or null where they carry none. A comment may
+// stand between two properties, and what it says is not one of them.
+function propertyTag(src, from, to) {
+  let tag = null;
+  let p = from;
+
+  while (p < to) {
+    const ch = src[p];
+
+    if (ch === '#') {
+      const brk = src.indexOf('\n', p);
+
+      p = brk === -1 ? to : brk;
+    } else if (ch === '!' && src[p + 1] === '<') {
+      const close = src.indexOf('>', p + 2);
+      const end = close === -1 || close >= to ? to : close + 1;
+
+      tag = src.slice(p, end);
+      p = end;
+    } else if (ch === '!' || ch === '&') {
+      const start = p;
+
+      p += 1;
+
+      while (p < to && isPlainAfterIndicator(src[p])) {
+        p += 1;
+      }
+
+      if (ch === '!') {
+        tag = src.slice(start, p);
+      }
+    } else {
+      p += 1;
+    }
+  }
+
+  return tag;
+}
+
+// A tag that gives a key another type than string names it by the value it resolves to — `!!int
+// 0x10` is the key 16 — and this scanner resolves no types. The spelling is still the name where the
+// value prints as written; anywhere else the key has no name a path could carry. `!` is the
+// non-specific tag, which leaves a scalar a string. YAML 1.2.2 §6.9.1, §10.3.
+const UNNAMED = Symbol('unnamed key');
+const STRING_TAGS = new Set(['!', '!!str', '!<tag:yaml.org,2002:str>']);
+const CANONICAL_INT = /^(?:0|-?[1-9][0-9]{0,14})$/;
+const CANONICAL_BOOL = /^(?:true|false)$/;
+const SELF_NAMED = new Map([
+  ['!!int', CANONICAL_INT],
+  ['!<tag:yaml.org,2002:int>', CANONICAL_INT],
+  ['!!bool', CANONICAL_BOOL],
+  ['!<tag:yaml.org,2002:bool>', CANONICAL_BOOL]
+]);
+
+function typedKeyName(tag, text) {
+  return tag === null || STRING_TAGS.has(tag) || SELF_NAMED.get(tag)?.test(text) ? text : UNNAMED;
+}
+
 // A sequence element is addressed by its index and a mapping entry by its key. A sequence element
 // that is a compact single-pair mapping — `[ "ключ": значение ]`, the braces left out — is addressed
 // by both.
@@ -349,23 +413,51 @@ const awaitsKey = (frame) => frame?.type === 'map' && frame.key === null;
 const inKeyPosition = (frame) =>
   Boolean(frame) && (frame.opaque || frame.explicit || awaitsKey(frame));
 
+// A value under a key with no name is still a string value and is typeset where nothing selects, but
+// no path reaches it, so selection leaves it alone whichever way it selects.
+function markUnaddressed(spans, from) {
+  for (let i = from; i < spans.length; i += 1) {
+    spans[i].unaddressed = true;
+  }
+}
+
+// Everything recorded behind a key with no name is marked once the entry ends. An entry inside one
+// already marked is covered by it, and marking it again would cost its spans once per level.
+function setFlowKey(frame, key, spans) {
+  frame.key = key;
+
+  if (key === UNNAMED && !frame.covered) {
+    frame.unnamedAt = spans.length;
+  }
+}
+
+function nameFlowKey(frame, tag, text, spans) {
+  setFlowKey(frame, typedKeyName(tag, text), spans);
+}
+
+function endFlowEntry(frame, spans) {
+  if (frame.unnamedAt !== -1) {
+    markUnaddressed(spans, frame.unnamedAt);
+    frame.unnamedAt = -1;
+  }
+}
+
 // A scalar that spans lines cannot be rewritten in place: the pipeline collapses newlines, and a
 // flow scalar's continuation indent is significant.
-function recordFlowScalar(src, n, start, quoted, frame, base, spans, tagged) {
+function recordFlowScalar(src, n, start, quoted, frame, base, spans, tagged, tag) {
   // A sequence element may be a compact single-pair mapping, and there the `:` is the only thing
   // that says so.
   const isKey = inKeyPosition(frame) || src[skipFlowSpace(src, quoted.end, n)] === ':';
   // A key names its container, so it stops short of its own position, which is why this chain is
   // taken before `frame.key` becomes the key itself.
   const chain = isKey && frame?.type === 'map' ? frame.base : flowElementChain(frame, base);
-
-  if (isKey && frame && !frame.opaque) {
-    frame.key = quotedKeyName(src.slice(start + 1, quoted.end - 1), src[start]);
-  }
-
   const eligible = quoted.eligible && !quoted.multiline && !tagged;
 
   spans.push(new LocatedSpan(start, quoted.end, isKey, chain, eligible, src[start]));
+
+  if (isKey && frame && !frame.opaque) {
+    nameFlowKey(frame, tag, quotedKeyName(src.slice(start + 1, quoted.end - 1), src[start]), spans);
+  }
 }
 
 // YAML separates with the four ASCII characters `isFlowSpace` names and with nothing else, so
@@ -393,15 +485,15 @@ function plainKeyText(src, from, to) {
   return trimSeparators(src.slice(from, to));
 }
 
-// Where a plain scalar inside a flow collection stops being one and becomes a key: a `:` that
-// separates, which in flow context is one followed by whitespace or by a delimiter of the
-// collection. A `:` inside `http://arden.io` or `8:00` separates nothing and is content.
+// A `:` separates in flow context when whitespace or a delimiter of the collection follows it. One
+// inside `http://arden.io`, `8:00` or `{foo:bar}` separates nothing and is content of a plain scalar.
+const flowColonSeparates = (src, i) =>
+  i + 1 >= src.length || isFlowSpace(src[i + 1]) || FLOW_BREAKS.test(src[i + 1]);
+
+// Where a plain scalar inside a flow collection stops being one and becomes a key.
 function flowKeyColon(src, from, end) {
   for (let i = from; i < end; i += 1) {
-    if (
-      src[i] === ':' &&
-      (i + 1 >= end || isFlowSpace(src[i + 1]) || FLOW_BREAKS.test(src[i + 1]))
-    ) {
+    if (src[i] === ':' && flowColonSeparates(src, i)) {
       return i;
     }
   }
@@ -460,6 +552,11 @@ function scanFlowCollection(src, start, n, base, spans, checkBudget, cursors) {
   // An anchor or a tag was read and the node it belongs to has not been. That node's type is settled
   // by the property, so this scan leaves its bytes alone — but still reads its structure.
   let tagged = false;
+  // What that property said the type is, read only while `tagged` stands.
+  let tag = null;
+  // The last node was quoted or bracketed, and behind such a key the `:` separates even with no
+  // whitespace after it: `{"a":b}`. YAML 1.2.2 §7.4.2.
+  let afterJsonNode = false;
 
   // A plain scalar inside a flow collection ends at the first `,`, `]` or `}` — YAML forbids all
   // three inside one, so the first is always the end. The word tokenizer below cannot answer this:
@@ -488,21 +585,28 @@ function scanFlowCollection(src, start, n, base, spans, checkBudget, cursors) {
       continue;
     }
 
+    const followsJsonNode = afterJsonNode;
+    afterJsonNode = false;
+
     const frame = stack.at(-1);
 
     // A node property stands exactly where a node may begin, which is what `canOpenQuote` already
     // tracks: anywhere else `&` and `!` are ordinary content of a scalar already under way.
     if ((c === '&' || c === '!') && canOpenQuote) {
-      j = endOfNodeProperties(src, j, n);
+      const end = endOfNodeProperties(src, j, n);
+
+      tag = propertyTag(src, j, end);
+      j = end;
       tagged = true;
       continue;
     }
 
     // `? ` opens an explicit key, and a flow sequence element may be one: `[? ключ, …]` is a
-    // single-pair mapping whose value may be missing entirely, so nothing else gives the key away. A
-    // mapping frame needs no flag for this; it is already waiting for its key.
+    // single-pair mapping whose value may be missing entirely, so nothing else gives the key away.
+    // A mapping is already waiting for its key, and the flag says only that a collection standing
+    // there is written explicitly, which leaves it no name.
     if (c === '?' && canOpenQuote && (j + 1 >= n || !isPlainAfterIndicator(src[j + 1]))) {
-      if (frame?.type === 'seq') {
+      if (frame) {
         frame.explicit = true;
       }
 
@@ -517,10 +621,11 @@ function scanFlowCollection(src, start, n, base, spans, checkBudget, cursors) {
         return -1;
       }
 
-      recordFlowScalar(src, n, j, q, frame, base, spans, tagged);
+      recordFlowScalar(src, n, j, q, frame, base, spans, tagged, tagged ? tag : null);
       j = q.end;
       canOpenQuote = false;
       tagged = false;
+      afterJsonNode = true;
       continue;
     }
 
@@ -539,6 +644,9 @@ function scanFlowCollection(src, start, n, base, spans, checkBudget, cursors) {
         // until its closer is behind it and a `:` follows, so what was recorded inside is taken back
         // then rather than guessed at here.
         spansAt: spans.length,
+        // Where the value of an entry whose key has no name began, or -1.
+        unnamedAt: -1,
+        covered: Boolean(frame) && (frame.unnamedAt !== -1 || frame.covered),
         base: flowElementChain(frame, base)
       });
       keyStart = -1;
@@ -557,24 +665,28 @@ function scanFlowCollection(src, start, n, base, spans, checkBudget, cursors) {
       }
 
       stack.pop();
+      endFlowEntry(frame, spans);
       j += 1;
       canOpenQuote = false;
       folded = false;
       tagged = false;
+      afterJsonNode = true;
 
       // A collection standing where a key belongs is a key: what it holds names the entry rather
       // than being content of it. In a mapping that is known before the collection opens; in a
       // sequence only now, from the `:` behind the closer. Either way the whole subtree is the key,
       // so everything recorded inside it is taken back — including where no outer frame is there to
       // name, since the key of an implicit block mapping is a collection with nothing around it.
+      // Behind `?` the collection is an explicit key, which spells no name a path can carry, so
+      // what it holds reaches no selector; written without `?` it is named as written.
       const outer = stack.at(-1);
 
       if (inKeyPosition(outer) || src[skipFlowSpace(src, j, n)] === ':') {
-        if (outer && !outer.opaque) {
-          outer.key = src.slice(frame.start, j);
-        }
-
         spans.length = frame.spansAt;
+
+        if (outer && !outer.opaque) {
+          setFlowKey(outer, outer.explicit ? UNNAMED : src.slice(frame.start, j), spans);
+        }
       }
 
       if (stack.length === 0) {
@@ -590,6 +702,7 @@ function scanFlowCollection(src, start, n, base, spans, checkBudget, cursors) {
       }
 
       if (frame) {
+        endFlowEntry(frame, spans);
         frame.key = null;
         // The entry the `?` opened ends here, whether or not it ever got a value.
         frame.explicit = false;
@@ -605,14 +718,15 @@ function scanFlowCollection(src, start, n, base, spans, checkBudget, cursors) {
 
     // The one place a mapping moves from key to value: the tokenizer stops at a space as readily as
     // at the `:`, and YAML allows `{title : "…"}`, so the tokenizer cannot be what closes a key.
-    if (c === ':') {
+    // Where a key is awaited, a `:` that separates nothing is part of it: `{a :b}` is the key `a :b`.
+    if (c === ':' && (followsJsonNode || flowColonSeparates(src, j) || !inKeyPosition(frame))) {
       if (keyStart !== -1 && (awaitsKey(frame) || frame?.explicit)) {
-        frame.key = plainKeyText(src, keyStart, j);
-      } else if (awaitsKey(frame)) {
-        // An entry whose key is written as nothing still has one, and the mapping is past it. Only a
-        // mapping still waiting says so: an explicit entry whose key a scalar reader already
-        // recorded would have that name overwritten with the empty one.
-        frame.key = '';
+        nameFlowKey(frame, tagged ? tag : null, plainKeyText(src, keyStart, j), spans);
+      } else if (awaitsKey(frame) || (frame?.type === 'seq' && frame.key === null)) {
+        // An entry whose key is written as nothing still has one, and the mapping is past it; a
+        // property may still give it a type. Only an entry with no key yet says so: one whose key a
+        // scalar reader already recorded would have that name overwritten with the empty one.
+        nameFlowKey(frame, tagged ? tag : null, '', spans);
       }
 
       if (frame) {
@@ -650,17 +764,18 @@ function scanFlowCollection(src, start, n, base, spans, checkBudget, cursors) {
       const limit = wraps ? breakAt : delimAt;
       const plainEnd = limit === -1 ? -1 : plainScalarEnd(src, j, limit);
       const colon =
-        !tagged && plainEnd > j && frame.type === 'seq' && frame.key === null
+        plainEnd > j && frame.type === 'seq' && frame.key === null
           ? flowKeyColon(src, j, plainEnd)
           : -1;
 
       // A sequence element may be a compact single-pair mapping written without its braces —
       // `[ключ: значение]` — and there the `:` standing inside what looks like one scalar is the
-      // separator.
+      // separator. A property in front of it belonged to the key, not to the value behind it.
       if (colon !== -1) {
-        frame.key = plainKeyText(src, j, colon);
+        nameFlowKey(frame, tagged ? tag : null, plainKeyText(src, j, colon), spans);
         j = colon + 1;
         canOpenQuote = true;
+        tagged = false;
         continue;
       }
 
@@ -688,7 +803,10 @@ function scanFlowCollection(src, start, n, base, spans, checkBudget, cursors) {
 
     const tokenStart = j;
 
-    while (j < n && !FLOW_STRUCTURAL.has(src[j])) {
+    while (
+      j < n &&
+      (!FLOW_STRUCTURAL.has(src[j]) || (src[j] === ':' && !flowColonSeparates(src, j)))
+    ) {
       j += 1;
     }
 
@@ -738,7 +856,8 @@ function findKeyColon(src, pos, lineEnd) {
   return -1;
 }
 
-export function scanYaml(src, checkBudget) {
+export function scanYaml(source, checkBudget) {
+  const src = lineView(source);
   const spans = [];
   const n = src.length;
   let lines = 0;
@@ -747,7 +866,11 @@ export function scanYaml(src, checkBudget) {
   // `[` or `{` and must not pay for the searches, and one cache per document is what keeps a
   // document of many small collections out of quadratic time.
   let cursors = null;
-  const delimiterCursors = () => (cursors ??= newDelimiterCursors(src));
+  const delimiterCursors = () => {
+    cursors ??= newDelimiterCursors(src);
+
+    return cursors;
+  };
   let pendingChain = null;
   // One value spread over the lines under the one that opened it. A block scalar's lines are its
   // content and get typeset; an explicit key's and a folded plain scalar's are a value already
@@ -759,16 +882,32 @@ export function scanYaml(src, checkBudget) {
   // stands on the next line, so the run's answer cannot be decided at the property.
   let runPendingNode = false;
   let runInclusive = false;
+  // The property stood behind a key's colon, and the node it settles may be a sequence sharing the
+  // key's column, so an item marker there is still part of it.
+  let runItems = false;
   // Where a block scalar's content actually begins, which is not the column its header stands in:
   // the header may name it outright with an indentation indicator, and otherwise the first non-empty
   // line under it settles it.
   let runBlockIndent = -1;
-  // The string an explicit key spells, when it spells one: the `: value` line of the same entry has
-  // no key text of its own and would otherwise address its value by an empty segment.
+  // The name of the entry an explicit `?` opened, `UNNAMED` where its key spells none, or null with
+  // no such entry pending: the `: value` line has no key text of its own and would otherwise address
+  // its value by an empty segment, which is a different key.
   let explicitKey = null;
   // Where that key's own text ends: the lines a folded quoted key covers are the key itself, not a
   // second line joining it.
   let explicitKeyEnd = -1;
+  // The `?` line held no node, only properties or nothing, so the key begins on a line of its run,
+  // and the tag those properties gave it, which the key's own line may still add to.
+  let explicitKeyBelow = false;
+  let explicitKeyTag = null;
+  // The column of a key whose value did not start on its own line. An item marker at that same
+  // column opens the value as a sequence, which YAML lets share its key's indentation.
+  let openKeyIndent = -1;
+  // Under a key with no name: where its spans began, and its column. The node under it ends at the
+  // first line no deeper than that column that is not one of its items, and what was recorded for
+  // it is marked then.
+  let unnamedFrom = -1;
+  let unnamedIndent = -1;
   let skipTo = -1;
   // The scan resumed inside a line — past a flow collection, or past a quote that only closed further
   // down. What follows the jump is a tail, not a value, so no plain scalar is recognized there.
@@ -835,9 +974,13 @@ export function scanYaml(src, checkBudget) {
       };
     }
 
-    const text = src.slice(kp, plainScalarEnd(src, kp, lineEnd));
+    const textEnd = plainScalarEnd(src, kp, lineEnd);
+    const text = src.slice(kp, textEnd);
+    // A key colon inside makes the key a mapping, which no plain scalar may hold.
+    const scalar =
+      text !== '' && !PLAIN_INDICATOR.test(text) && findKeyColon(src, kp, textEnd) === -1;
 
-    return { text: text !== '' && !PLAIN_INDICATOR.test(text) ? text : null, end: lineEnd };
+    return { text: scalar ? text : null, end: lineEnd };
   }
 
   // An anchor or a tag may stand in front of the value, and the block header behind it is still one.
@@ -854,6 +997,20 @@ export function scanYaml(src, checkBudget) {
     }
 
     return p < lineEnd && src[p] === '#' ? lineEnd : p;
+  }
+
+  // The name of a key whose node starts at `nodeStart`, past the properties from `pos`.
+  const keyName = (pos, nodeStart, text) =>
+    nodeStart === pos ? text : typedKeyName(propertyTag(src, pos, nodeStart), text);
+
+  // A key with no name keeps the node under it, which stops at the key's own column.
+  function keyChain(chain, name, keyIndent) {
+    if (name === UNNAMED && unnamedFrom === -1) {
+      unnamedFrom = spans.length;
+      unnamedIndent = keyIndent;
+    }
+
+    return chainAppend(chain, name);
   }
 
   // The indicators a block header may carry after `|` or `>`: a chomping sign in either order and,
@@ -904,6 +1061,7 @@ export function scanYaml(src, checkBudget) {
     runTypeset = false;
     runPendingNode = true;
     runInclusive = inclusive;
+    runItems = false;
   }
 
   // A plain scalar carries prose often enough to be worth typesetting, and both halves of the rail
@@ -913,7 +1071,11 @@ export function scanYaml(src, checkBudget) {
   // `ownLine` says the value begins where the line's own indentation ends, which is what makes a
   // lone property share its column with the node under it. Behind a `-` the property stands past the
   // marker instead, and a run measured from the marker's column would swallow the next item.
-  function recordPlainScalar(pos, lineEnd, indent, chain, ownLine = true) {
+  //
+  // `ownerIndent` is the column of a key above whose value has not begun yet. A lone property here
+  // belongs to that value, which may be a sequence sharing the key's column, exactly as behind the
+  // key's colon.
+  function recordPlainScalar(pos, lineEnd, indent, chain, ownLine = true, ownerIndent = -1) {
     // A block scalar header was read on this line and owns the run below it already.
     if (midLine || runIndent !== -1) {
       return;
@@ -927,7 +1089,10 @@ export function scanYaml(src, checkBudget) {
     // The same lone property, reached without a colon in front of it: `title:` on one line and `&a`
     // on the next introduces its node exactly as `title: &a` does.
     if (valueStart >= lineEnd) {
-      if (valueStart > pos) {
+      if (valueStart > pos && ownerIndent !== -1) {
+        claimPropertyRun(ownerIndent, chain);
+        runItems = true;
+      } else if (valueStart > pos) {
         claimPropertyRun(indent, chain, ownLine);
       }
 
@@ -962,19 +1127,35 @@ export function scanYaml(src, checkBudget) {
 
   function parseValueAfterColon(pos, lineEnd, chain, indent) {
     if (pos >= lineEnd || src[pos] === '#') {
+      openKeyIndent = indent;
+
       return false;
     }
 
     const ch = src[pos];
+    // A quoted scalar is read past the property in front of it, or a closing quote further down
+    // leaves its lines to be scanned as structure. The property keeps every byte of it.
+    let valueStart = afterNodeProperty(pos, lineEnd);
+    let quote = src[valueStart];
+    let result = quote === '"' || quote === "'" ? scanQuoted(src, valueStart, lineEnd) : null;
 
-    if (ch === '"' || ch === "'") {
-      const result = scanQuoted(src, pos, lineEnd);
+    // `&` and `!` start a plain scalar as well, and one with more on its line behind the quote is
+    // that plain text rather than a property and a quoted node.
+    if (result && valueStart > pos && hasTrailingLineTokens(src, result.end, lineEnd)) {
+      valueStart = pos;
+      quote = src[pos];
+      result = null;
+    }
 
+    if (quote === '"' || quote === "'") {
       if (result) {
         assertNoTrailingLineTokens(src, result.end, lineEnd);
-        spans.push(new LocatedSpan(pos, result.end, false, chain, result.eligible, ch));
+
+        const eligible = result.eligible && valueStart === pos;
+
+        spans.push(new LocatedSpan(valueStart, result.end, false, chain, eligible, quote));
       } else {
-        skipTo = scanQuoted(src, pos, n)?.end ?? n;
+        skipTo = scanQuoted(src, valueStart, n)?.end ?? n;
       }
 
       return true;
@@ -983,8 +1164,6 @@ export function scanYaml(src, checkBudget) {
     // A property in front of a flow collection keeps the node's bytes, but the collection is still
     // read, or an unterminated one behind an anchor would be accepted where the same collection
     // without it is rejected. Its spans are dropped rather than collected.
-    const valueStart = afterNodeProperty(pos, lineEnd);
-
     if (ch === '[' || ch === '{') {
       skipTo = flowCollectionEnd(src, pos, n, chain, spans, checkBudget, delimiterCursors());
     } else if (src[valueStart] === '[' || src[valueStart] === '{') {
@@ -995,6 +1174,7 @@ export function scanYaml(src, checkBudget) {
 
     if (valueStart >= lineEnd && valueStart > pos) {
       claimPropertyRun(indent, chain);
+      runItems = true;
 
       return true;
     }
@@ -1007,8 +1187,8 @@ export function scanYaml(src, checkBudget) {
   // `indent` bounds what a bare value may claim below itself, `keyIndent` what a mapping value may.
   // They differ for a sequence item: `- |` puts the block scalar under the item, bounded by the `-`,
   // while `- body: |` puts it under the mapping that starts two columns in, where a sibling key is
-  // not part of it.
-  function parseKeyOrValue(pos, lineEnd, chain, indent, keyIndent = indent) {
+  // not part of it. `ownerIndent` is `recordPlainScalar`'s.
+  function parseKeyOrValue(pos, lineEnd, chain, indent, keyIndent = indent, ownerIndent = -1) {
     const ch = src[pos];
     // The name an explicit `? ` line spelled belongs to the one entry that line opened, and the `:`
     // half below is the only thing that may claim it, so it is cleared on every path rather than in
@@ -1022,7 +1202,8 @@ export function scanYaml(src, checkBudget) {
     // nothing of flow syntax. The question is asked here rather than at the head of the line, since
     // a `-` prefix answers nothing about what stands behind it.
     if (ch === '?' && separates(src, pos + 1, lineEnd)) {
-      const kp = skipSpaces(src, pos + 1, lineEnd);
+      const keyStart = skipSpaces(src, pos + 1, lineEnd);
+      const kp = afterNodeProperty(keyStart, lineEnd);
 
       if (kp < lineEnd && (src[kp] === '[' || src[kp] === '{')) {
         skipTo = flowCollectionEnd(src, kp, n, null, [], checkBudget, delimiterCursors());
@@ -1034,8 +1215,16 @@ export function scanYaml(src, checkBudget) {
       // joins it.
       const named = simpleKeyText(kp, lineEnd, keyIndent);
 
-      explicitKey = named.text;
       explicitKeyEnd = named.end;
+      explicitKeyBelow = kp >= lineEnd;
+      explicitKeyTag = explicitKeyBelow ? propertyTag(src, keyStart, lineEnd) : null;
+
+      // A `?` line with no node is an empty key until its run shows one.
+      if (named.text !== null) {
+        explicitKey = keyName(keyStart, kp, named.text);
+      } else {
+        explicitKey = explicitKeyBelow ? typedKeyName(explicitKeyTag, '') : UNNAMED;
+      }
 
       // An explicit key runs over every following, more-indented line, all of it key, so it is
       // skipped rather than scanned as content. The run is bounded by the key's own column and not
@@ -1047,31 +1236,52 @@ export function scanYaml(src, checkBudget) {
       return false;
     }
 
-    if (ch === '"' || ch === "'") {
-      const result = scanQuoted(src, pos, lineEnd);
+    // An anchor or a tag in front of a key belongs to the key node and is no part of its name.
+    let nodeStart = afterNodeProperty(pos, lineEnd);
+    let quote = src[nodeStart];
+    const result = quote === '"' || quote === "'" ? scanQuoted(src, nodeStart, lineEnd) : null;
+    const cp = result ? skipSpaces(src, result.end, lineEnd) : lineEnd;
+    const isKeyHere = src[cp] === ':' && separates(src, cp + 1, lineEnd);
 
+    // `&` and `!` start a plain scalar as well — the continuation of a multi-line one among them —
+    // and a line with more behind the quote than a key colon is that plain text.
+    if (
+      result &&
+      nodeStart > pos &&
+      !isKeyHere &&
+      hasTrailingLineTokens(src, result.end, lineEnd)
+    ) {
+      nodeStart = pos;
+      quote = src[pos];
+    }
+
+    if (quote === '"' || quote === "'") {
       if (!result) {
-        skipTo = scanQuoted(src, pos, n)?.end ?? n;
+        skipTo = scanQuoted(src, nodeStart, n)?.end ?? n;
         pendingChain = chain;
 
         return false;
       }
 
-      const cp = skipSpaces(src, result.end, lineEnd);
-
-      const isKeyHere = src[cp] === ':' && separates(src, cp + 1, lineEnd);
-
       if (!isKeyHere) {
         assertNoTrailingLineTokens(src, result.end, lineEnd);
-        spans.push(new LocatedSpan(pos, result.end, false, chain, result.eligible, ch));
+
+        // A value behind a property keeps its bytes, as everywhere a property settled a type.
+        const eligible = result.eligible && nodeStart === pos;
+
+        spans.push(new LocatedSpan(nodeStart, result.end, false, chain, eligible, quote));
 
         return false;
       }
 
-      const rawKey = src.slice(pos + 1, result.end - 1);
-      const fullChain = chainAppend(chain, decodeQuotedKey(rawKey, ch));
+      const rawKey = src.slice(nodeStart + 1, result.end - 1);
+      const fullChain = keyChain(
+        chain,
+        keyName(pos, nodeStart, decodeQuotedKey(rawKey, quote)),
+        keyIndent
+      );
 
-      spans.push(new LocatedSpan(pos, result.end, true, fullChain, result.eligible, ch));
+      spans.push(new LocatedSpan(nodeStart, result.end, true, fullChain, result.eligible, quote));
       pendingChain = fullChain;
 
       const vp = skipSpaces(src, cp + 1, lineEnd);
@@ -1083,8 +1293,6 @@ export function scanYaml(src, checkBudget) {
     // because `findKeyColon` knows nothing of flow syntax and would return one from inside the
     // collection. A property in front of it does not change that, and its contents keep their bytes
     // as they do everywhere a property settled a type.
-    const nodeStart = afterNodeProperty(pos, lineEnd);
-
     if (ch === '[' || ch === '{' || src[nodeStart] === '[' || src[nodeStart] === '{') {
       const opaque = nodeStart !== pos;
 
@@ -1102,11 +1310,11 @@ export function scanYaml(src, checkBudget) {
       return false;
     }
 
-    const colon = findKeyColon(src, pos, lineEnd);
+    const colon = findKeyColon(src, nodeStart, lineEnd);
 
     if (colon === -1) {
-      checkBlockScalar(afterNodeProperty(pos, lineEnd), lineEnd, indent, chain);
-      recordPlainScalar(pos, lineEnd, indent, chain, keyIndent === indent);
+      checkBlockScalar(nodeStart, lineEnd, indent, chain);
+      recordPlainScalar(pos, lineEnd, indent, chain, keyIndent === indent, ownerIndent);
       pendingChain = chain;
 
       return false;
@@ -1114,10 +1322,11 @@ export function scanYaml(src, checkBudget) {
 
     // A line opening with `:` is the value half of an explicit entry, and its key stood on the `?`
     // line above, so the empty text in front of the colon is not its name.
-    const written = plainKeyText(src, pos, colon);
-    const fullChain = chainAppend(
+    const written = plainKeyText(src, nodeStart, colon);
+    const fullChain = keyChain(
       chain,
-      written === '' && pendingKey !== null ? pendingKey : written
+      written === '' && pendingKey !== null ? pendingKey : keyName(pos, nodeStart, written),
+      keyIndent
     );
 
     pendingChain = fullChain;
@@ -1145,19 +1354,30 @@ export function scanYaml(src, checkBudget) {
       return;
     }
 
+    const keyAbove = openKeyIndent;
+    const marksItem = (at) => src[at] === '-' && separates(src, at + 1, lineEnd);
+    const item = marksItem(p);
+
+    openKeyIndent = -1;
+
     while (stack.length > 1 && stack.at(-1).indent > indent) {
+      stack.pop();
+    }
+
+    // A sequence sharing its key's column ends at the first line there that is not one of its items.
+    if (stack.at(-1).indentless && stack.at(-1).indent === indent && !item) {
       stack.pop();
     }
 
     if (stack.at(-1).indent < indent) {
       stack.push({ indent, chain: pendingChain, seqIndex: 0 });
+    } else if (item && keyAbove === indent) {
+      stack.push({ indent, chain: pendingChain, seqIndex: 0, indentless: true });
     }
 
     const frame = stack.at(-1);
 
-    const marksItem = (at) => src[at] === '-' && separates(src, at + 1, lineEnd);
-
-    if (marksItem(p)) {
+    if (item) {
       // A new sequence item is a new entry, so the name an explicit `?` opened above cannot reach
       // it. The `?` branch below sets it again for the item that does open one.
       explicitKey = null;
@@ -1193,19 +1413,22 @@ export function scanYaml(src, checkBudget) {
         return;
       }
 
+      // The node begins at its own column, and a compact mapping goes on at that column on the lines
+      // below: `- a: 1` then `  b: 2` is one item.
+      stack.push({ indent: vp - lineStart, chain: itemChain, seqIndex: 0 });
+
       // A bare value hangs off the marker and is bounded by it; a mapping value is bounded by the
       // column of its own key. `- - |` and `- - body: |` end their block scalar in different places.
-      if (parseKeyOrValue(vp, lineEnd, itemChain, marker - lineStart, vp - lineStart)) {
-        pendingChain = itemChain;
-      }
+      parseKeyOrValue(vp, lineEnd, itemChain, marker - lineStart, vp - lineStart);
 
       return;
     }
 
-    parseKeyOrValue(p, lineEnd, frame.chain, indent);
+    parseKeyOrValue(p, lineEnd, frame.chain, indent, indent, keyAbove < indent ? keyAbove : -1);
   }
 
-  let i = 0;
+  // A byte order mark opens the stream and is not part of the first line's content.
+  let i = src.startsWith('\u{FEFF}') ? 1 : 0;
   // Set when the walk jumps past a construct it consumed, so the next turn begins inside a line
   // rather than at one.
   let resumed = false;
@@ -1248,6 +1471,18 @@ export function scanYaml(src, checkBudget) {
 
     const comment = !blank && src[p] === '#';
 
+    if (
+      unnamedFrom !== -1 &&
+      !blank &&
+      !comment &&
+      !midLine &&
+      (indent < unnamedIndent ||
+        (indent === unnamedIndent && !(src[p] === '-' && separates(src, p + 1, end))))
+    ) {
+      markUnaddressed(spans, unnamedFrom);
+      unnamedFrom = -1;
+    }
+
     if (runIndent !== -1) {
       // A header with no indentation indicator leaves the column to the first non-empty line under
       // it; one standing no deeper than the header itself means the block holds nothing at all.
@@ -1259,9 +1494,14 @@ export function scanYaml(src, checkBudget) {
       // `#` is content like any other byte — so the content's own column decides every line. Outside
       // one the run keeps a node's bytes, and a comment is not that node: it stands at whatever
       // column its author chose and neither continues the run nor ends it. The next node does.
+      const atRunColumn = indent === runIndent;
       const inside = runTypeset
         ? blank || (runBlockIndent !== -1 && indent >= runBlockIndent)
-        : blank || comment || indent > runIndent || (runInclusive && indent === runIndent);
+        : blank ||
+          comment ||
+          indent > runIndent ||
+          (runInclusive && atRunColumn) ||
+          (runItems && atRunColumn && src[p] === '-' && separates(src, p + 1, end));
 
       if (inside) {
         // The first line of the node a lone property introduced is where its style is written, and
@@ -1287,11 +1527,35 @@ export function scanYaml(src, checkBudget) {
           spans.push(new LocatedSpan(p, end, false, runChain, true, ''));
         }
 
+        // The first node of the run is the key the `?` line left unwritten, and it names the entry
+        // as it would standing on that line. A further property line only adds to its tag.
+        if (!blank && explicitKeyBelow && src[p] !== '#') {
+          const node = afterNodeProperty(p, end);
+
+          explicitKeyTag = propertyTag(src, p, node) ?? explicitKeyTag;
+
+          if (node < end) {
+            const named = simpleKeyText(node, end, runIndent);
+
+            explicitKeyBelow = false;
+            explicitKey = named.text === null ? UNNAMED : typedKeyName(explicitKeyTag, named.text);
+            explicitKeyEnd = named.end;
+          } else {
+            explicitKey = typedKeyName(explicitKeyTag, '');
+          }
+        }
+
         // A key that runs onto a second line is not the string the `?` line spelled, so the name it
         // offered is taken back. A blank line and a comment are not that second line, and neither
         // are the lines a folded quoted key spans: those are the key, and its text ends past them.
-        if (!blank && src[p] !== '#' && i >= explicitKeyEnd) {
-          explicitKey = null;
+        if (
+          explicitKey !== null &&
+          !explicitKeyBelow &&
+          !blank &&
+          src[p] !== '#' &&
+          i >= explicitKeyEnd
+        ) {
+          explicitKey = UNNAMED;
         }
 
         i = lineEnd < n ? lineEnd + 1 : lineEnd;
@@ -1304,7 +1568,9 @@ export function scanYaml(src, checkBudget) {
       runIndent = -1;
       runPendingNode = false;
       runInclusive = false;
+      runItems = false;
       runBlockIndent = -1;
+      explicitKeyBelow = false;
     }
 
     if (!blank && src[p] !== '#') {
@@ -1319,6 +1585,10 @@ export function scanYaml(src, checkBudget) {
     }
 
     i = lineEnd < n ? lineEnd + 1 : lineEnd;
+  }
+
+  if (unnamedFrom !== -1) {
+    markUnaddressed(spans, unnamedFrom);
   }
 
   return spans;

@@ -15,6 +15,7 @@ export const optAlignGroup = {
       id: 'quote',
       description: 'Оптическое выравнивание открывающей кавычки',
       enabled: false,
+      htmlOnly: true,
       pattern: [/([a-zа-яё-]{3,})( |\u{00A0}|\t)(«)/giu, /(\n|\r|^)(«)/gu],
       replacement: [
         (m, ctx) => {
@@ -29,6 +30,7 @@ export const optAlignGroup = {
       id: 'bracket',
       description: 'Оптическое выравнивание скобок',
       enabled: false,
+      htmlOnly: true,
       pattern: [/( |\u{00A0}|\t)\(/gu, /(\n|\r|^)\(/g],
       replacement: [
         (m, ctx) =>

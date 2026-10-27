@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
+import YAML from 'yaml';
+
 import { MicroTypoInputError } from '../../src/errors/index.js';
 import { microtypo } from '../../src/index.js';
 import { splitFrontmatter } from '../../src/input/frontmatter.js';
@@ -98,6 +100,50 @@ describe('frontmatter input: YAML/TOML header + Markdown body', () => {
 
     assert.equal(out, `\u{FEFF}---\ntitle: "Корвин${NBSP}— Эрик"\n---\nРэндом${NBSP}— Блейз`);
   });
+
+  test('a flow header key keeps a colon that separates nothing', () => {
+    const input = '---\nmeta: {foo:Корвин - принц, foo:bar: "Арден - лес"}\n---\nРэндом - Блейз';
+    const typeset = (selector) =>
+      microtypo(input, { input: { format: 'frontmatter', ...selector } });
+
+    assert.equal(
+      typeset({}),
+      `---\nmeta: {foo:Корвин - принц, foo:bar: "Арден${NBSP}— лес"}\n---\nРэндом${NBSP}— Блейз`
+    );
+    assert.equal(
+      typeset({ exclude: ['/meta/foo:bar'] }),
+      `---\nmeta: {foo:Корвин - принц, foo:bar: "Арден - лес"}\n---\nРэндом${NBSP}— Блейз`
+    );
+  });
+
+  test('header sequence paths run through their key and the item mapping', () => {
+    const input =
+      '---\ntags:\n- "Корвин - принц"\nitems:\n  - nested:\n      title: "Арден - лес"\n    slug: "Рэндом - брат"\n---\nТекст';
+    const typeset = (selector) =>
+      microtypo(input, { input: { format: 'frontmatter', ...selector } });
+
+    assert.equal(
+      typeset({ exclude: ['/tags/0', '/items/0/slug'] }),
+      `---\ntags:\n- "Корвин - принц"\nitems:\n  - nested:\n      title: "Арден${NBSP}— лес"\n    slug: "Рэндом - брат"\n---\nТекст`
+    );
+    assert.equal(
+      typeset({ fields: ['tags.0', 'items.0.slug'] }),
+      `---\ntags:\n- "Корвин${NBSP}— принц"\nitems:\n  - nested:\n      title: "Арден - лес"\n    slug: "Рэндом${NBSP}— брат"\n---\nТекст`
+    );
+  });
+
+  test('a header key is named past its anchor or tag', () => {
+    const input = '---\n&a title: "Корвин - принц"\n!!str slug: "Арден - лес"\n---\nТекст';
+
+    assert.equal(
+      microtypo(input, { input: { format: 'frontmatter', exclude: ['/title', 'slug'] } }),
+      input
+    );
+    assert.equal(
+      microtypo(input, { input: { format: 'frontmatter', fields: ['title'] } }),
+      `---\n&a title: "Корвин${NBSP}— принц"\n!!str slug: "Арден - лес"\n---\nТекст`
+    );
+  });
 });
 
 describe('splitFrontmatter: leading-block detection', () => {
@@ -135,6 +181,82 @@ describe('splitFrontmatter: leading-block detection', () => {
   });
 });
 
+const header = (yaml, selector) =>
+  microtypo(`---\n${yaml}\n---\nАмбер`, { input: { format: 'frontmatter', ...selector } });
+
+// The header is YAML like any other, and a selector reaches a value there exactly as it would in a
+// document of its own.
+describe('a YAML header addresses its values as YAML does', () => {
+  const NEXT = 'next: "Эрик - король"';
+  const NEXT_TYPESET = `next: "Эрик${NBSP}— король"`;
+
+  test('a value under a key with a non-string tag is kept', () => {
+    for (const [yaml, pointer] of [
+      [`!!int 0x10: "Корвин - принц"\n${NEXT}`, '/16'],
+      [`{!!bool TRUE: "Корвин - принц", ${NEXT}}`, '/true'],
+      [`? !!float 1.0\n: "Корвин - принц"\n${NEXT}`, '/1']
+    ]) {
+      const kept = `---\n${yaml.replace(NEXT, NEXT_TYPESET)}\n---\nАмбер`;
+
+      assert.equal(header(yaml, { exclude: [pointer] }), kept);
+      assert.equal(header(yaml, { fields: [pointer] }), `---\n${yaml}\n---\nАмбер`);
+    }
+
+    assert.equal(
+      header('!!str 0x10: "Корвин - принц"', { fields: ['/0x10'] }),
+      `---\n!!str 0x10: "Корвин${NBSP}— принц"\n---\nАмбер`
+    );
+  });
+
+  test('a key whose name the scanner cannot tell is not the empty key', () => {
+    const many = Array.from({ length: 9 }, (_, i) => `/nothing${i}`);
+
+    for (const [yaml, pointer] of [
+      [`? !!int |-\n  0x10\n: "Корвин - принц"\n${NEXT}`, '/16'],
+      [`? &a\n  !!int\n  >-\n    0x10\n: "Корвин - принц"\n${NEXT}`, '/16'],
+      [`? !!null\n: "Корвин - принц"\n${NEXT}`, '/null'],
+      [`{ !!null : "Корвин - принц", ${NEXT} }`, '/null']
+    ]) {
+      const kept = `---\n${yaml.replace(NEXT, NEXT_TYPESET)}\n---\nАмбер`;
+
+      assert.equal(header(yaml, {}), kept.replace('Корвин - принц', `Корвин${NBSP}— принц`));
+      assert.equal(header(yaml, { exclude: [pointer] }), kept);
+      assert.equal(header(yaml, { exclude: [...many, '/'] }), kept);
+      assert.equal(header(yaml, { fields: ['/'] }), `---\n${yaml}\n---\nАмбер`);
+      assert.equal(header(yaml, { fields: [...many, '/'] }), `---\n${yaml}\n---\nАмбер`);
+    }
+
+    for (const yaml of [`"": "Корвин - принц"\n${NEXT}`, `{ !!str : "Корвин - принц", ${NEXT} }`]) {
+      const typeset = `---\n${yaml.replace('Корвин - принц', `Корвин${NBSP}— принц`)}\n---\nАмбер`;
+
+      assert.equal(header(yaml, { fields: ['/'] }), typeset);
+      assert.equal(header(yaml, { fields: [...many, '/'] }), typeset);
+    }
+  });
+
+  test('a property on its own line keeps the indentless sequence under its key', () => {
+    const yaml = `title:\n  &a\n- "Корвин - принц"\n${NEXT}`;
+    const kept = `---\n${yaml.replace(NEXT, NEXT_TYPESET)}\n---\nАмбер`;
+
+    assert.equal(header(yaml, { exclude: ['/title/0'] }), kept);
+    assert.equal(header(yaml, { fields: ['/next'] }), kept);
+    assert.equal(header(yaml, { fields: ['/0'] }), `---\n${yaml}\n---\nАмбер`);
+  });
+
+  test('an explicit key below its property names its entry', () => {
+    const yaml = `? &a\n  title\n: "Корвин - принц"\n${NEXT}`;
+
+    assert.equal(
+      header(yaml, { exclude: ['/title'] }),
+      `---\n${yaml.replace(NEXT, NEXT_TYPESET)}\n---\nАмбер`
+    );
+    assert.equal(
+      header(yaml, { fields: ['/title'] }),
+      `---\n${yaml.replace('"Корвин - принц"', `"Корвин${NBSP}— принц"`)}\n---\nАмбер`
+    );
+  });
+});
+
 describe('malformed frontmatter is rejected, not silently reparsed as Markdown', () => {
   test('opener present but no matching close line throws', () => {
     assert.throws(
@@ -162,5 +284,100 @@ describe('malformed frontmatter is rejected, not silently reparsed as Markdown',
 
   test('no opener at all is NOT malformed: processed as a plain Markdown body', () => {
     assert.doesNotThrow(() => microtypo('Корвин идёт домой', { input: { format: 'frontmatter' } }));
+  });
+});
+
+// LF, CRLF and a CR of its own each end a line, YAML §5.4 and CommonMark §2.1, so each splits the
+// header from the body the same way. The header keeps the line endings it was written with.
+const ENDINGS = { LF: '\n', CRLF: '\r\n', CR: '\r' };
+const ending = (src, nl) => src.replaceAll('\n', nl);
+const typeset = (src, selector) =>
+  microtypo(src, { input: { format: 'frontmatter', ...selector } });
+
+describe('every line ending splits the header from the body', () => {
+  const HEAD =
+    '---\n"title": "Корвин - принц"\n\'slug x\': "Арден - лес"\nnext: Эрик - король\n---\n';
+  const BODY = 'Тело - "текст"';
+  const BODY_TYPESET = `Тело${NBSP}— «текст»`;
+
+  test('a selector reaches the same values, and the rest is kept', () => {
+    for (const [selector, title, slug, next] of [
+      [{ exclude: ['title'] }, false, true, true],
+      [{ exclude: ['/slug x', 'next'] }, true, false, false],
+      [{ fields: ['/slug x'] }, false, true, false],
+      [{ fields: ['title', 'next'] }, true, false, true]
+    ]) {
+      const head = HEAD.replace('Корвин - принц', title ? `Корвин${NBSP}— принц` : 'Корвин - принц')
+        .replace('Арден - лес', slug ? `Арден${NBSP}— лес` : 'Арден - лес')
+        .replace('Эрик - король', next ? `Эрик${NBSP}— король` : 'Эрик - король');
+
+      for (const [name, nl] of Object.entries(ENDINGS)) {
+        const out = typeset(ending(HEAD, nl) + BODY, selector);
+
+        assert.equal(out, ending(head, nl) + BODY_TYPESET, `${name} ${JSON.stringify(selector)}`);
+      }
+    }
+  });
+
+  // The reference parser refuses a CR of its own, so what the header means is read once its line
+  // endings are LF.
+  test('the header means what its LF reading means', () => {
+    const lfOut = typeset(HEAD + BODY, { exclude: ['title'] });
+    const lfHeader = YAML.parse(splitFrontmatter(lfOut).header);
+
+    for (const nl of Object.values(ENDINGS)) {
+      const out = typeset(ending(HEAD, nl) + BODY, { exclude: ['title'] });
+
+      assert.deepEqual(YAML.parse(splitFrontmatter(out).header.replace(/\r\n?/g, '\n')), lfHeader);
+    }
+
+    assert.deepEqual(lfHeader, {
+      title: 'Корвин - принц',
+      'slug x': `Арден${NBSP}— лес`,
+      next: `Эрик${NBSP}— король`
+    });
+  });
+
+  test('delimiter lines, a "..." close and a BOM stay byte-exact', () => {
+    for (const nl of Object.values(ENDINGS)) {
+      for (const src of [
+        `---\ntitle: "Корвин - принц"\n...\n${BODY}`,
+        `\u{FEFF}---\ntitle: "Корвин - принц"\n---\n${BODY}`,
+        `---\n---\n${BODY}`
+      ]) {
+        const expected = ending(src.replace('Корвин - принц', `Корвин${NBSP}— принц`), nl).replace(
+          BODY,
+          BODY_TYPESET
+        );
+
+        assert.equal(typeset(ending(src, nl)), expected, JSON.stringify(ending(src, nl)));
+      }
+    }
+  });
+
+  test('code in the body stays protected with the line endings it was written with', () => {
+    const code = '```\nКод - "x"\n```';
+
+    for (const nl of Object.values(ENDINGS)) {
+      const out = typeset(ending(`---\ntitle: x\n---\n${code}\n${BODY}`, nl));
+
+      assert.ok(out.startsWith(ending(`---\ntitle: x\n---\n${code}`, nl)), JSON.stringify(out));
+      assert.ok(out.endsWith(BODY_TYPESET), JSON.stringify(out));
+    }
+  });
+
+  test('a CR splits the parts as LF does', () => {
+    assert.deepEqual(splitFrontmatter('---\ra: 1\r---\rТело'), {
+      open: '---',
+      header: 'a: 1\r',
+      close: '---',
+      body: 'Тело',
+      headerStart: 4,
+      bodyStart: 13
+    });
+    assert.equal(splitFrontmatter('---\ra: 1\r\n---\nТело').body, 'Тело');
+    assert.equal(splitFrontmatter('---\ra: "Корвин - Эрик"\rАмбер')?.malformed, true);
+    assert.equal(splitFrontmatter('---x\ra: 1\r---\rТело'), null);
+    assert.throws(() => typeset('---\ra: "Корвин - Эрик"\rАмбер'), MicroTypoInputError);
   });
 });

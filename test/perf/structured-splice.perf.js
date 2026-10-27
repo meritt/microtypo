@@ -1,7 +1,13 @@
+// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node from
+// `.nvmrc`, one file at a time, and no other test run, coverage or build beside it. Ratio
+// checks hold on any machine; absolute limits were set on an Intel i9-10910 under macOS and are
+// smoke limits elsewhere.
+
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { MicroTypo } from '../../src/index.js';
+import { compileSpanSelectors, scanJson, selectValueSpans } from '../../src/input/json.js';
 import { scanToml } from '../../src/input/toml.js';
 import { scanYaml } from '../../src/input/yaml.js';
 
@@ -65,40 +71,62 @@ function once(fn) {
   return best;
 }
 
+// Nearly all of the time is typesetting each value, which is linear and machine-bound, so the copy
+// shows only in how the cost grows: 2x the values measured 2.0-2.1x, and 5.4x when every value
+// rebuilds the document around itself.
 test('JSON many selected values splice without repeated whole-document copying', () => {
-  const text = jsonDoc(2000);
   const typo = new MicroTypo({
     input: { format: 'json', fields: ['/items/*/body', '/items/*/title'] },
     maxInputLength: 5_000_000,
     maxProcessingMs: 0
   });
+  const small = jsonDoc(2000);
+  const large = jsonDoc(4000);
 
-  const ms = once(() => typo.process(text));
+  const smallMs = once(() => typo.process(small));
+  const largeMs = once(() => typo.process(large));
 
-  assert.ok(ms < 250, `Got ${ms.toFixed(1)}ms (expected < 250ms)`);
+  assert.ok(
+    largeMs < smallMs * 3,
+    `2x the values cost ${(largeMs / smallMs).toFixed(1)}x the time (${smallMs.toFixed(1)}ms -> ${largeMs.toFixed(1)}ms)`
+  );
 });
 
+// Measured on the selection rather than through process(), where typesetting the picked values is
+// all but the whole cost and hides the matching. Misses are indexed by tail, so 65 of them cost no
+// more than the hits alone (measured 0.65x; one plain list of every selector, 7x), and 4x the items
+// measured 4.0x (13.5x with a dedupe against the picked list).
 test('structured selector matching stays bounded with many selectors', () => {
-  const text = jsonSelectorDoc(1500);
   const misses = Array.from({ length: 45 }, (_, i) =>
     i % 2 === 0 ? `items.*.shadow${i}` : `/items/*/shadow${i}`
   );
   const excludeMisses = Array.from({ length: 20 }, (_, i) =>
     i % 2 === 0 ? `items.${i}.shadow` : `/items/${i}/shadow`
   );
-  const typo = new MicroTypo({
-    input: {
-      format: 'json',
-      fields: [...misses, 'items.*.title', 'items.*.body', '/items/*/note'],
-      exclude: [...excludeMisses, 'items.17.body', '/items/23/note']
-    },
-    maxInputLength: 5_000_000,
-    maxProcessingMs: 0
+  const fields = ['items.*.title', 'items.*.body', '/items/*/note'];
+  const exclude = ['items.17.body', '/items/23/note'];
+  const hitsOnly = compileSpanSelectors({ fields, exclude });
+  const withMisses = compileSpanSelectors({
+    fields: [...misses, ...fields],
+    exclude: [...excludeMisses, ...exclude]
   });
+  const small = scanJson(jsonSelectorDoc(6000));
+  const large = scanJson(jsonSelectorDoc(24_000));
 
-  const ms = once(() => typo.process(text));
+  assert.equal(selectValueSpans(small, withMisses).length, 6000 * 3 - 2);
 
-  assert.ok(ms < 200, `selector-heavy JSON took ${ms.toFixed(1)}ms`);
+  const hitsMs = once(() => selectValueSpans(small, hitsOnly));
+  const smallMs = once(() => selectValueSpans(small, withMisses));
+  const largeMs = once(() => selectValueSpans(large, withMisses));
+
+  assert.ok(
+    smallMs < hitsMs * 3,
+    `65 missing selectors cost ${(smallMs / hitsMs).toFixed(1)}x the hits alone (${hitsMs.toFixed(1)}ms -> ${smallMs.toFixed(1)}ms)`
+  );
+  assert.ok(
+    largeMs < smallMs * 8,
+    `4x the items cost ${(largeMs / smallMs).toFixed(1)}x the time (${smallMs.toFixed(1)}ms -> ${largeMs.toFixed(1)}ms)`
+  );
 });
 
 // Each of these costs one or two characters per level, so a document at the default input cap

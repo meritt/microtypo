@@ -5,24 +5,28 @@ import { splitFrontmatter } from './input/frontmatter.js';
 import { compileSpanSelectors, scanJson, selectValueSpans } from './input/json.js';
 import {
   codeSpanReader,
+  commentReader,
   opaqueInline,
-  scanCodeSpans,
   scanFences,
   scanIndentedCode,
   scanLinePrefix,
   scanLinkDestinations,
-  scanReferenceDefinitions
+  scanMarkdownComments,
+  scanReferenceDefinitions,
+  scanUnclosedHtmlBlock
 } from './input/markdown.js';
 import { scannerFor, templateReader } from './input/template.js';
 import { scanToml } from './input/toml.js';
 import { scanDoctype, scanXmlSpacePreserve, validateXml, xmlBlocks } from './input/xml.js';
 import { scanYaml } from './input/yaml.js';
 import { BLOCK_TAG_NAMES, VOID_BLOCK_TAG_NAMES } from './lib/block-tags.js';
+import { changedRanges } from './lib/diff.js';
 import { G, unicodeToEntities, unicodeToXmlEntities } from './lib/glyphs.js';
-import { edgeWhitespace, trimBlankLines } from './lib/strings.js';
-import { SafeBlocks } from './protect/blocks.js';
+import { edgeWhitespace, leadingIndent, trimBlankLines } from './lib/strings.js';
+import { SafeBlocks, scanHtmlComments, scanLineIndent } from './protect/blocks.js';
 import { TokenBudget } from './protect/forgery.js';
 import { dropParagraphs, restoreParagraphs, stripReservedPua } from './protect/placeholders.js';
+import { escapeReserved, hasReserved } from './protect/reserved.js';
 import { SafeSequences } from './protect/sequences.js';
 import { tagSpans } from './protect/tag-spans.js';
 import { assertTagName, SafeTags } from './protect/tags.js';
@@ -96,6 +100,10 @@ export class MicroTypo {
   #presets;
   #select;
   #processing = false; // reentrancy guard
+  // Whether a fragment of the current document can carry a reserved character. Only a JSON value
+  // can hold one its document does not spell, since `JSON.parse` decodes ``; elsewhere one look
+  // at the document spares a structured format the check on every value.
+  #reservedPossible = false;
   onCycleLimit = null;
 
   constructor(config = {}) {
@@ -121,30 +129,50 @@ export class MicroTypo {
     const readTemplates =
       this.#input.template === 'off' ? null : templateReader(this.#input.template);
     const scanTemplate = scannerFor(readTemplates);
-    const addTemplate = () => {
-      if (scanTemplate) {
-        this.#safeBlocks.addScanner(`tmpl-${this.#input.template}`, scanTemplate);
-      }
-    };
+
+    const markdown = BLOCK_RENDER_FORMATS.has(this.#input.format);
 
     // Registration order is load-bearing: an earlier block's placeholder hides its content from every
     // later block's regex.
-    if (BLOCK_RENDER_FORMATS.has(this.#input.format)) {
-      // Line-oriented scanner: a same-length fence run mid-line can't close the block early.
-      this.#safeBlocks.addScanner('md-fence', scanFences);
+    if (!markdown) {
+      this.#addSafeElements();
+    }
+
+    if (markdown) {
+      // Every block scanner asks one question of where an HTML block opens: a template expression
+      // stays opaque to it.
+      const templatesIn = (text, checkBudget) => () => scanTemplate?.(text, checkBudget) ?? [];
+
+      // Line-oriented scanner: a same-length fence run mid-line can't close the block early. The
+      // lines of an HTML block open no fence.
+      this.#safeBlocks.addScanner('md-fence', (text, checkBudget) =>
+        scanFences(text, checkBudget, templatesIn(text, checkBudget))
+      );
 
       // Block-level constructs first: their interiors must be opaque to every inline scanner below.
       // A backtick inside a reference definition is part of that block and must not pair with one in
       // the prose around it, which is why definitions are taken before code spans — and why the
       // reference scanner resolves code spans itself before deciding which labels are uses.
-      this.#safeBlocks.addScanner('md-indented-code', scanIndentedCode);
+      this.#safeBlocks.addScanner('md-indented-code', (text, checkBudget) =>
+        scanIndentedCode(text, checkBudget, templatesIn(text, checkBudget))
+      );
+
+      // An HTML block is block structure too: read after code blocks, so a tag written in one opens
+      // nothing, and before every inline construct, whose backticks inside the block are its own
+      // bytes and may hold the end tag that closes it. The code-block scanners skip the lines it
+      // owns, so a fence or indent inside it hides no end tag.
+      this.#safeBlocks.addScanner('md-html-block', (text, checkBudget) =>
+        scanUnclosedHtmlBlock(text, checkBudget, templatesIn(text, checkBudget))
+      );
 
       // One answer about the opaque inline constructs, shared by the reader that needs it early and
       // the pass that applies it: the reference scanner decides which labels are uses by where the
-      // code spans fall, and templates move where they fall.
-      const scanInline = readTemplates
-        ? opaqueInline(codeSpanReader, readTemplates)
-        : scanCodeSpans;
+      // code spans fall, and templates move where they fall. An element or comment that opened first
+      // owns the backticks inside it.
+      const scanInline = opaqueInline(codeSpanReader, readTemplates, [
+        (text, checkBudget) => this.#safeBlocks.elementReader(text, checkBudget),
+        commentReader
+      ]);
 
       this.#safeBlocks.addScanner('md-reference-definition', (text, checkBudget, resolve) =>
         scanReferenceDefinitions(text, checkBudget, resolve, scanInline)
@@ -157,6 +185,10 @@ export class MicroTypo {
       // expression could span a fence boundary and take the fence apart.
       this.#safeBlocks.addScanner('md-inline-opaque', scanInline);
 
+      // A tag written in code is text, so elements are paired once every kind of code is out of
+      // sight.
+      this.#addSafeElements();
+
       // Balanced scanner: a literal ) inside the destination doesn't end the span early.
       this.#safeBlocks.addScanner('md-link-destination', scanLinkDestinations);
 
@@ -164,12 +196,12 @@ export class MicroTypo {
       // rather than becoming an em dash and the spaces that set a content column survive.
       this.#safeBlocks.addScanner('md-line-prefix', scanLinePrefix);
 
-      // Two or more trailing spaces before a `\n`; the zero-width open and close vault the spaces
-      // rather than the text in front of them.
+      // Two or more trailing spaces before a line ending of any of the three kinds; the zero-width
+      // open and close vault the spaces rather than the text in front of them.
       this.addSafeBlock({
         id: 'md-hard-break',
-        open: '(?=[ ]{2,}\\n)',
-        close: '(?<=[ ]{2,})(?=\\n)',
+        open: '(?=[ ]{2,}[\\r\\n])',
+        close: '(?<=[ ]{2,})(?=[\\r\\n])',
         unsafeRegex: true
       });
 
@@ -205,14 +237,30 @@ export class MicroTypo {
       });
     }
 
-    // text and html need only comment protection; TAG_RE would otherwise split `<!-- … -->` at the
-    // first bare `>`.
-    if (this.#input.format === 'text' || this.#input.format === 'html') {
-      this.addSafeBlock({ id: 'html-comment', open: '<!--', close: '-->' });
+    const html = this.#input.format === 'text' || this.#input.format === 'html';
+
+    // TAG_RE would otherwise split `<!-- … -->` at the first bare `>`. Markdown passes raw HTML
+    // through, comments included.
+    if (html || markdown) {
+      this.#safeBlocks.addScanner(
+        'html-comment',
+        markdown ? scanMarkdownComments : scanHtmlComments
+      );
     }
 
-    if (!BLOCK_RENDER_FORMATS.has(this.#input.format)) {
-      addTemplate();
+    if (!markdown && scanTemplate) {
+      this.#safeBlocks.addScanner(`tmpl-${this.#input.template}`, scanTemplate);
+    }
+
+    // Only an HTML document is markup to its end. Markdown reads an element left open as text unless
+    // it opens an HTML block, which `scanUnclosedHtmlBlock` takes; a value of a data format is a
+    // fragment, and XML closes every element or is rejected.
+    if (html) {
+      this.#safeBlocks.setTail({ opaque: NOTG_RE });
+    }
+
+    if (html) {
+      this.#safeBlocks.setIndents(scanLineIndent);
     }
 
     this.#applyValidatedOptions(validated);
@@ -222,8 +270,12 @@ export class MicroTypo {
   #initVaults() {
     this.#safeBlocks = new SafeBlocks();
     this.#safeSequences = new SafeSequences();
-    this.#safeTags = new SafeTags();
+    this.#safeTags = new SafeTags({
+      document: this.#input.format === 'text' || this.#input.format === 'html'
+    });
+  }
 
+  #addSafeElements() {
     const xml = this.#input.format === 'xml';
 
     for (const tag of DEFAULT_SAFE_TAGS) {
@@ -233,7 +285,8 @@ export class MicroTypo {
         // `<script>` inside a `<script>` is a real element whose first close is not the outer one.
         nests: xml || !RAW_TEXT_TAGS.has(tag),
         // HTML allows a form feed among the space before a closing `>`; XML's S production does not.
-        formFeed: !xml
+        formFeed: !xml,
+        slashOpens: !xml
       });
     }
 
@@ -486,12 +539,14 @@ export class MicroTypo {
     }
   }
 
-  process(text) {
+  process(text, options) {
     if (typeof text !== 'string') {
       throw new MicroTypoInputError(`process() expects string, got ${typeof text}`, {
         details: { receivedType: typeof text }
       });
     }
+
+    const withChanges = readProcessOptions(options);
 
     // A recursive call would reset vaults mid-pipeline and corrupt the outer call's restore chain.
     if (this.#processing) {
@@ -510,65 +565,80 @@ export class MicroTypo {
 
     this.#processing = true;
 
+    // Small input can still burn CPU, so budget wall-clock between groups.
+    const checkBudget = budgetCheck(this.#maxProcessingMs, performance.now());
+    let result;
+
     try {
-      // Strip reserved PUA first; otherwise crafted input could forge placeholders.
-      let result = stripReservedPua(text);
-      // Snapshot the hook so a rule callback can't swap it mid-process.
-      const hook = this.onCycleLimit;
-      this.#resetVaults();
-
-      // Small input can still burn CPU, so budget wall-clock between groups.
-      const budget = this.#maxProcessingMs;
-      const start = performance.now();
-
-      const checkBudget = (where) => {
-        if (budget > 0 && performance.now() - start > budget) {
-          throw new MicroTypoBudgetError(
-            `Processing exceeded ${budget}ms budget at ${where} — likely adversarial input`,
-            { details: { budgetMs: budget, where } }
-          );
-        }
-      };
-
-      const session = this.#makeSession(hook, checkBudget);
-
-      if (this.#input.format === 'json') {
-        return this.#processJson(result, session, checkBudget);
-      }
-
-      if (this.#input.format === 'toml') {
-        return this.#typesetStructured(result, scanToml, session, checkBudget);
-      }
-
-      if (this.#input.format === 'yaml') {
-        return this.#typesetStructured(result, scanYaml, session, checkBudget);
-      }
-
-      if (this.#input.format === 'xml') {
-        validateXml(result, checkBudget);
-
-        // XML edge whitespace is spliced out and back, so interior rules and the newline collapse
-        // never mangle it.
-        const lead = /^\s*/.exec(result)[0];
-        const rest = result.slice(lead.length);
-        const trail = /\s*$/.exec(rest)[0];
-        const core = trail.length > 0 ? rest.slice(0, -trail.length) : rest;
-
-        return lead + this.#runPipeline(core, session, checkBudget, { destination: 'xml' }) + trail;
-      }
-
-      if (this.#input.format === 'frontmatter') {
-        return this.#typesetFrontmatter(result, session, checkBudget);
-      }
-
-      result = this.#runPipeline(result, session, checkBudget, { destination: 'html' });
-
-      // Markdown trims edge-aware, keeping the leading indent of indented code; text and HTML trim
-      // as `String.prototype.trim` does.
-      return this.#input.format === 'markdown' ? trimBlankLines(result) : result.trim();
+      this.#reservedPossible = this.#input.format === 'json' || hasReserved(text);
+      result = this.#typeset(text, checkBudget);
     } finally {
       this.#processing = false;
     }
+
+    if (!withChanges) {
+      return result;
+    }
+
+    return { text: result, changes: changedRanges(text, result, checkBudget) };
+  }
+
+  #typeset(text, checkBudget) {
+    // Reserved PUA in the input is escaped per fragment in `#runPipeline`, where placeholders live.
+    // Snapshot the hook so a rule callback can't swap it mid-process.
+    const hook = this.onCycleLimit;
+    this.#resetVaults();
+
+    const session = this.#makeSession(hook, checkBudget);
+
+    if (this.#input.format === 'json') {
+      return this.#processJson(text, session, checkBudget);
+    }
+
+    if (this.#input.format === 'toml') {
+      return this.#typesetStructured(text, scanToml, session, checkBudget);
+    }
+
+    if (this.#input.format === 'yaml') {
+      return this.#typesetStructured(text, scanYaml, session, checkBudget);
+    }
+
+    if (this.#input.format === 'xml') {
+      validateXml(text, checkBudget);
+
+      // XML edge whitespace is spliced out and back, so interior rules and the newline collapse
+      // never mangle it.
+      const { start, end } = edgeWhitespace(text);
+      const core = text.slice(start, end);
+
+      return (
+        text.slice(0, start) +
+        this.#runPipeline(core, session, checkBudget, { destination: 'xml' }) +
+        text.slice(end)
+      );
+    }
+
+    if (this.#input.format === 'frontmatter') {
+      return this.#typesetFrontmatter(text, session, checkBudget);
+    }
+
+    // Markdown trims edge-aware, keeping the leading indent of indented code; text and HTML trim
+    // as `String.prototype.trim` does, all but the indent of the first line with content.
+    if (this.#input.format === 'markdown') {
+      return this.#runPipeline(text, session, checkBudget, { trim: this.#trimBlankLines });
+    }
+
+    // Spliced out rather than lifted onto a line of its own, which would put a line break in front of
+    // content the rules read at the start of the document; the blank lines before it stay for the
+    // trim.
+    const [from, to] = leadingIndent(text);
+    const body = this.#runPipeline(text.slice(0, from) + text.slice(to), session, checkBudget, {
+      destination: 'html',
+      trim: (s) => s.trim(),
+      indents: true
+    });
+
+    return body === '' ? body : text.slice(from, to) + body;
   }
 
   // `null` is no header, the whole document being a Markdown body; MALFORMED is an opening delimiter
@@ -577,7 +647,7 @@ export class MicroTypo {
     const fm = splitFrontmatter(text);
 
     if (fm === null) {
-      return trimBlankLines(this.#runPipeline(text, session, checkBudget));
+      return this.#runPipeline(text, session, checkBudget, { trim: this.#trimBlankLines });
     }
 
     if (fm.malformed) {
@@ -591,7 +661,9 @@ export class MicroTypo {
       fm.open === '+++'
         ? this.#typesetStructured(fm.header, scanToml, session, checkBudget)
         : this.#typesetStructured(fm.header, scanYaml, session, checkBudget);
-    const typedBody = trimBlankLines(this.#runPipeline(fm.body, session, checkBudget));
+    const typedBody = this.#runPipeline(fm.body, session, checkBudget, {
+      trim: this.#trimBlankLines
+    });
 
     // Delimiter lines come straight from the original text, so they stay byte-exact.
     return (
@@ -618,15 +690,13 @@ export class MicroTypo {
     checkBudget('json-parse');
 
     const spans = scanJson(text, checkBudget);
-    const selected = selectValueSpans(spans, this.#select);
+    const selected = selectValueSpans(spans, this.#select, checkBudget);
 
     return this.#spliceSpans(text, selected, ({ start, end }) => {
       let decoded;
 
       try {
-        // `JSON.parse` can decode `\uXXXX` back into reserved PUA the raw strip never saw, so the
-        // decoded value is stripped again.
-        decoded = stripReservedPua(JSON.parse(text.slice(start, end)));
+        decoded = JSON.parse(text.slice(start, end));
       } catch (error) {
         throw new MicroTypoInputError(`Malformed JSON string literal: ${error.message}`, {
           details: { start, end }
@@ -663,7 +733,7 @@ export class MicroTypo {
     // Keys are dropped by `selectValueSpans`, which every format goes through, so filtering them
     // here would copy the whole span array for a predicate already known false.
     const spans = scan(text, checkBudget).filter((span) => span.eligible);
-    const selected = selectValueSpans(spans, this.#select);
+    const selected = selectValueSpans(spans, this.#select, checkBudget);
 
     return this.#spliceQuotedSpans(text, selected, session, checkBudget);
   }
@@ -736,7 +806,24 @@ export class MicroTypo {
   }
 
   // `ctx` is reused across calls, so `ctx.html` is mutated to reflect this call's destination.
-  #runPipeline(text, session, checkBudget, { destination = 'html' } = {}) {
+  // Every fragment a document is typeset in passes through here, so this is the one place the
+  // reserved characters are escaped: a JSON value carries them only once `JSON.parse` decodes it.
+  #runPipeline(text, session, checkBudget, options) {
+    const escaped = this.#reservedPossible ? escapeReserved(text) : null;
+
+    if (escaped === null) {
+      return this.#typesetFragment(text, session, checkBudget, options);
+    }
+
+    return escaped.unescape(this.#typesetFragment(escaped.text, session, checkBudget, options));
+  }
+
+  #typesetFragment(
+    text,
+    session,
+    checkBudget,
+    { destination = 'html', trim, indents = false } = {}
+  ) {
     const effHtml = destination === 'html' && this.#html;
     session.ctx.html = effHtml;
 
@@ -766,20 +853,30 @@ export class MicroTypo {
     result = result.replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n');
     checkBudget('newlineInvariant');
 
-    for (const groupName of this.#order) {
-      if (!effHtml && (groupName === 'text' || groupName === 'hanging')) {
-        continue;
-      }
+    if (indents) {
+      result = this.#safeBlocks.liftIndents(result);
+    }
 
+    for (const groupName of this.#order) {
       const group = this.#groups.get(groupName);
 
       if (!group) {
         continue;
       }
 
+      // The text group lays out lines and paragraphs, and to it an indent is the white space at the
+      // start of a line, which it keeps or drops with the line break in front of it.
+      if (indents && groupName === 'text') {
+        result = this.#safeBlocks.settleIndents(result);
+      }
+
       result = session.runGroup(group, result);
 
       checkBudget(`group:${groupName}`);
+    }
+
+    if (indents) {
+      result = this.#safeBlocks.settleIndents(result);
     }
 
     // Entity-encoding runs before restore, on rule-produced glyphs only: vault placeholders are
@@ -799,16 +896,30 @@ export class MicroTypo {
 
     result = this.#safeTags.restore(result);
 
+    // The text group never puts a block in a `<p>` of its own, but a plain `<p>` the author wrapped
+    // around one is taken off: HTML forbids a block inside an inline. Only under html:true: without
+    // the text group the markup is the author's, and a protected body is still a placeholder here.
+    if (effHtml) {
+      result = unwrapBlocks(result);
+    }
+
+    // While protected bodies are still placeholders, so a tag or comment left open to the end keeps
+    // the white space it ends with: that is its content, not the edge of the prose.
+    if (trim !== undefined) {
+      result = trim(result);
+    }
+
     result = this.#safeBlocks.restore(result);
 
     result = this.#safeSequences.restore(result);
 
-    // The text group wraps in `<p>` indiscriminately, so block-level tags are unwrapped again: HTML
-    // forbids a block inside an inline.
-    result = unwrapBlocks(result);
-
     return result;
   }
+
+  // Whole blank edge lines, judged by what a line shows once restored: the Markdown layer vaults a
+  // line of white space too, while a body left open to the end keeps the white space it ends with.
+  #trimBlankLines = (text) =>
+    trimBlankLines(text, (line) => this.#restoreProtected(line).trim() === '');
 
   // The same chain the pipeline ends with, minus the paragraph markers: a `<p>` belongs to the
   // document, never inside an attribute. Used where content has to be readable before the last thing
@@ -833,6 +944,15 @@ export class MicroTypo {
 
     // A placeholder the engine minted for the group, which its input could not have carried.
     const credit = (token) => budget?.mint(token);
+
+    // Credit only the wrapper tokens `makeTag` just minted, never rescanning caller-supplied content.
+    const record = ({ html, tokens }) => {
+      for (const token of tokens) {
+        credit(token);
+      }
+
+      return html;
+    };
 
     // `tag()` and `iblock()` vault what they are handed, so the scrub of the returned text never
     // reads it: a forged token hidden in an attribute value would expand at restore time into
@@ -897,16 +1017,6 @@ export class MicroTypo {
         if (!this.html) {
           return attributes.class === 'nowrap' ? content.replaceAll(' ', G.NBSP) : content;
         }
-
-        // Credit only the wrapper tokens `makeTag` just minted, never rescanning caller-supplied
-        // content.
-        const record = ({ html, tokens }) => {
-          for (const token of tokens) {
-            credit(token);
-          }
-
-          return html;
-        };
 
         const { group } = this;
         const groupClasses = group?.raw?.classes ?? {};
@@ -994,6 +1104,38 @@ const VOID_BLOCK_RE = new RegExp(
   `<p>(\\s*)(<(?:${VOID_BLOCK_TAG_NAMES.join('|')})\\b[^>]*\\/?>)(\\s*)<\\/p>`,
   'gi'
 );
+
+function budgetCheck(budget, start) {
+  return (where) => {
+    if (budget > 0 && performance.now() - start > budget) {
+      throw new MicroTypoBudgetError(
+        `Processing exceeded ${budget}ms budget at ${where} — likely adversarial input`,
+        { details: { budgetMs: budget, where } }
+      );
+    }
+  };
+}
+
+// Callers pass constructor options here, so anything other than `changes` is ignored. `changes`
+// decides the return type, so a value that is not a boolean is refused rather than guessed at.
+function readProcessOptions(options) {
+  const changes =
+    options !== null && typeof options === 'object' && Object.hasOwn(options, 'changes')
+      ? options.changes
+      : undefined;
+
+  if (changes === undefined) {
+    return false;
+  }
+
+  if (typeof changes !== 'boolean') {
+    throw new MicroTypoConfigError('process() option "changes" must be a boolean', {
+      details: { option: 'changes', receivedType: typeof changes }
+    });
+  }
+
+  return changes;
+}
 
 function unwrapBlocks(text) {
   // Both patterns anchor on a literal <p>, so without one there is nothing to unwrap — and a

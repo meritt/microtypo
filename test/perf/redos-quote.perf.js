@@ -1,3 +1,8 @@
+// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node from
+// `.nvmrc`, one file at a time, and no other test run, coverage or build beside it. Ratio
+// checks hold on any machine; absolute limits were set on an Intel i9-10910 under macOS and are
+// smoke limits elsewhere.
+
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
@@ -62,8 +67,44 @@ test('spaced-quote pairing scales ~linearly over stepped-over pairs', () => {
   );
 });
 
-test('nested inch-fallback avoids repeated candidate reconstruction at default maxInputLength', () => {
-  const group = `${G.LAQUO}${G.LAQUO}5${G.RAQUO}${G.LAQUO}5${G.RAQUO}${G.RAQUO}`; // «« 5 » « 5 » »
+// Best of three per size with the rounds interleaved, so a burst of load lands on both sizes, and a
+// fourfold step: linear growth lands near 4x and quadratic near 16x. `floor` keeps a
+// sub-millisecond small size from turning scheduler jitter into the ratio.
+function growth(run, small, floor) {
+  const time = (k) => {
+    const start = performance.now();
+    run(k);
+    return performance.now() - start;
+  };
+  let smallMs = Infinity;
+  let largeMs = Infinity;
+
+  time(small / 10); // warm up the JIT
+
+  for (let i = 0; i < 3; i += 1) {
+    smallMs = Math.min(smallMs, time(small));
+    largeMs = Math.min(largeMs, time(small * 4));
+  }
+
+  return largeMs / Math.max(smallMs, floor);
+}
+
+const group = `${G.LAQUO}${G.LAQUO}5${G.RAQUO}${G.LAQUO}5${G.RAQUO}${G.RAQUO}`; // «« 5 » « 5 » »
+const nestedInches = (reps) => processQuotes(group.repeat(reps) + G.RAQUO.repeat(reps));
+
+// Each trailing `»` is unmatched: it turns the last `5»` behind it into a prime and walks again
+// from the balanced point in front of that, through a tail that grows with every closer. Taken
+// mark by mark, those walks reread the input hundreds of times over.
+test('nested inch-fallback scales ~linearly', () => {
+  const ratio = growth(nestedInches, 2_000, 1);
+
+  assert.ok(
+    ratio < 8,
+    `quadratic nested inch-fallback: 4x the input scaled ${ratio.toFixed(1)}x (expected < 8)`
+  );
+});
+
+test('nested inch-fallback stays fast at default maxInputLength', () => {
   const reps = 3_333; // 9 chars/rep (8-char group + 1 trailing »); 9*3333 = 29_997, under the default 30_000 cap
   const text = group.repeat(reps) + G.RAQUO.repeat(reps);
   assert.ok(text.length <= 30_000, `payload ${text.length} exceeds default maxInputLength`);

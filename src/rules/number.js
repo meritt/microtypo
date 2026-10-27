@@ -30,8 +30,9 @@ export const numberGroup = {
       pattern: /(^|\s)([−-])(\d+)(\.\.\.|…)(\s)?(\+|-|−)?(\d+)/gu,
       replacement: (m) => {
         const [, p1, , p3, p4, p5 = '', p6, p7] = m;
+        const sign = p6 === '-' ? G.MINUS : (p6 ?? '');
 
-        return `${p1}${G.MINUS}${p3}${p4}${p5}${p6 === '+' ? '+' : G.MINUS}${p7}`;
+        return `${p1}${G.MINUS}${p3}${p4}${p5}${sign}${p7}`;
       }
     },
     {

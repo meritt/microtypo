@@ -1,3 +1,8 @@
+// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node from
+// `.nvmrc`, one file at a time, and no other test run, coverage or build beside it. Ratio
+// checks hold on any machine; absolute limits were set on an Intel i9-10910 under macOS and are
+// smoke limits elsewhere.
+
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
@@ -6,8 +11,6 @@ import { MicroTypoBudgetError } from '../../src/errors/index.js';
 import { microtypo, MicroTypo } from '../../src/index.js';
 import { scanLinkDestinations } from '../../src/input/markdown.js';
 import { SafeBlocks } from '../../src/protect/blocks.js';
-
-// Smoke perf tests, not benchmarks; loosen thresholds on a slow dev box.
 
 const SHORT = 'Корвин купил «Грейсвандир» за 1000 рублей 31 января 2009 года.';
 const LONG = `${SHORT}\n\n`.repeat(50);
@@ -196,15 +199,32 @@ test('SafeBlocks scanner output building stays linear with many tiny spans', () 
   assert.ok(ms < 1500, `many safe-block spans took ${ms.toFixed(0)}ms`);
 });
 
+// The sequence pass is a fraction of a millisecond of this; the rest is the pipeline over plain
+// prose, which a wall-clock limit ties to the machine. What a scan per word would add shows in the
+// growth instead: 4x the text measured 4.0x, and 16x for a candidate search started from every word.
 test('SafeSequences returns promptly when text has no URL/email candidate characters', () => {
   const typo = new MicroTypo({ maxInputLength: 1_000_000, maxProcessingMs: 0 });
-  const src = 'Корвин Рэндом Амбер Арден Лабиринт '.repeat(4000);
+  const time = (k) => {
+    const src = 'Корвин Рэндом Амбер Арден Лабиринт '.repeat(k);
+    const start = performance.now();
 
-  typo.process(src);
+    typo.process(src);
 
-  const start = performance.now();
-  typo.process(src);
-  const ms = performance.now() - start;
+    return performance.now() - start;
+  };
 
-  assert.ok(ms < 40, `no-candidate sequence protection took ${ms.toFixed(1)}ms`);
+  time(1000);
+
+  let smallMs = Infinity;
+  let largeMs = Infinity;
+
+  for (let round = 0; round < 3; round += 1) {
+    smallMs = Math.min(smallMs, time(4000));
+    largeMs = Math.min(largeMs, time(16_000));
+  }
+
+  assert.ok(
+    largeMs < smallMs * 8,
+    `4x the text cost ${(largeMs / smallMs).toFixed(1)}x the time (${smallMs.toFixed(1)}ms -> ${largeMs.toFixed(1)}ms)`
+  );
 });

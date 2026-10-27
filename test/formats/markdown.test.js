@@ -17,6 +17,24 @@ const md = { ...base, input: 'markdown' };
 const mdRender = { ...base, input: { format: 'markdown' }, render: { paragraphs: false } };
 const NBSP = '\u{00A0}';
 
+// A CR of its own ends a line as LF and CRLF do, CommonMark §2.1. The output writes LF wherever it
+// rewrites a line ending; a protected construct keeps the bytes it was written with.
+const toCr = (src) => src.replaceAll('\n', '\r');
+const toCrlf = (src) => src.replaceAll('\n', '\r\n');
+const lf = (src) => src.replace(/\r\n?/g, '\n');
+
+// The LF reading is the reference: CR and CRLF have to come out the same once their line endings
+// are read as LF.
+const sameOnEveryEnding = (src, options = md) => {
+  const reference = microtypo(src, options);
+
+  for (const variant of [toCr(src), toCrlf(src)]) {
+    assert.equal(lf(microtypo(variant, options)), reference, JSON.stringify(variant));
+  }
+
+  return reference;
+};
+
 test('without markdown mode, dashes inside backticks are converted', () => {
   assert.match(microtypo('Корвин `a -- b` Эрик', base), /—/);
 });
@@ -100,6 +118,12 @@ test('markdown mode preserves hard-break trailing spaces', () => {
   assert.match(out, /Корвин {2}\n/);
 });
 
+test('a hard break keeps its trailing spaces before CRLF and CR too', () => {
+  for (const ending of ['\r\n', '\r']) {
+    assert.equal(microtypo(`Корвин  ${ending}Эрик`, md), 'Корвин  \nЭрик');
+  }
+});
+
 test('markdown mode preserves a link destination with a hyphen', () => {
   const out = microtypo('[Лабиринт](/posts/10-19)', md);
   assert.match(out, /\[Лабиринт\]\(\/posts\/10-19\)/);
@@ -138,9 +162,8 @@ test('markdown mode keeps leading indented-code indentation', () => {
   assert.equal(microtypo('    Корвин\n    Эрик\n', md), '    Корвин\n    Эрик');
 });
 
-test('text mode does not apply the edge-code-preserving trim', () => {
-  // Plain text has no indented-code concept, so a blank-prefix plus indentation is fully trimmed.
-  assert.equal(microtypo('\n\n    Корвин\nЭрик\n\n', base), 'Корвин\nЭрик');
+test('text mode trims the blank edge lines and keeps the indent as the author laid it out', () => {
+  assert.equal(microtypo('\n\n    Корвин\nЭрик\n\n', base), '    Корвин\nЭрик');
 });
 
 test('markdown mode: inline same-length fence inside code keeps the block open', () => {
@@ -1427,14 +1450,34 @@ describe('paragraph state belongs to its own container', () => {
   });
 
   // A blank line matches the chain in front of its first blockquote, which is a number the chain
-  // carries rather than a walk per blank line.
+  // carries rather than a walk per blank line. A ratio of warm best-of-three runs, because a single
+  // cold call is mostly JIT and a wall-clock limit tracks the machine and coverage: 4x the depth
+  // measured 2.7-4.3x linear, and 11-15x with a walk per blank line.
   test('blank lines under a deep chain stay linear', () => {
-    const k = 8000;
-    const source = `${'- '.repeat(k)}Корвин\n${'\n'.repeat(k)}Амбер`;
-    const started = performance.now();
+    const config = { input: 'markdown', maxInputLength: 100_000, maxProcessingMs: 0 };
+    const time = (k) => {
+      const source = `${'- '.repeat(k)}Корвин\n${'\n'.repeat(k)}Амбер`;
+      const started = performance.now();
 
-    microtypo(source, { input: 'markdown', maxProcessingMs: 0 });
-    assert.ok(performance.now() - started < 60, 'the fence scanner re-walked the saved depth');
+      microtypo(source, config);
+
+      return performance.now() - started;
+    };
+
+    time(2000);
+
+    let smallMs = Infinity;
+    let largeMs = Infinity;
+
+    for (let round = 0; round < 3; round += 1) {
+      smallMs = Math.min(smallMs, time(4000));
+      largeMs = Math.min(largeMs, time(16_000));
+    }
+
+    assert.ok(
+      largeMs < smallMs * 8,
+      `4x the depth cost ${(largeMs / smallMs).toFixed(1)}x the time (${smallMs.toFixed(1)}ms -> ${largeMs.toFixed(1)}ms)`
+    );
   });
 });
 
@@ -1507,5 +1550,796 @@ describe('inline constructs across line endings', () => {
     assert.ok(across.includes(`код${NBSP}— тут`), across);
     assert.ok(escaped.includes(`не код${NBSP}— тут`), escaped);
     assert.equal(microtypo('проза `код - тут` конец', mdRender), 'проза `код - тут` конец');
+  });
+});
+
+// An HTML block opens at its container's content column and ends with that container, whatever its
+// own end condition says. CommonMark §4.6, §5.1, §5.2.
+describe('an HTML block inside a container', () => {
+  const CODE = 'const x = "hello" - 1;';
+  const TAIL = 'Дальше - "текст".';
+  const TAIL_TYPESET = `Дальше${NBSP}— «текст».`;
+
+  test('an unclosed block keeps its body in a quote and in a list item', () => {
+    for (const src of [`> <pre>\n> ${CODE}`, `- <pre>\n  ${CODE}`, `1. <script>\n   ${CODE}`]) {
+      assert.equal(microtypo(src, md), src);
+    }
+  });
+
+  test('nested containers carry the block to its content column', () => {
+    for (const src of [
+      `> - <pre>\n>   ${CODE}`,
+      `- > <textarea>\n  > ${CODE}`,
+      `> > <!--\n> > ${CODE}`,
+      `- Амбер\n  - Корвин\n\n    <pre>\n    ${CODE}`
+    ]) {
+      assert.equal(microtypo(src, md), src);
+    }
+  });
+
+  test('blank lines inside a list item stay inside its block', () => {
+    const head = `- <pre>\n\n  ${CODE}\n\n`;
+
+    assert.equal(microtypo(head + TAIL, md), head + TAIL_TYPESET);
+  });
+
+  test('prose after the container is typeset again', () => {
+    for (const head of [
+      `> <pre>\n> ${CODE}\n\n`,
+      `> <pre>\n> ${CODE}\n`,
+      `- <pre>\n  ${CODE}\n`,
+      `- Амбер\n\n  <pre>\n  ${CODE}\n\n`,
+      `> <!--\n> ${CODE}\n`
+    ]) {
+      assert.equal(microtypo(head + TAIL, md), head + TAIL_TYPESET, head);
+    }
+  });
+
+  // The end past the container belongs to no block the container opened.
+  test('a comment end outside the container does not reach back into it', () => {
+    const head = `- <!--\n  ${CODE}\n`;
+    const tail = `${TAIL} -->`;
+
+    assert.equal(microtypo(head + tail, md), head + microtypo(tail, md));
+  });
+
+  test('a block closed inside its container leaves the prose after it typeset', () => {
+    const head = `> <pre>\n> ${CODE}\n> </pre>\n\n`;
+
+    assert.equal(microtypo(head + TAIL, md), head + TAIL_TYPESET);
+  });
+
+  // A blank line inside the quote ends a block that runs to one, so the line after it opens again.
+  test('a block ending at a blank line hands the next opener its own block', () => {
+    const src = `> <div>\n>\n> <pre>\n> ${CODE}`;
+
+    assert.equal(microtypo(src, md), src);
+  });
+
+  test('a front-matter body reads the container the same way', () => {
+    const head = `---\ntitle: x\n---\n> <pre>\n> ${CODE}\n\n`;
+
+    assert.equal(microtypo(head + TAIL, { ...base, input: 'frontmatter' }), head + TAIL_TYPESET);
+  });
+});
+
+// A definition is read from its paragraph's text, so a line ending may stand inside the label,
+// between the colon and the destination, between the destination and the title, and inside the
+// title — but never a blank line, and never a line that ends the paragraph. CommonMark §4.7.
+describe('link reference definitions across lines', () => {
+  test('every part may stand on a line of its own', () => {
+    for (const src of [
+      '[ref]:\n  /some-path\n  "Title - text"\n\n[ref]',
+      '[my\nlabel]: /some-path "Title - text"\n\n[my\nlabel]',
+      '[r]:\n/p "Корвин - принц"\n\n[r]',
+      '[r]: /p "Корвин -\nпринц"\n\n[r]',
+      '[r]: /p\n  "Корвин -\n  принц"\n\n[r]'
+    ]) {
+      assert.equal(microtypo(src, md), src);
+    }
+  });
+
+  test('a label broken across lines still names its uses', () => {
+    const src = '[Корвин -\nпринц]: /p\n\nСм. [Корвин -\nпринц] и [корвин - принц].';
+
+    assert.equal(microtypo(src, md), src);
+  });
+
+  test('a definition inside a container carries the prefixes it continues under', () => {
+    for (const src of [
+      '> [my\n> label]:\n> /p\n> "Т - т"\n>\n> [my\n> label]',
+      '- [r]:\n  /p\n  "Т - т"\n\n  [r]',
+      '> [r]:\n/p\n"Т - т"\n\n[r]'
+    ]) {
+      assert.equal(microtypo(src, md), src);
+    }
+  });
+
+  test('neighbouring definitions each keep their own lines', () => {
+    const src = '[a]:\n/a\n"А - а"\n[b]: /b\n"Б -\nб"\n[c]:\n/c\n\n[a]\n\n[b]\n\n[c]';
+
+    assert.deepEqual(spanText(src, scanReferenceDefinitions(src)), [
+      '[a]:\n/a\n"А - а"',
+      '[b]: /b\n"Б -\nб"',
+      '[c]:\n/c',
+      'a',
+      'b',
+      'c'
+    ]);
+    assert.equal(microtypo(src, md), src);
+  });
+
+  test('what ends the paragraph ends the definition', () => {
+    for (const [src, kept] of [
+      ['[r]:\n\n/p "т"', []],
+      ['[my\n\nlabel]: /p', []],
+      ['[\n]: /p', []],
+      ['[r]:\n> /p "т"', []],
+      ['[r]:\n# /p', []],
+      ['[r]: /p "т\n\nт"', []],
+      ['[r]: /p "т\nт" х', []],
+      ['[r]: /p\n"т\nт" х', ['[r]: /p']],
+      ['[r]: /p\n"т\n\nт"', ['[r]: /p']],
+      ['[r]: /p\n- "т"', ['[r]: /p']]
+    ]) {
+      assert.deepEqual(spanText(src, scanReferenceDefinitions(src)), kept, src);
+    }
+  });
+
+  test('a definition that is not one stays typeset', () => {
+    assert.equal(microtypo('[r]:\n\n/p "Корвин - принц"', md), `[r]:\n\n/p «Корвин${NBSP}— принц»`);
+  });
+
+  test('a front-matter body reads the definition the same way', () => {
+    const src = '---\ntitle: x\n---\n[ref]:\n  /some-path\n  "Title - text"\n\n[ref]';
+
+    assert.equal(microtypo(src, { ...base, input: 'frontmatter' }), src);
+  });
+});
+
+// Kind 6 is named by its tag; kind 7 is one complete tag alone on its line and may not interrupt a
+// paragraph. A line of inline HTML is neither and leaves the next line free to open a block.
+// CommonMark §4.6.
+describe('HTML blocks of kinds 6 and 7', () => {
+  const CODE = 'const x = "hello" - 1; // 10-20';
+  const TAIL = 'Дальше - "текст".';
+  const TAIL_TYPESET = `Дальше${NBSP}— «текст».`;
+  const PROSE = 'Корвин - Козырь';
+  const PROSE_TYPESET = `Корвин${NBSP}— Козырь`;
+
+  test('the code is typeset outside a block', () => {
+    assert.notEqual(microtypo(CODE, md), CODE);
+  });
+
+  test('a line of inline HTML does not hide the raw block under it', () => {
+    for (const src of [
+      `<span>x</span>\n<pre>\n${CODE}`,
+      `<a href="/x">ссылка</a>\n<script>\n${CODE}`,
+      `<my-tag>x</my-tag>\n<style>\n${CODE}`,
+      `<span class="a">x\n<textarea>\n${CODE}`,
+      `<span title="a"x>\n<pre>\n${CODE}`,
+      `<a href=/x title='a'>x\n<pre>\n${CODE}`,
+      `> <span>x</span>\n> <pre>\n> ${CODE}`,
+      `- <span>x</span>\n  <pre>\n  ${CODE}`,
+      `> - <em>x</em>\n>   <pre>\n>   ${CODE}`
+    ]) {
+      assert.equal(microtypo(src, md), src, src);
+    }
+  });
+
+  test('a front-matter body reads inline HTML the same way', () => {
+    const src = `---\ntitle: x\n---\n<span>x</span>\n<pre>\n${CODE}`;
+
+    assert.equal(microtypo(src, { ...base, input: 'frontmatter' }), src);
+  });
+
+  test('a block tag, or any tag alone on its line, hides openers up to a blank line', () => {
+    for (const head of [
+      '<span>\n<pre>\nx\n\n',
+      '</span>\n<pre>\nx\n\n',
+      '<my-tag data-x=\'1\' hidden title="a > b" />  \n<pre>\nx\n\n',
+      '<div>x\n<pre>\nx\n\n',
+      '<DIV\n<pre>\nx\n\n',
+      '<p class="x">x\n<pre>\nx\n\n',
+      '</iframe>x\n<pre>\nx\n\n',
+      '<hr/>x\n<pre>\nx\n\n',
+      '> <span>\n> <pre>\n>\n> ',
+      '- <span>\n  <pre>\n\n  '
+    ]) {
+      assert.equal(microtypo(head + TAIL, md), head + TAIL_TYPESET, head);
+    }
+  });
+
+  test('a lone tag under a paragraph continues it, while a kind-6 tag interrupts it', () => {
+    for (const rest of [
+      `\n<span>\n<pre>\n${CODE}`,
+      `\n<a href="/x">\n<pre>\n${CODE}`,
+      `\n<span>\n</span>\n<pre>\n${CODE}`
+    ]) {
+      assert.equal(microtypo(PROSE + rest, md), PROSE_TYPESET + rest, rest);
+    }
+
+    const head = `${PROSE}\n<div>\n<pre>\nx\n\n`;
+
+    assert.equal(
+      microtypo(head + TAIL, md),
+      `${PROSE_TYPESET}\n<div>\n<pre>\nx\n\n${TAIL_TYPESET}`
+    );
+  });
+
+  test('a lone tag under a paragraph in a container continues it', () => {
+    for (const [src, expected] of [
+      [
+        `> ${PROSE}\n> <span>\n> <pre>\n> ${CODE}`,
+        `> ${PROSE_TYPESET}\n> <span>\n> <pre>\n> ${CODE}`
+      ],
+      [`> ${PROSE}\n<span>\n<pre>\n${CODE}`, `> ${PROSE_TYPESET}\n<span>\n<pre>\n${CODE}`],
+      [
+        `- ${PROSE}\n  <span>\n  <pre>\n  ${CODE}`,
+        `- ${PROSE_TYPESET}\n  <span>\n  <pre>\n  ${CODE}`
+      ]
+    ]) {
+      assert.equal(microtypo(src, md), expected, src);
+    }
+  });
+
+  // Kind 7 leaves the four kind-1 names alone only in an open tag, which kind 1 takes first.
+  test('a lone closing tag of a kind-1 name is kind 7 like any other', () => {
+    const frontmatter = { ...base, input: 'frontmatter' };
+
+    for (const name of ['pre', 'script', 'style', 'textarea', 'PRE', 'Script']) {
+      for (const head of [
+        `</${name}>\n<pre>\nx\n\n`,
+        `</${name} >  \n<script>\nx\n\n`,
+        `> </${name}>\n> <style>\n> x\n\n`,
+        `- </${name}>\n  <textarea>\n  x\n\n`
+      ]) {
+        const expected = head + TAIL_TYPESET;
+
+        assert.equal(sameOnEveryEnding(head + TAIL), expected, head);
+        assert.equal(
+          microtypo(`---\ntitle: x\n---\n${head}${TAIL}`, frontmatter),
+          `---\ntitle: x\n---\n${expected}`,
+          `frontmatter ${head}`
+        );
+      }
+    }
+  });
+
+  test('a lone closing tag of a kind-1 name neither interrupts a paragraph nor shares its line', () => {
+    for (const src of [
+      `${PROSE}\n</pre>\n<pre>\n${CODE}`,
+      `${PROSE}\n</script>\n<style>\n${CODE}`
+    ]) {
+      assert.equal(microtypo(src, md), src.replace(PROSE, PROSE_TYPESET), src);
+    }
+
+    for (const src of [`</pre> x\n<pre>\n${CODE}`, `</style>x\n<textarea>\n${CODE}`]) {
+      assert.equal(microtypo(src, md), src, src);
+    }
+  });
+
+  test('a container opened on the line leaves no paragraph for a lone tag to interrupt', () => {
+    const head = '\n> <span>\n> <pre>\n>\n> ';
+
+    assert.equal(microtypo(PROSE + head + TAIL, md), PROSE_TYPESET + head + TAIL_TYPESET);
+  });
+});
+
+// Kind 1 ends on the line holding any of its four end tags, whichever opened it. The element ends at
+// its own end tag, and the rest of that line is prose like a kind-6 block's; with only another of the
+// four there the element is still open, and the whole line belongs to the block.
+describe('a closed HTML block of kind 1', () => {
+  const CODE = 'const x = "hello" - 1; // 10-20';
+  const TAIL = 'Дальше - "текст".';
+  const TAIL_TYPESET = `Дальше${NBSP}— «текст».`;
+  const RAW_NAMES = ['pre', 'script', 'style', 'textarea'];
+  const HEADERS = ['---\ntitle: x\n---\n', '+++\ntitle = "x"\n+++\n'];
+
+  const keepsBody = (head) => {
+    assert.equal(microtypo(head + TAIL, md), head + TAIL_TYPESET, head);
+
+    for (const header of HEADERS) {
+      assert.equal(
+        microtypo(header + head + TAIL, { ...base, input: 'frontmatter' }),
+        header + head + TAIL_TYPESET,
+        header + head
+      );
+    }
+  };
+
+  test('the code is typeset outside a block', () => {
+    assert.notEqual(microtypo(CODE, md), CODE);
+  });
+
+  test('every pair of end tag and opener keeps the body and leaves the prose after it', () => {
+    for (const open of RAW_NAMES) {
+      for (const close of RAW_NAMES) {
+        keepsBody(`<${open}>\n${CODE}\n</${close}>\n\n`);
+        keepsBody(`<${open.toUpperCase()} class="x">\n${CODE}\n</${close.toUpperCase()}>\n\n`);
+      }
+    }
+  });
+
+  test('the line holding the end tag belongs to the block', () => {
+    keepsBody(`<pre>\n${CODE}\n${CODE} </script> ${CODE}\n\n`);
+    keepsBody(`<style>${CODE}</textarea> ${CODE}\n\n`);
+    keepsBody(`<pre>\n${CODE}\n</script>\n`);
+  });
+
+  test('an end tag in backticks still ends the block', () => {
+    keepsBody(`<pre>\n${CODE}\n\`</script>\`\n\n`);
+    keepsBody(`<script>\n${CODE}\n\`\`</style>\`\`\n\n`);
+  });
+
+  test('what only looks like an end tag ends nothing', () => {
+    for (const end of ['</prefix>', '</scripts>', '</ pre>', '</style', '<script>']) {
+      const src = `Корвин - Козырь\n\n<pre>\n${CODE}\n${end}\n\n${CODE}`;
+
+      assert.equal(
+        microtypo(src, md),
+        `Корвин${NBSP}— Козырь\n\n<pre>\n${CODE}\n${end}\n\n${CODE}`
+      );
+    }
+  });
+
+  test('a block closed inside its container keeps its body', () => {
+    keepsBody(`> <pre>\n> ${CODE}\n> </script>\n\n`);
+    keepsBody(`- <style>\n  ${CODE}\n\n  ${CODE}\n  </textarea>\n\n`);
+    keepsBody(`> - <script>\n>   ${CODE}\n>   </pre>\n\n`);
+    keepsBody(`> <textarea>${CODE}</style> ${CODE}\n\n`);
+  });
+
+  test('a CRLF block keeps its body and its line endings', () => {
+    const src = `<pre>\r\n${CODE}\r\n</script>\r\n\r\n${TAIL}`;
+
+    assert.equal(microtypo(src, md), `<pre>\r\n${CODE}\r\n</script>\n\n${TAIL_TYPESET}`);
+  });
+
+  test('past its own end tag the line is prose', () => {
+    for (const name of RAW_NAMES) {
+      for (const head of [
+        `<${name}>${CODE}</${name}> `,
+        `<${name.toUpperCase()} class="x">\n${CODE}\n</${name.toUpperCase()}> `,
+        `<${name}>${CODE}</${name === 'pre' ? 'style' : 'pre'}> ${CODE}</${name}> `
+      ]) {
+        assert.equal(microtypo(head + TAIL, md), head + TAIL_TYPESET, head);
+      }
+    }
+  });
+
+  test('past its own end tag inside a container the line is prose', () => {
+    for (const head of [
+      `> <pre>${CODE}</pre> `,
+      `> <script>\n> ${CODE}\n> </script> `,
+      `- <style>${CODE}</style> `,
+      `- <textarea>\n  ${CODE}\n  </textarea> `,
+      `> - <pre>\n>   ${CODE}\n>   </pre> `
+    ]) {
+      assert.equal(microtypo(head + TAIL, md), head + TAIL_TYPESET, head);
+    }
+  });
+
+  test('past its own end tag on CR and CRLF lines the line is prose', () => {
+    for (const eol of ['\r', '\r\n']) {
+      const src = `<pre>${eol}${CODE}${eol}</pre> ${TAIL}${eol}${TAIL}`;
+
+      assert.equal(
+        microtypo(src, md),
+        `<pre>${eol}${CODE}${eol}</pre> ${TAIL_TYPESET}\n${TAIL_TYPESET}`
+      );
+    }
+  });
+
+  test('a code span or a template past its own end tag keeps its bytes', () => {
+    const head = `<pre>${CODE}</pre> `;
+
+    assert.equal(microtypo(`${head}\`a - "b"\` ${TAIL}`, md), `${head}\`a - "b"\` ${TAIL_TYPESET}`);
+    assert.equal(
+      microtypo(`${head}{{ "a - b" }} ${TAIL}`, {
+        ...base,
+        input: { format: 'markdown', template: 'handlebars' }
+      }),
+      `${head}{{ "a - b" }} ${TAIL_TYPESET}`
+    );
+  });
+
+  // The end tag is one the document's tags read as one: a name in an attribute value or a comment
+  // ends nothing, and a nested `<pre>` is closed by its own end tag.
+  test('only a real end tag of its own ends the element', () => {
+    for (const head of [
+      `<script data-x='</script>'>${CODE}</script> `,
+      `<style data-x='</style>'>${CODE}</style> `,
+      `<pre title="</pre>">${CODE}</pre> `,
+      `<pre>x <code title="</pre>">${CODE}</code></pre> `,
+      `<pre>x <!-- </pre> --> ${CODE}</pre> `,
+      `<pre>a<pre>b</pre> ${CODE}</pre> `
+    ]) {
+      assert.equal(microtypo(head + TAIL, md), head + TAIL_TYPESET, head);
+    }
+  });
+
+  test('with only another of the four end tags the whole line stays', () => {
+    for (const head of [
+      `<pre>${CODE}</script> ${CODE} `,
+      `> <textarea>${CODE}</style> `,
+      `- <script>\n  ${CODE}\n  </pre> `
+    ]) {
+      assert.equal(microtypo(head + TAIL, md), head + TAIL, head);
+    }
+  });
+});
+
+// Which block a line belongs to is settled before what it spells: a fence or an indent inside an
+// HTML block is the block's own text and opens no code block, and a tag inside a code block opens no
+// HTML block. CommonMark §4.5, §4.4, §4.6.
+describe('an HTML block and a code block own their lines', () => {
+  const CODE = 'const x = "hello" - 1; // 10-20';
+  const TAIL = 'Дальше - "текст".';
+  const TAIL_TYPESET = `Дальше${NBSP}— «текст».`;
+  const RAW_NAMES = ['pre', 'script', 'style', 'textarea'];
+  const HEADERS = ['---\ntitle: x\n---\n', '+++\ntitle = "x"\n+++\n'];
+  const frontmatter = { ...base, input: 'frontmatter' };
+
+  // `head` is untouched and the prose under it is typeset, whatever its line endings and with or
+  // without a front-matter header.
+  const keepsHead = (head) => {
+    assert.equal(sameOnEveryEnding(head + TAIL), head + TAIL_TYPESET, head);
+
+    for (const header of HEADERS) {
+      assert.equal(
+        microtypo(header + head + TAIL, frontmatter),
+        header + head + TAIL_TYPESET,
+        header + head
+      );
+    }
+  };
+
+  test('a fence or an indent inside a kind-1 block hides no end tag', () => {
+    for (const open of RAW_NAMES) {
+      for (const close of RAW_NAMES) {
+        keepsHead(`<${open}>\n\`\`\`\n</${close}>\n\n`);
+        keepsHead(`<${open}>\n~~~\n${CODE}\n</${close}>\n\n`);
+        keepsHead(`<${open} class="x">\n\`\`\`\`js\n${CODE}\n\`\`\`\`\n</${close}>\n\n`);
+        keepsHead(`<${open}>\n\n    </${close}>\n\n`);
+        keepsHead(`<${open}>\n\n    ${CODE}\n\n\t</${close}>\n\n`);
+        keepsHead(`  <${open}>\n${CODE}\n   \`\`\`\n${CODE} </${close}>\n\n`);
+      }
+    }
+  });
+
+  test('the same holds inside a container', () => {
+    keepsHead(`> <pre>\n> \`\`\`\n> </script>\n\n`);
+    keepsHead(`> <style>\n>\n>     </textarea>\n\n`);
+    keepsHead(`- <textarea>\n  ~~~\n  ${CODE}\n  </pre>\n\n`);
+    keepsHead(`- <script>\n\n      </style>\n\n`);
+    keepsHead(`> - <pre>\n>   \`\`\`\n>   </style>\n\n`);
+  });
+
+  test('a fence inside a comment or a block ending at a blank line opens nothing', () => {
+    keepsHead(`<!--\n\`\`\`\n${CODE}\n-->\n\n`);
+    keepsHead('<div>\n```\n\n');
+    keepsHead('</span>\n~~~\n\n');
+    keepsHead('> <div>\n> ```\n\n');
+  });
+
+  test('a tag inside a code block opens no HTML block', () => {
+    for (const name of RAW_NAMES) {
+      keepsHead(`\`\`\`\n<${name}>\n${CODE}\n\`\`\`\n\n`);
+      keepsHead(`~~~\n<!--\n<${name}>\n~~~\n\n`);
+      keepsHead(`    <${name}>\n    ${CODE}\n\n`);
+      keepsHead(`- a\n\n      <${name}>\n      ${CODE}\n\n`);
+    }
+  });
+
+  test('a fence after the block ends is a fence again', () => {
+    for (const src of [
+      `<pre>\n</script>\n~~~\n${TAIL}`,
+      `<div>\n\n\`\`\`\n${TAIL}`,
+      `<!-- x -->\n    ${TAIL}`
+    ]) {
+      assert.equal(sameOnEveryEnding(src), src, src);
+    }
+  });
+
+  // An opener the block scanner refuses is refused to the code scanners too, or the code they leave
+  // behind for it would be left unprotected.
+  test('an opener inside a tag or a template expression is not a block to the code scanners', () => {
+    const fenced = `~~~\n${CODE}\n~~~`;
+
+    assert.equal(
+      microtypo(`<a title="\n<pre>\n">\n${fenced}`, md),
+      `<a title="\n<pre>\n">\n${fenced}`
+    );
+
+    const handlebars = { ...base, input: { format: 'markdown', template: 'handlebars' } };
+
+    for (const src of [`{{ x\n<pre>\n}}\n${fenced}`, `{{ x\n<pre>\n}}\n\n    ${CODE}`]) {
+      assert.equal(microtypo(src, handlebars), src, src);
+    }
+  });
+});
+
+describe('CR line endings', () => {
+  const CODE = 'const x = "hello" - 1; // 10-20';
+  const TAIL = 'Дальше - "текст".';
+
+  test('a definition keeps its destination and title on its own lines', () => {
+    const src = '[ref]:\n  /some-path\n  "Title - text"\n\n[ref]';
+
+    assert.equal(sameOnEveryEnding(src), src);
+    assert.equal(microtypo(toCr(src), md), '[ref]:\r  /some-path\r  "Title - text"\n\n[ref]');
+  });
+
+  test('every part of a definition may stand on a line of its own', () => {
+    for (const src of [
+      '[my\nlabel]: /some-path "Title - text"\n\n[my\nlabel]',
+      '[r]: /p "Корвин -\nпринц"\n\n[r]',
+      '[r]: /p\n  "Корвин -\n  принц"\n\nСм. [r] - "тут".',
+      '[Корвин -\nпринц]: /p\n\nСм. [Корвин -\nпринц] и [корвин - принц].',
+      '[a]:\n/a\n"А - а"\n[b]: /b\n"Б -\nб"\n\n[a] [b]'
+    ]) {
+      sameOnEveryEnding(src);
+      assert.equal(lf(microtypo(toCr(src), md)), microtypo(src, md), src);
+    }
+
+    assert.equal(
+      sameOnEveryEnding('[r]:\n\n/p "Корвин - принц"'),
+      `[r]:\n\n/p «Корвин${NBSP}— принц»`
+    );
+  });
+
+  test('a definition inside a container carries the prefixes it continues under', () => {
+    for (const src of [
+      '> [my\n> label]:\n> /p\n> "Т - т"\n>\n> [my\n> label]',
+      '- [r]:\n  /p\n  "Т - т"\n\n  [r]',
+      '> [r]:\n/p\n"Т - т"\n\n[r]'
+    ]) {
+      assert.equal(sameOnEveryEnding(src), src);
+    }
+  });
+
+  // Only the body changes its line endings here; the header's own are the front-matter tests'.
+  test('a front-matter body reads the definition the same way', () => {
+    const options = { ...base, input: 'frontmatter' };
+    const body = '[ref]:\n  /some-path\n  "Title - text"\n\n[ref]';
+
+    for (const header of ['---\ntitle: x\n---\n', '+++\ntitle = "x"\n+++\n']) {
+      assert.equal(microtypo(header + body, options), header + body);
+
+      for (const variant of [toCr(body), toCrlf(body)]) {
+        assert.equal(lf(microtypo(header + variant, options)), header + body, header + variant);
+      }
+    }
+  });
+
+  test('the other line constructs read a CR as a line ending', () => {
+    for (const src of [
+      `Текст\n\n    ${CODE}\n\n${TAIL}`,
+      `- Амбер\n  ${TAIL}\n\n> - Корвин\n>   ${TAIL}`,
+      `\`\`\`\n${CODE}\n\`\`\`\n\n${TAIL}`,
+      `> <pre>\n> ${CODE}\n\n${TAIL}`,
+      `<span>x</span>\n<pre>\n${CODE}\n</script>\n\n${TAIL}`,
+      `<!--\n${CODE}\n\n-->\n\n${TAIL}`,
+      `Текст <!-- ${CODE}\n\n${TAIL} -->`,
+      `\`a\n\nb\` ${TAIL}`
+    ]) {
+      sameOnEveryEnding(src);
+    }
+  });
+});
+
+// A tag written in code is text: it opens and closes no protection and pairs with no tag outside the
+// code. The other way round, a backtick inside a real element or comment opens no code span with one
+// outside it. Whichever opened first owns the stretch.
+describe('a tag in code and code in an element', () => {
+  const SITE = {
+    input: { format: 'markdown', template: 'handlebars' },
+    html: false,
+    entities: false
+  };
+  const PROSE = 'Корвин - принц, "Амбер".';
+  const TYPESET = `Корвин${NBSP}— принц, «Амбер».`;
+  const typesetOnce = (src) => {
+    assert.equal(src.split(PROSE).length, 2, src);
+
+    return src.replace(PROSE, TYPESET);
+  };
+
+  test('a tag in a code span pairs with none in a fenced block', () => {
+    const src =
+      'Текст `<textarea>`.\n\n```\n<textarea>"x"</textarea>\n```\n\nПосле кода -- тоже "кавычки".';
+
+    assert.equal(
+      microtypo(src, SITE),
+      `Текст \`<textarea>\`.\n\n\`\`\`\n<textarea>"x"</textarea>\n\`\`\`\n\nПосле кода${NBSP}— тоже «кавычки».`
+    );
+  });
+
+  test('an opener and a closer in two code spans protect nothing between them', () => {
+    const src = 'Тег `<script>` и Корвин - принц, а `</script>` закрывает.';
+
+    assert.equal(
+      microtypo(src, SITE),
+      `Тег \`<script>\` и${NBSP}Корвин${NBSP}— принц, а \`</script>\` закрывает.`
+    );
+  });
+
+  test('an opener and a closer in two fenced blocks protect nothing between them', () => {
+    const src = `\`\`\`\n<pre>\n\`\`\`\n\n${PROSE}\n\n\`\`\`\n</pre>\n\`\`\``;
+
+    assert.equal(microtypo(src, SITE), typesetOnce(src));
+  });
+
+  test('every protected tag in every form of code is text', () => {
+    const forms = [
+      (tag) => `\`${tag}\``,
+      (tag) => `\`\` ${tag} \`\``,
+      (tag) => `\`\`\`${tag}\`\`\``,
+      (tag) => `\`\`\`\n${tag}\n\`\`\``,
+      (tag) => `~~~html\n${tag}\n~~~`,
+      (tag) => `    ${tag}`
+    ];
+
+    for (const name of ['script', 'style', 'pre', 'code', 'textarea', 'kbd']) {
+      for (const form of forms) {
+        const src = `${form(`<${name}>`)}\n\n${PROSE}\n\n${form(`</${name}>`)}`;
+
+        assert.equal(microtypo(src, SITE), typesetOnce(src), src);
+        assert.equal(microtypo(src, md), typesetOnce(src), src);
+      }
+    }
+  });
+
+  test('the delimiters of a comment in code are text', () => {
+    for (const src of [
+      `\`<!--\` ${PROSE} \`-->\``,
+      `\`\`\`\n<!--\n\`\`\`\n\n${PROSE}\n\n\`\`\`\n-->\n\`\`\``,
+      `\`<!--\` ${PROSE} -->`
+    ]) {
+      assert.equal(microtypo(src, SITE), typesetOnce(src), src);
+    }
+  });
+
+  test('a template expression holding a tag is no element', () => {
+    const src = `{{ "<pre>" }} ${PROSE} {{ "</pre>" }}`;
+
+    assert.equal(microtypo(src, SITE), typesetOnce(src));
+  });
+
+  test('a real element after its name in code is still protected', () => {
+    for (const name of ['pre', 'code', 'kbd', 'script']) {
+      const element = `<${name}>"а" -- б</${name}>`;
+      const src = `\`<${name}>\` ${PROSE} ${element} ${PROSE.replace('Корвин', 'Эрик')}`;
+      const out = microtypo(src, SITE);
+
+      assert.equal(
+        out,
+        `\`<${name}>\` ${TYPESET} ${element} ${TYPESET.replace('Корвин', 'Эрик')}`,
+        name
+      );
+    }
+  });
+
+  test('a backtick inside a real element or comment opens no code span outside it', () => {
+    for (const head of [
+      'Текст <code>а ` б</code> ',
+      'Текст <kbd>а <kbd>`</kbd> б</kbd> ',
+      'Текст <script>const s = `а;</script> ',
+      'Текст <style>/* ` */</style> ',
+      'Текст <!-- а ` б --> ',
+      'Текст <!-- а `--> ',
+      '<pre>\nа ` б\n</pre>\n\n',
+      '<script>\nconst s = `а;\n</script>\n\n'
+    ]) {
+      const src = `${head}${PROSE} \` в`;
+
+      assert.equal(microtypo(src, SITE), typesetOnce(src), head);
+      assert.equal(microtypo(src, md), typesetOnce(src), head);
+    }
+  });
+
+  test('a fence inside a real pre leaves the element whole', () => {
+    for (const element of [
+      '<pre>\n```\n"а" -- б\n```\n</pre>',
+      'Текст <pre>"а"\n```\n"б" -- в\n```\n"г" -- д</pre>'
+    ]) {
+      const src = `${element}\n\n${PROSE}`;
+
+      assert.equal(microtypo(src, SITE), typesetOnce(src), element);
+    }
+  });
+
+  test('an element left open inside a line is still text around a code span', () => {
+    const src = `<code> и \`"а" -- б\` ${PROSE}`;
+
+    assert.equal(microtypo(src, SITE), typesetOnce(src));
+  });
+
+  test('every line ending, container and front matter reads the tag in code the same way', () => {
+    const fenced = `Текст \`<pre>\`.\n\n\`\`\`\n<pre>"x"</pre>\n\`\`\`\n\n${PROSE}`;
+    const spans = `Тег \`<pre>\`. ${PROSE}\nЗакрывает \`</pre>\`.`;
+
+    for (const src of [fenced, spans]) {
+      assert.equal(sameOnEveryEnding(src, SITE), lf(typesetOnce(src)).replace(/\n{3,}/g, '\n\n'));
+    }
+
+    for (const [prefix, next] of [
+      ['> ', '> '],
+      ['- ', '  '],
+      ['1. ', '   ']
+    ]) {
+      const src = `${prefix}Тег \`<pre>\`. ${PROSE}\n${next}Закрывает \`</pre>\`.`;
+
+      assert.equal(microtypo(src, SITE), typesetOnce(src), prefix);
+    }
+
+    const quoted = `> \`\`\`\n> <style>\n> \`\`\`\n>\n> ${PROSE}\n>\n> \`\`\`\n> </style>\n> \`\`\``;
+
+    assert.equal(microtypo(quoted, SITE), typesetOnce(quoted));
+
+    const options = { ...base, input: 'frontmatter' };
+
+    for (const header of ['---\ntitle: x\n---\n', '+++\ntitle = "x"\n+++\n']) {
+      assert.equal(microtypo(header + spans, options), header + typesetOnce(spans), header);
+    }
+  });
+
+  // A tag name written in an attribute value is the value's bytes: it neither opens nor closes an
+  // element, so the code span or template between such names stays its own.
+  test('a tag in an attribute value owns no code span or template', () => {
+    const LIQUID = { ...base, input: { format: 'markdown', template: 'liquid' } };
+    const inside = [
+      ['`a - "b"`', md],
+      ['`a - "b"`', SITE],
+      ['{{ "a - b" }}', SITE],
+      ['{{ "a - b" | upcase }}', LIQUID],
+      ['{% assign x = "a - b" %}', LIQUID]
+    ];
+
+    for (const name of ['code', 'pre', 'kbd', 'script', 'textarea']) {
+      for (const [construct, options] of inside) {
+        for (const html of [false, true]) {
+          const src = `<span title="<${name}>">${construct}</span><span title="</${name}>"></span> ${PROSE}`;
+
+          assert.equal(microtypo(src, { ...options, html }), typesetOnce(src), `${name} ${src}`);
+        }
+      }
+    }
+  });
+
+  // The names in attribute values change nothing about how the text between them reads: a raw block
+  // of the template engine is read as it is without them.
+  test('a tag in an attribute value leaves a template block read as without it', () => {
+    const LIQUID = { ...base, input: { format: 'markdown', template: 'liquid' } };
+    const block = '{% raw %}"a" - b{% endraw %}';
+    const [open, close] = ['<span title="<code>">', '</span><span title="</code>"></span>'];
+
+    assert.equal(
+      microtypo(`${open}${block}${close}`, LIQUID),
+      `${open}${microtypo(block, LIQUID)}${close}`
+    );
+  });
+
+  test('a real element beside a name in an attribute value still keeps its body', () => {
+    const src = `<span title="</code>"></span><code>\`a\` - "b"</code> ${PROSE} \`c - "d"\``;
+
+    assert.equal(microtypo(src, SITE), typesetOnce(src));
+  });
+
+  // A start tag closing itself in SVG opens nothing, so a later closer of its name pairs with nothing
+  // in front of it; HTML ignores the slash, and `<script/>` there is open until its closer.
+  test('a self-closing script in SVG owns nothing behind it', () => {
+    const svg = '<svg><script/>`a - b`</svg><script>x</script>';
+
+    assert.equal(microtypo(svg, md), svg);
+    assert.equal(microtypo(`${svg} ${PROSE}`, md), typesetOnce(`${svg} ${PROSE}`));
+
+    const html = `<script/>\`a\` ${PROSE} \` b</script> ${PROSE.replace('Корвин', 'Эрик')}`;
+
+    assert.equal(
+      microtypo(html, md),
+      `<script/>\`a\` ${PROSE} \` b</script> ${TYPESET.replace('Корвин', 'Эрик')}`
+    );
   });
 });

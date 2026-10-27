@@ -1,5 +1,3 @@
-import { randomBytes } from 'node:crypto';
-
 import { capacityError, MAX_ENTRIES } from '../errors/index.js';
 import { URL_REGEX, EMAIL_REGEX, IPV6_REGEX, UUID_REGEX } from '../lib/url-email-regex.js';
 
@@ -31,8 +29,28 @@ const ENTRY_KINDS = Object.freeze({
   t: { name: 'tokens', reason: 'token' }
 });
 
+const HEX = Array.from({ length: 256 }, (_, byte) =>
+  byte.toString(16).padStart(2, '0').toUpperCase()
+);
+// Web Crypto rather than `node:crypto`: the library runs in a browser too. One call fills bytes for
+// 64 nonces, each byte spent once, since a short `process()` call otherwise pays mostly for this.
+const randomPool = new Uint8Array(512);
+let poolAt = randomPool.length;
+
 function freshNonce() {
-  return randomBytes(8).toString('hex').toUpperCase();
+  if (poolAt === randomPool.length) {
+    globalThis.crypto.getRandomValues(randomPool);
+    poolAt = 0;
+  }
+
+  let nonce = '';
+
+  for (let k = 0; k < 8; k += 1) {
+    nonce += HEX[randomPool[poolAt]];
+    poolAt += 1;
+  }
+
+  return nonce;
 }
 
 // A trailing `)` belongs to the URL only where an earlier `(` balances it; one count pass and one

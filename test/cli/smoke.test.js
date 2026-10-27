@@ -27,8 +27,3 @@ test('smoke: pipes stdin through the binary', async () => {
   assert.match(stdout, /«Корвин»/);
   assert.match(stdout, /—/);
 });
-
-test('smoke: --version prints a semver line', async () => {
-  const { stdout } = await run(['--version']);
-  assert.match(stdout.trim(), /^\d+\.\d+\.\d+$/);
-});

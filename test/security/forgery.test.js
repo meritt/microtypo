@@ -68,12 +68,17 @@ describe('vault isolation', () => {
     assert.ok(!out.includes('victim-secret'), `Cross-call leak detected: ${out}`);
   });
 
-  test('PUA marker chars in user input are stripped on entry', () => {
+  test('a placeholder spelled in the input comes back as the input spelled it', () => {
+    const text = `Корвин ${OPEN}T0${CLOSE} <b>Амбер</b>`;
+
+    assert.equal(microtypo(text, { html: true, render: { paragraphs: false } }), text);
+  });
+
+  test('a forged token in the input does not resolve', () => {
     const text = `Корвин\uE000T0\uE001Амбер`;
     const out = microtypo(text);
     // The forged vault token must not resolve; source text survives.
-    assert.ok(out.includes('Корвин'), `Got: ${out}`);
-    assert.ok(!out.includes(OPEN), `PUA char survived: ${JSON.stringify(out)}`);
+    assert.equal(out, text);
   });
 });
 
@@ -186,22 +191,21 @@ describe('cycled-rule cap', () => {
 });
 
 describe('JSON PUA forgery', () => {
-  // `JSON.parse` decodes `\uXXXX`, reintroducing reserved PUA past the entry strip, so the engine
-  // has to strip again.
+  // `JSON.parse` decodes `\uXXXX` into reserved PUA the raw document never spelled, so the escape
+  // has to happen on the decoded value, not on the document.
 
-  test('escaped-PUA forgery of a vault placeholder is neutralized, sibling value intact', () => {
+  test('escaped-PUA forgery of a vault placeholder is inert, sibling value intact', () => {
     const out = microtypo('{"a":"\\uE000B0\\uE001","secret":"Корвин - тут"}', {
       input: { format: 'json' }
     });
 
-    // The forged placeholder decodes, loses its PUA chars, and survives as inert text "B0".
-    assert.equal(out, `{"a":"B0","secret":"Корвин${NBSP}— тут"}`);
+    // The forged placeholder decodes and comes back as the same three characters, never resolving.
+    assert.equal(out, `{"a":"${OPEN}B0${CLOSE}","secret":"Корвин${NBSP}— тут"}`);
 
     const parsed = JSON.parse(out);
 
-    assert.equal(parsed.a, 'B0');
+    assert.equal(parsed.a, `${OPEN}B0${CLOSE}`);
     assert.equal(parsed.secret, `Корвин${NBSP}— тут`);
-    assert.ok(!out.includes(OPEN) && !out.includes(CLOSE), 'no reserved PUA must reach output');
   });
 
   test('forged placeholder cannot steal a sibling vaulted block content', () => {
@@ -211,11 +215,11 @@ describe('JSON PUA forgery', () => {
       input: { format: 'json' }
     });
 
-    assert.equal(out, '{"a":"B0","secret":"<pre>AMBER-DONOTLEAK</pre>"}');
+    assert.equal(out, `{"a":"${OPEN}B0${CLOSE}","secret":"<pre>AMBER-DONOTLEAK</pre>"}`);
 
     const parsed = JSON.parse(out);
 
-    assert.equal(parsed.a, 'B0', 'must not resolve to the vaulted <pre> content');
+    assert.equal(parsed.a, `${OPEN}B0${CLOSE}`, 'must not resolve to the vaulted <pre> content');
     assert.ok(!parsed.a.includes('DONOTLEAK'), 'secret payload must not leak into a');
     assert.equal(
       parsed.secret,
@@ -224,7 +228,7 @@ describe('JSON PUA forgery', () => {
     );
   });
 
-  test('escaped PUA mid-string is stripped, never reaches the restore step', () => {
+  test('escaped PUA mid-string is kept and the prose around it is still typeset', () => {
     const out = microtypo(
       '{"a":"Корвин \\uE000 середина \\uE001 Амбер - Арден","b":"Рэндом - Бенедикт"}',
       {
@@ -233,8 +237,7 @@ describe('JSON PUA forgery', () => {
     );
     const parsed = JSON.parse(out);
 
-    assert.ok(!out.includes(OPEN) && !out.includes(CLOSE), 'PUA chars must be stripped');
-    assert.equal(parsed.a, `Корвин середина Амбер${NBSP}— Арден`);
+    assert.equal(parsed.a, `Корвин ${OPEN} середина ${CLOSE} Амбер${NBSP}— Арден`);
     assert.equal(parsed.b, `Рэндом${NBSP}— Бенедикт`);
   });
 
@@ -245,9 +248,8 @@ describe('JSON PUA forgery', () => {
     });
     const parsed = JSON.parse(out);
 
-    assert.ok(!out.includes(OPEN) && !out.includes(CLOSE), 'no reserved PUA must reach output');
-    assert.equal(parsed.a, 'T5 Корвин');
-    assert.equal(parsed.b, 'Рэндом Амбер');
+    assert.equal(parsed.a, `${OPEN}T5 Корвин`);
+    assert.equal(parsed.b, `Рэндом ${CLOSE} Амбер`);
     assert.ok(!parsed.a.includes('Амбер'), 'b content must not cross into a');
     assert.ok(!parsed.b.includes('Корвин'), 'a content must not cross into b');
   });
@@ -259,6 +261,17 @@ describe('JSON PUA forgery', () => {
     assert.equal(JSON.parse(out).title, `Амбер${NBSP}— лучший`);
   });
 });
+
+const withHandler = (handler) => {
+  const typo = new MicroTypo(HTML);
+
+  typo.registerRuleGroup(defineRuleGroup({ title: 'hide', rules: [{ id: 'f', handler }] }), {
+    name: 'hide',
+    position: 'end'
+  });
+
+  return typo.process('<pre>AMBER-RAW</pre> Цель');
+};
 
 describe('custom-group forgery', () => {
   // A rule may relocate placeholders and mint fresh ones, so any extra occurrence it types has to be
@@ -511,17 +524,6 @@ describe('custom-group forgery', () => {
   // `ctx.tag()` and `ctx.iblock()` vault what they are handed, where the scrub of the returned text
   // cannot read it. A group that hid a token there kept a copy the accounting never saw.
   describe('what a group hands in is budgeted like what it hands back', () => {
-    const withHandler = (handler) => {
-      const typo = new MicroTypo(HTML);
-
-      typo.registerRuleGroup(defineRuleGroup({ title: 'hide', rules: [{ id: 'f', handler }] }), {
-        name: 'hide',
-        position: 'end'
-      });
-
-      return typo.process('<pre>AMBER-RAW</pre> Цель');
-    };
-
     const forged = `${OPEN}B0${CLOSE}`;
 
     test('a token hidden in an iblock does not duplicate protected content', () => {
@@ -634,21 +636,10 @@ describe('custom-group forgery', () => {
   // clear it, credit itself, or switch it off — and `builtin` is the switch that turns it off for
   // every later run.
   describe('a group cannot reach the accounting behind it', () => {
-    const reachOut = (handler) => {
-      const typo = new MicroTypo(HTML);
-
-      typo.registerRuleGroup(defineRuleGroup({ title: 'reach', rules: [{ id: 'f', handler }] }), {
-        name: 'reach',
-        position: 'end'
-      });
-
-      return typo.process('<pre>AMBER-RAW</pre> Цель');
-    };
-
     test('ctx carries no minting state', () => {
       let keys = null;
 
-      reachOut((ctx) => {
+      withHandler((ctx) => {
         keys = Object.keys(ctx);
 
         return ctx.text;
@@ -663,7 +654,7 @@ describe('custom-group forgery', () => {
     test('ctx.group cannot be marked builtin', () => {
       let outcome = null;
 
-      reachOut((ctx) => {
+      withHandler((ctx) => {
         try {
           ctx.group.builtin = true;
           outcome = ctx.group.builtin === true ? 'mutated' : 'ignored';

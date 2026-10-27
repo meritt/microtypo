@@ -23,6 +23,60 @@ describe('abbr.nbsp_organization', () => {
   });
 });
 
+describe('abbr.nbsp_money_magnitude', () => {
+  test('keeps the separator after у.е.', () => {
+    const cases = [
+      ['Цена 10 у.е. за товар', `Цена 10${NBSP}у.е. за${NBSP}товар`],
+      ['Цена 10 у. е. за товар', `Цена 10${NBSP}у.е. за${NBSP}товар`],
+      ['Цена 10 у.е.\tза товар', `Цена 10${NBSP}у.е. за${NBSP}товар`],
+      ['Цена 10 у.е.\nДоставка отдельно', `Цена 10${NBSP}у.е.\nДоставка отдельно`],
+      ['Цена 10 у.е.\n\nДоставка отдельно', `Цена 10${NBSP}у.е.\n\nДоставка отдельно`],
+      ['Цена 10 у.е.', `Цена 10${NBSP}у.е.`],
+      ['Цена 10 тыс. у.е. за товар', `Цена 10${NBSP}тыс.${NBSP}у.е. за${NBSP}товар`],
+      ['Цена 10 млн у.е.\nДоставка', `Цена 10${NBSP}млн${NBSP}у.е.\nДоставка`],
+      ['Цена 10 млрд у. е.\n\nДоставка', `Цена 10${NBSP}млрд${NBSP}у.е.\n\nДоставка`]
+    ];
+
+    for (const [src, expected] of cases) {
+      const once = microtypo(src);
+
+      assert.equal(once, expected, JSON.stringify(src));
+      assert.equal(microtypo(once), once, JSON.stringify(src));
+    }
+  });
+
+  test('the rule alone does not consume the separator', () => {
+    const off = [
+      'quote',
+      'dash',
+      'symbol',
+      'punctuation',
+      'number',
+      'space',
+      'abbr',
+      'nobr',
+      'date',
+      'hanging',
+      'other',
+      'text'
+    ];
+    const only = {
+      rules: {
+        ...Object.fromEntries(off.map((g) => [g, false])),
+        'abbr.nbsp_money_magnitude': true
+      }
+    };
+
+    for (const sep of [' ', '\t', '\n', '\n\n']) {
+      assert.equal(
+        microtypo(`10 у. е.${sep}за`, only),
+        `10${NBSP}у.е.${sep}за`,
+        JSON.stringify(sep)
+      );
+    }
+  });
+});
+
 describe('abbr.nbsp_location', () => {
   test('binds г. to place with nbsp', () => {
     assert.ok(microtypo('дорога в г. Амбер', NOP).includes(`г.${NBSP}Амбер`));

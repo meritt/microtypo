@@ -43,3 +43,35 @@ export const BLOCK_TAG_NAMES = Object.freeze([
 
 // Void (self-closing, no closing tag) block-level tags.
 export const VOID_BLOCK_TAG_NAMES = Object.freeze(['hr']);
+
+// Every void element HTML has, inline or block.
+export const VOID_TAG_NAMES = Object.freeze([
+  'area',
+  'base',
+  'br',
+  'col',
+  'embed',
+  'hr',
+  'img',
+  'input',
+  'link',
+  'meta',
+  'param',
+  'source',
+  'track',
+  'wbr'
+]);
+
+// The open elements a start tag closes when the author left their end tags out, as far as the
+// block-level tags go.
+export const IMPLIED_END_TAGS = Object.freeze({
+  li: Object.freeze(['li']),
+  dt: Object.freeze(['dt', 'dd']),
+  dd: Object.freeze(['dt', 'dd']),
+  td: Object.freeze(['td', 'th']),
+  th: Object.freeze(['td', 'th']),
+  tr: Object.freeze(['td', 'th', 'tr']),
+  thead: Object.freeze(['td', 'th', 'tr', 'thead', 'tbody', 'tfoot']),
+  tbody: Object.freeze(['td', 'th', 'tr', 'thead', 'tbody', 'tfoot']),
+  tfoot: Object.freeze(['td', 'th', 'tr', 'thead', 'tbody', 'tfoot'])
+});

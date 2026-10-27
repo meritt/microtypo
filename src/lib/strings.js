@@ -20,17 +20,17 @@ export function cycle(text, fn, maxIter = 100, onLimit, checkBudget) {
   return current;
 }
 
-// Removes only entirely-blank edge lines; leading indentation on surviving lines is preserved.
-export function trimBlankLines(text) {
+// Removes only the edge lines `isBlank` accepts; leading indentation on surviving lines is preserved.
+export function trimBlankLines(text, isBlank) {
   const lines = text.split('\n');
   let start = 0;
   let end = lines.length - 1;
 
-  while (start < lines.length && lines[start].trim() === '') {
+  while (start < lines.length && isBlank(lines[start])) {
     start += 1;
   }
 
-  while (end >= start && lines[end].trim() === '') {
+  while (end >= start && isBlank(lines[end])) {
     end -= 1;
   }
 
@@ -67,6 +67,31 @@ export function edgeWhitespace(text) {
   }
 
   return { start, end };
+}
+
+// The `[start, end)` of the spaces and tabs that open the line of the first character with content,
+// empty at that character when it has none.
+export function leadingIndent(text) {
+  const { start: end } = edgeWhitespace(text);
+  let start = end;
+
+  while (start > 0 && (text[start - 1] === ' ' || text[start - 1] === '\t')) {
+    start -= 1;
+  }
+
+  const opensLine = start === 0 || text[start - 1] === '\n' || text[start - 1] === '\r';
+
+  return opensLine && end < text.length ? [start, end] : [end, end];
+}
+
+const LONE_CR_RE = /\r(?!\n)/g;
+
+// A CR of its own ends a line too, CommonMark §2.1 and YAML §5.4, while every line walk splits at
+// LF. A walk reads this copy, where each such CR is a LF: it is as long as the document, so every
+// offset it yields addresses the document's own bytes, and a protected span or a value keeps the CR
+// it was written with.
+export function lineView(text) {
+  return text.includes('\r') ? text.replace(LONE_CR_RE, '\n') : text;
 }
 
 // Whitespace inside a collection that is not line-structured — a YAML flow collection, a TOML inline

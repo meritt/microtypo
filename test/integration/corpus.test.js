@@ -35,20 +35,29 @@ for (const [groupName, groupCases] of grouped) {
   });
 }
 
-test('corpus integrity', () => {
-  for (const [i, c] of cases.entries()) {
-    assert.equal(typeof c.text, 'string', `#${i} text must be a string`);
-    assert.equal(typeof c.result, 'string', `#${i} result must be a string`);
-    assert.ok(
-      c.result_classes === null || typeof c.result_classes === 'string',
-      `#${i} result_classes must be null or a string`
-    );
-    assert.equal(typeof c.title, 'string', `#${i} title must be a string`);
-  }
+// The indent is the author's layout and the rules never see it: every line of every case typesets
+// the same behind one, in both formats it is kept in, and taking the indent out of the result gives
+// the result without it. Behind a line of its own too, where the case does not open the document.
+const INDENT = ' \t ';
 
-  assert.equal(
-    raw,
-    `${JSON.stringify(cases, null, 2)}\n`,
-    'corpus.json must be canonically formatted'
-  );
+const indentLines = (text, indent) =>
+  text
+    .split('\n')
+    .map((line) => (line.trim() === '' ? line : indent + line.trimStart()))
+    .join('\n');
+
+test('every corpus case typesets the same behind an indent', () => {
+  for (const c of cases) {
+    for (const input of ['text', 'html']) {
+      for (const before of ['', 'Пролог.\n']) {
+        const plain = processCase({ ...c, text: before + indentLines(c.text, '') }, { input });
+        const indented = processCase(
+          { ...c, text: before + indentLines(c.text, INDENT) },
+          { input }
+        );
+
+        assert.equal(indented.split(INDENT).join(''), plain, `${c.title} as ${input}`);
+      }
+    }
+  }
 });

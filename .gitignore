@@ -4,6 +4,7 @@
 .worktrees/
 node_modules/
 coverage/
+dist/
 *.log
 docs/
 plan/

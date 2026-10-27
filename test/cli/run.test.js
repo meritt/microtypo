@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import {
   chmod,
   lstat,
   mkdir,
   mkdtemp,
+  open,
   readdir,
   readFile,
   readlink,
+  rm,
   stat,
   symlink,
   unlink,
@@ -16,6 +19,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import test from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { HELP } from '../../src/cli/help.js';
 import { run } from '../../src/cli/run.js';
@@ -173,6 +177,49 @@ test('--write rewrites the file in place', async () => {
   const code = await run(['--write', 'in.txt'], { stdin: stdinFrom(''), stdout, stderr, cwd: dir });
   assert.equal(code, 0);
   assert.match(await readFile(join(dir, 'in.txt'), 'utf8'), /«Амбер»/);
+});
+
+test('a config file that holds an array exits 2 before any file is written', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'tg-shape-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await writeFile(join(dir, 'cfg.json'), '[]');
+  await writeFile(join(dir, 'in.txt'), '"Амбер"');
+
+  const stdout = collector();
+  const stderr = collector();
+  const code = await run(['--config', 'cfg.json', '--write', 'in.txt'], {
+    stdin: stdinFrom(''),
+    stdout,
+    stderr,
+    cwd: dir
+  });
+
+  assert.equal(code, 2);
+  assert.equal(stdout.text(), '');
+  assert.equal(
+    stderr.text(),
+    `error: config file must hold an object, got an array: ${join(dir, 'cfg.json')}\nrun \`microtypo --help\` for usage\n`
+  );
+  assert.equal(await readFile(join(dir, 'in.txt'), 'utf8'), '"Амбер"');
+});
+
+test('an object config file merges with CLI overrides', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'tg-shape-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await writeFile(join(dir, 'cfg.json'), '{"entities": true}');
+
+  const stdout = collector();
+  const stderr = collector();
+  const code = await run(['--config', 'cfg.json', '--no-entities'], {
+    stdin: stdinFrom('"Амбер"'),
+    stdout,
+    stderr,
+    cwd: dir
+  });
+
+  assert.equal(code, 0);
+  assert.equal(stderr.text(), '');
+  assert.equal(stdout.text(), '«Амбер»');
 });
 
 test('--write combined with --output-file exits 2', async () => {
@@ -666,6 +713,80 @@ test('stdin reading stops well before the source is fully drained', async () => 
   assert.ok(
     produced < 1000,
     `stream was fully drained (${produced} chunks) instead of stopping early`
+  );
+});
+
+// A FIFO reports size 0 whatever it delivers, so only a cap on the bytes actually read stops it.
+test(
+  'a FIFO over the cap is refused while its writer is still open',
+  { skip: process.platform === 'win32' },
+  async (t) => {
+    const dir = await mkdtemp(join(tmpdir(), 'tg-fifo-'));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const fifo = join(dir, 'in.fifo');
+    execFileSync('mkfifo', [fifo]);
+    // `r+` opens the FIFO without waiting for a reader and holds a writer on it, so no EOF arrives.
+    const writer = await open(fifo, 'r+');
+    await writer.write(Buffer.alloc(1024, 'x'));
+
+    const stderr = collector();
+    const pending = run(['--max-input', '10', 'in.fifo'], {
+      stdin: stdinFrom(''),
+      stdout: collector(),
+      stderr,
+      cwd: dir
+    });
+    const timer = new AbortController();
+    const settled = await Promise.race([
+      pending,
+      delay(2000, 'still reading', { signal: timer.signal }).catch(() => {})
+    ]);
+    timer.abort();
+    await writer.close();
+    await pending;
+
+    assert.equal(settled, 1);
+    assert.equal(
+      stderr.text(),
+      `error: ${fifo} exceeds the 30-byte pre-read cap for maxInputLength 10\n`
+    );
+  }
+);
+
+// 30 000 three-byte characters fill the default cap exactly and straddle a read-chunk boundary.
+test('a file of multi-byte characters at the cap is read whole', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'tg-utf8-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const text = '€'.repeat(30_000);
+  await writeFile(join(dir, 'in.txt'), text);
+
+  const stdout = collector();
+  const stderr = collector();
+  const code = await run(['in.txt'], { stdin: stdinFrom(''), stdout, stderr, cwd: dir });
+
+  assert.equal(code, 0);
+  assert.equal(stderr.text(), '');
+  assert.equal(stdout.text(), text);
+});
+
+test('a file one byte over the cap is refused', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'tg-utf8-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const path = join(dir, 'in.txt');
+  await writeFile(path, `${'€'.repeat(10)}x`);
+
+  const stderr = collector();
+  const code = await run(['--max-input', '10', 'in.txt'], {
+    stdin: stdinFrom(''),
+    stdout: collector(),
+    stderr,
+    cwd: dir
+  });
+
+  assert.equal(code, 1);
+  assert.equal(
+    stderr.text(),
+    `error: ${path}: file size 31 bytes exceeds the 30-byte pre-read cap for maxInputLength 10\n`
   );
 });
 

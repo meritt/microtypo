@@ -3,8 +3,6 @@ import { execFileSync } from 'node:child_process';
 import { isSafePattern } from 'redos-detector';
 
 import { EMAIL_REGEX, IPV6_REGEX, URL_REGEX, UUID_REGEX } from '../../src/lib/url-email-regex.js';
-import { ATTR_ALT_SOURCE } from '../../src/protect/blocks.js';
-import { TAG_RE } from '../../src/protect/tags.js';
 import { abbrGroup } from '../../src/rules/abbr.js';
 import { dashGroup } from '../../src/rules/dash.js';
 import { dateGroup } from '../../src/rules/date.js';
@@ -50,20 +48,13 @@ const GROUPS = [
   textGroup
 ];
 
-// The protect layer runs before any rule group, over raw and possibly hostile markup, so its
-// patterns belong under this gate too. `addTag()` builds its opener per call from a tag name
-// spliced around `ATTR_ALT_SOURCE`; `x` stands in for any validated name, which `TAG_NAME_RE`
-// already restricts to `[a-zA-Z][a-zA-Z0-9-]*`, so the name adds no ambiguity of its own and this
-// reproduces the alternation shape `addTag()` interpolates.
-const BLOCKS_OPEN_RE = new RegExp(`<x(?:\\s(?:${ATTR_ALT_SOURCE})*)?>`, 'gi');
-
+// The protect layer reads tags with a linear scanner rather than a pattern, so only the sequence
+// patterns run before any rule group here.
 const regexes = [
   ['url', URL_REGEX],
   ['email', EMAIL_REGEX],
   ['ipv6', IPV6_REGEX],
-  ['uuid', UUID_REGEX],
-  ['protect/tags.js TAG_RE', TAG_RE],
-  ['protect/blocks.js addTag opener', BLOCKS_OPEN_RE]
+  ['uuid', UUID_REGEX]
 ];
 
 // redos-detector flags these because it downgrades unanchored patterns and treats any
@@ -133,15 +124,6 @@ const ALLOWLIST = new Map([
       'ambiguous month-hyphen runs, near-miss gerunds, long non-matching cyrillic runs, dense ' +
       'hyphen chains) at up to 132k chars and a 30k-char mixed worst case: all linear, ~1ms ' +
       'at 30k chars'
-  ],
-  [
-    'protect/tags.js TAG_RE',
-    'redos-detector hits its own step budget analyzing the lookahead + three-way content ' +
-      'alternation and reports "unsafe" inconclusively (hitMaxSteps), not a proven exponential ' +
-      'blowup — the TAG_RE fix removed the one ambiguous branch (bare `["\']` fallback) that ' +
-      'caused real backtracking. Re-verified empirically post-fix at 30k chars across three ' +
-      'adversarial shapes (stray-quote run, alternating quotes, many quoted attributes): all ' +
-      'linear, <7ms worst case; see test/perf/redos-rules.perf.js'
   ]
 ]);
 
