@@ -1,7 +1,8 @@
 import { capacityError, MAX_ENTRIES } from '../errors/index.js';
 import { OPEN, CLOSE, placeholderRegex } from './placeholders.js';
 
-// Engine strips the reserved PUA band from input on entry, so vault placeholders cannot be forged.
+// The engine escapes the reserved PUA band out of every fragment before it reaches a vault, so vault
+// placeholders cannot be forged.
 
 export class Vault {
   #entries = [];
@@ -11,8 +12,9 @@ export class Vault {
 
   // Per-vault prefix keeps placeholder kinds distinguishable when they coexist in one text, so every
   // one of them has to be taken exactly once. In use: `T` tags, `A` anchors, `L` block-level tags,
-  // `I` inline blocks, `B` safe blocks. Reusing one that is already taken makes two vaults answer to
-  // the same placeholder, and a restore then pulls the wrong content into the document.
+  // `I` and `H` inline blocks, `B` and `N` safe blocks, `W` line indents. Reusing one that is
+  // already taken makes two vaults answer to the same placeholder, and a restore then pulls the
+  // wrong content into the document.
   constructor(prefix) {
     this.#prefix = prefix;
     this.#restoreRe = placeholderRegex(prefix);

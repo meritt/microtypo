@@ -1,3 +1,8 @@
+// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node from
+// `.nvmrc`, one file at a time, and no other test run, coverage or build beside it. Ratio
+// checks hold on any machine; absolute limits were set on an Intel i9-10910 under macOS and are
+// smoke limits elsewhere.
+
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
@@ -46,4 +51,21 @@ test('closed raw-text siblings still scale linearly', () => {
   const ms = bestOfThree(closed);
 
   assert.ok(ms < 150, `repeated raw closer search: ${ms.toFixed(1)}ms at k=${K} (expected < 150)`);
+});
+
+// An end tag naming an element open below a run it may not pass over closes nothing, so each one
+// would read the whole run again: HTML elements whose end tag may be left out under a `<span>`, and
+// SVG under foreignObject over and over below an HTML `<div>`. Bounded, each shape measured about
+// 20 ms here; unbounded, 4.4 s.
+const optionalRun = (k) =>
+  `<svg><foreignObject><div><span>${'<option><rt>'.repeat(k)}${'</div>'.repeat(k)}`;
+const foreignRun = (k) =>
+  `<svg><foreignObject><div>${'<svg><foreignObject>'.repeat(k)}${'</div>'.repeat(k)}`;
+
+test('end tags that close nothing past a run of open elements stay linear', () => {
+  for (const build of [optionalRun, foreignRun]) {
+    const ms = bestOfThree(build);
+
+    assert.ok(ms < 100, `end tag search: ${ms.toFixed(1)}ms at k=${K} (expected < 100)`);
+  }
 });

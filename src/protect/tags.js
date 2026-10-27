@@ -2,6 +2,13 @@ import { MicroTypoConfigError } from '../errors/index.js';
 import { BLOCK_TAG_NAMES, VOID_BLOCK_TAG_NAMES } from '../lib/block-tags.js';
 import { NAME_START, TAG_NAME_RE, isTagNameStart } from '../lib/tag-name.js';
 import { OPEN, CLOSE, TAG_VAULT_KINDS } from './placeholders.js';
+import {
+  DOCUMENT_READING,
+  FRAGMENT_READING,
+  selfClosing,
+  tagEnd,
+  tagEndsFrom
+} from './tag-spans.js';
 import { Vault } from './vault.js';
 import { showsNothing } from './visible.js';
 
@@ -20,14 +27,9 @@ export function assertTagName(kind, name) {
 
 // Anchor tags use a separate vault so the quote group can move quotes outside <a>.
 
-// No bare ["'] fallback: each position matches exactly one branch, so a run of stray quotes can't
-// explode into ~2^k parses (ReDoS). A '>' inside a quoted attribute stays in the tag; an
-// unbalanced-quote tag fails to match and stays plain text.
-export const TAG_RE = new RegExp(
-  String.raw`(<\/?)(?=[${NAME_START}!?\u{E000}])((?:[^<>"']|"[^"]*"|'[^']*')*)(>)`,
-  'gu'
-);
 const INNER_PLACEHOLDER_RE = new RegExp(`${OPEN}([${TAG_VAULT_KINDS}])(\\d+)${CLOSE}`);
+const VAULTED_TAG_RE = new RegExp(`<(\\/?)${OPEN}([${TAG_VAULT_KINDS}])(\\d+)${CLOSE}>`, 'g');
+const PLACEHOLDER_START = 0xe000;
 
 // A rule that has to know where one block ends and the next begins cannot read the vault, so the
 // distinction this layer already makes goes into the placeholder's prefix — the same reason anchors
@@ -37,6 +39,8 @@ const BLOCK_BOUNDARY_NAMES = new Set([...BLOCK_TAG_NAMES, ...VOID_BLOCK_TAG_NAME
 // Vaulted content never carries a leading `/`, so this reads the name of an opening and a closing
 // tag alike.
 const LEADING_NAME_RE = new RegExp(String.raw`^([${NAME_START}][\p{L}\p{N}._:-]*)`, 'u');
+// The vaults `findByTagName` reads, in the order it reports them.
+const NAMED_KINDS = ['T', 'A', 'L'];
 
 function escapeAttr(v) {
   return String(v)
@@ -59,6 +63,9 @@ function toNameMatcher(nameOrRegex) {
 }
 
 export class SafeTags {
+  // `DOCUMENT_READING` for an HTML document, `FRAGMENT_READING` for anything else; `tagEnd` says what
+  // the two change.
+  #reading;
   #tagVault = new Vault('T');
   #anchorVault = new Vault('A');
   #blockVault = new Vault('L');
@@ -78,9 +85,19 @@ export class SafeTags {
     ['H', this.#hiddenIblockVault]
   ]);
 
+  #heads = new Map(NAMED_KINDS.map((prefix) => [prefix, []]));
+
+  constructor({ document = true } = {}) {
+    this.#reading = document ? DOCUMENT_READING : FRAGMENT_READING;
+  }
+
   reset() {
     for (const vault of this.#vaults.values()) {
       vault.reset();
+    }
+
+    for (const heads of this.#heads.values()) {
+      heads.length = 0;
     }
   }
 
@@ -96,40 +113,59 @@ export class SafeTags {
     return name !== undefined && BLOCK_BOUNDARY_NAMES.has(name) ? this.#blockVault : this.#tagVault;
   }
 
+  // Every tag is vaulted between its brackets, its bounds read as `tagEnd` reads them. A tag starts
+  // a name, or `!`/`?` for a comment or a declaration, or a placeholder an earlier layer left for a
+  // name, which keeps `CPU > 95% RAM < 100MB` out. A tag the text never ends is left as text, and the
+  // next `<` may still start one: only an HTML document runs to its end inside it, and its tail pass
+  // has taken the rest before this layer.
   protect(text) {
-    return text.replace(TAG_RE, (m, open, content, close) => {
-      // `<-X>` — a single dash whose next character is not `-` — is content like `a < -b`, not a tag.
-      if (open.length === 1 && content.charAt(0) === '-' && content.charAt(1) !== '-') {
-        return m;
-      }
-      // Real tag content starts a name, or `!`/`?` for a comment or PI; this is what keeps
-      // `CPU > 95% RAM < 100MB` out.
-      const first = content.codePointAt(0);
+    const parts = [];
+    let cursor = 0;
+    let ends = null;
 
-      if (!isTagNameStart(first) && first !== 0xe000) {
-        return m;
-      }
-      // `<p>`, `</p>` and `<br>` stay untouched: later groups anchor on `>` as a left boundary.
-      if (INNER_PLACEHOLDER_RE.test(content)) {
-        return m;
+    for (let lt = text.indexOf('<'); lt !== -1; lt = text.indexOf('<', lt + 1)) {
+      const at = text[lt + 1] === '/' ? lt + 2 : lt + 1;
+      const first = text.codePointAt(at);
+
+      if (!isTagNameStart(first) && first !== PLACEHOLDER_START) {
+        continue;
       }
 
-      return `${open}${this.#vaultFor(content).store(content)}${close}`;
-    });
+      const gt = ends === null ? tagEnd(text, at, this.#reading) : ends[at];
+
+      if (gt < 0) {
+        if (gt === -1) {
+          ends ??= tagEndsFrom(text, at + 1, this.#reading);
+        }
+
+        continue;
+      }
+
+      const content = text.slice(at, gt);
+
+      // A tag already vaulted stays as it is.
+      if (!INNER_PLACEHOLDER_RE.test(content)) {
+        parts.push(text.slice(cursor, at), this.#vaultFor(content).store(content));
+        cursor = gt;
+      }
+
+      lt = gt;
+    }
+
+    if (parts.length === 0) {
+      return text;
+    }
+
+    parts.push(text.slice(cursor));
+
+    return parts.join('');
   }
 
   restore(text) {
-    return text.replace(TAG_RE, (m, open, content, close) => {
-      const match = content.match(INNER_PLACEHOLDER_RE);
-
-      if (!match) {
-        return m;
-      }
-
-      const [, prefix, id] = match;
+    return text.replace(VAULTED_TAG_RE, (m, slash, prefix, id) => {
       const value = this.#vaults.get(prefix)?.retrieve(Number(id));
 
-      return value == null ? m : `${open}${value}${close}`;
+      return value == null ? m : `<${slash}${value}>`;
     });
   }
 
@@ -197,26 +233,44 @@ export class SafeTags {
   }
 
   // Only ids matched by the tag's parsed name, never the raw vault value, so a custom rule cannot
-  // enumerate other tags' attributes or hrefs.
+  // enumerate other tags' attributes or hrefs. Past the name a predicate learns one bit: whether the
+  // tag carries the self-closing flag, which empties an `<svg/>` and leaves a `<span/>` open.
   findByTagName(nameOrRegex) {
     const matches = toNameMatcher(nameOrRegex);
     const out = [];
 
-    const collect = (vault, prefix) => {
-      for (let id = 0; id < vault.size; id++) {
-        const raw = vault.retrieve(id);
-        const name = raw == null ? null : LEADING_NAME_RE.exec(raw)?.[1];
+    for (const prefix of NAMED_KINDS) {
+      const heads = this.#headsOf(prefix);
 
-        if (name != null && matches(name)) {
+      for (let id = 0; id < heads.length; id++) {
+        const head = heads[id];
+
+        if (head !== null && matches(head.name, head.selfClosing)) {
           out.push({ prefix, id });
         }
       }
-    };
-
-    collect(this.#tagVault, 'T');
-    collect(this.#anchorVault, 'A');
-    collect(this.#blockVault, 'L');
+    }
 
     return out;
+  }
+
+  // A vault only grows within a `process()`, so each entry's head is parsed once however many rules
+  // ask.
+  #headsOf(prefix) {
+    const vault = this.#vaults.get(prefix);
+    const heads = this.#heads.get(prefix);
+
+    for (let id = heads.length; id < vault.size; id++) {
+      const raw = vault.retrieve(id);
+      const name = LEADING_NAME_RE.exec(raw)?.[1];
+
+      heads.push(
+        name === undefined
+          ? null
+          : { name, selfClosing: raw.endsWith('/') && selfClosing(`<${raw}>`, 0, raw.length + 1) }
+      );
+    }
+
+    return heads;
   }
 }

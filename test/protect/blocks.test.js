@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { MicroTypoConfigError } from '../../src/errors/index.js';
+import { MicroTypoConfigError, MicroTypoInputError } from '../../src/errors/index.js';
 import { microtypo, MicroTypo } from '../../src/index.js';
 import { SafeBlocks } from '../../src/protect/blocks.js';
 
@@ -229,10 +229,24 @@ describe('a raw-text element ends at the first closing tag, whatever its own tex
     assert.equal(microtypo(source, { input: 'xml', ...NO_BREAKS }), source);
   });
 
-  test('in XML a form feed is not white space, so it does not close the tag', () => {
-    const source = '<r><code>Корвин - принц</code\f></r>';
+  // XML has no tail to run to: an end tag the protected elements cannot pair is malformed, and the
+  // document is refused rather than read with that element open.
+  test('in XML a form feed is not white space, so the closer is malformed', () => {
+    for (const source of [
+      '<r><code>Корвин</code\f> Эрик - принц</r>',
+      '<r><code>Корвин</code x> Эрик - принц</r>'
+    ]) {
+      assert.throws(() => microtypo(source, { input: 'xml', ...NO_BREAKS }), MicroTypoInputError);
+    }
+  });
 
-    assert.ok(microtypo(source, { input: 'xml', ...NO_BREAKS }).includes('Корвин\u{00A0}— принц'));
+  test('in XML a closer with XML white space before its > still closes the tag', () => {
+    const source = '<r><code>Корвин - принц</code \t\r\n> Эрик - принц</r>';
+
+    assert.equal(
+      microtypo(source, { input: 'xml', ...NO_BREAKS }),
+      '<r><code>Корвин - принц</code \t\r\n> Эрик\u{00A0}— принц</r>'
+    );
   });
 
   // The tag scanner reads the whole document to decide which `<` begins a real tag, so an unpaired
@@ -268,9 +282,9 @@ describe('a raw-text element ends at the first closing tag, whatever its own tex
 
   test('in XML a custom safe tag does not accept a form feed either', () => {
     const typo = new MicroTypo({ input: 'xml', ...NO_BREAKS }).addSafeTag('amber-safe');
-    const source = '<r><amber-safe>Корвин - принц</amber-safe\f></r>';
+    const source = '<r><amber-safe>Корвин</amber-safe\f> Эрик - принц</r>';
 
-    assert.ok(typo.process(source).includes('Корвин\u{00A0}— принц'));
+    assert.throws(() => typo.process(source), MicroTypoInputError);
   });
 });
 

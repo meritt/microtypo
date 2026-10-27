@@ -345,6 +345,15 @@ export function validateXml(text, checkBudget) {
 
     const selfClosing = masked[j - 1] === '/';
 
+    // An end tag is its name and XML white space, XML 1.0 [42]. The protected elements pair a closer
+    // of that form and no other, and one this pass let through would leave an element open that the
+    // document closes.
+    if (isClose && skipXmlSpace(masked, tag.end, n) !== j) {
+      throw new MicroTypoInputError(`Malformed XML closing tag </${name}> at offset ${i}`, {
+        details: { offset: i, name }
+      });
+    }
+
     if (isClose) {
       const top = stack.pop();
 

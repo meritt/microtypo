@@ -21,7 +21,7 @@ import { BLOCK_TAG_NAMES, VOID_BLOCK_TAG_NAMES } from './lib/block-tags.js';
 import { changedRanges } from './lib/diff.js';
 import { G, unicodeToEntities, unicodeToXmlEntities } from './lib/glyphs.js';
 import { edgeWhitespace, trimBlankLines } from './lib/strings.js';
-import { SafeBlocks } from './protect/blocks.js';
+import { SafeBlocks, scanHtmlComments } from './protect/blocks.js';
 import { TokenBudget } from './protect/forgery.js';
 import { dropParagraphs, restoreParagraphs, stripReservedPua } from './protect/placeholders.js';
 import { escapeReserved, hasReserved } from './protect/reserved.js';
@@ -122,6 +122,7 @@ export class MicroTypo {
     }
 
     this.#initVaults();
+    this.#addSafeElements();
 
     // A string-aware scan, so a delimiter inside a quoted expression does not close the span early.
     const readTemplates =
@@ -214,7 +215,8 @@ export class MicroTypo {
     // text and html need only comment protection; TAG_RE would otherwise split `<!-- … -->` at the
     // first bare `>`.
     if (this.#input.format === 'text' || this.#input.format === 'html') {
-      this.addSafeBlock({ id: 'html-comment', open: '<!--', close: '-->' });
+      this.#safeBlocks.addScanner('html-comment', scanHtmlComments);
+      this.#safeBlocks.setTail({ opaque: NOTG_RE });
     }
 
     if (!BLOCK_RENDER_FORMATS.has(this.#input.format)) {
@@ -228,8 +230,12 @@ export class MicroTypo {
   #initVaults() {
     this.#safeBlocks = new SafeBlocks();
     this.#safeSequences = new SafeSequences();
-    this.#safeTags = new SafeTags();
+    this.#safeTags = new SafeTags({
+      document: this.#input.format === 'text' || this.#input.format === 'html'
+    });
+  }
 
+  #addSafeElements() {
     const xml = this.#input.format === 'xml';
 
     for (const tag of DEFAULT_SAFE_TAGS) {
@@ -239,7 +245,8 @@ export class MicroTypo {
         // `<script>` inside a `<script>` is a real element whose first close is not the outer one.
         nests: xml || !RAW_TEXT_TAGS.has(tag),
         // HTML allows a form feed among the space before a closing `>`; XML's S production does not.
-        formFeed: !xml
+        formFeed: !xml,
+        slashOpens: !xml
       });
     }
 

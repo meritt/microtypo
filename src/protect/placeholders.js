@@ -39,7 +39,12 @@ export const TAG_PLACEHOLDER_SOURCE = `<(/?)(${PLACEHOLDER_TOKEN})>`;
 // `<code>` span go on with the sentence in front of it, so they stop the search.
 export const BLOCK_KIND = 'L';
 export const TRANSPARENT_TAG_KINDS = 'TA';
-export const TRANSPARENT_BARE_KINDS = 'NH';
+export const TRANSPARENT_BARE_KINDS = 'NHWF';
+
+// A region protected to the end of an HTML document — the rest behind an element or comment never
+// closed, or a tag the document never ends — showing the reader something or nothing. The rules
+// that lay out paragraphs and lines stop in front of it.
+export const TAIL_KINDS = 'EF';
 
 // The kinds `SafeTags` writes inside a literal `<…>` and restores from there; a safe block never is
 // one, because that layer vaults a wrapper's content and leaves the wrapper itself standing.

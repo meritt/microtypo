@@ -34,12 +34,26 @@ describe('">" inside a quoted attribute value', () => {
     assert.equal(microtypo('<b>Амбер</b>'), '<b>Амбер</b>');
   });
 
-  // An unbalanced attribute quote fails the tag match at the `<`, so the run falls through to the
-  // rules and `--` becomes an em dash.
-  test('unbalanced attribute quote falls through to text', () => {
+  // An unclosed attribute quote leaves a tag the text never ends. A browser reads an HTML document
+  // to its end inside it, so the rest is kept; Markdown and a value of a data format read it as text,
+  // and `--` there becomes an em dash.
+  test('an unclosed attribute quote keeps the rest of an HTML document', () => {
+    for (const input of ['text', 'html']) {
+      assert.equal(
+        microtypo('<img alt="Корвин -- Эрик>Амбер', { input }),
+        '<img alt="Корвин -- Эрик>Амбер'
+      );
+    }
+  });
+
+  test('an unclosed attribute quote falls through to text elsewhere', () => {
     assert.equal(
-      microtypo('<img alt="Корвин -- Эрик>Амбер'),
+      microtypo('<img alt="Корвин -- Эрик>Амбер', { input: 'markdown' }),
       '<img alt="Корвин\u{00A0}— Эрик>Амбер'
+    );
+    assert.equal(
+      microtypo(JSON.stringify({ a: '<img alt="Корвин -- Эрик>Амбер' }), { input: 'json' }),
+      JSON.stringify({ a: '<img alt="Корвин\u{00A0}— Эрик>Амбер' })
     );
   });
 });
