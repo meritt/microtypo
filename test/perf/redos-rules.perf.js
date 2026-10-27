@@ -1,3 +1,8 @@
+// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node from
+// `.nvmrc`, one file at a time, and no other test run, coverage or build beside it. Ratio
+// checks hold on any machine; absolute limits were set on an Intel i9-10910 under macOS and are
+// smoke limits elsewhere.
+
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
@@ -29,6 +34,30 @@ for (const ch of BOMBS) {
     const ms = performance.now() - start;
     assert.ok(ms < 200, `quadratic blowup on ${JSON.stringify(ch)}: ${ms.toFixed(0)}ms`);
   });
+}
+
+// The indent at the start of a line is kept, so a long one reaches the scanner, the edge trim and,
+// under `html: true`, the paragraph and line-break layout whole instead of being collapsed first.
+const INDENT_SHAPES = {
+  'first line': (run) => `${run}слово`,
+  'inner line': (run) => `слово\n${run}слово`,
+  'every line': (run) => `${run.slice(0, 3)}слово\n`.repeat(Math.floor(run.length / 9)),
+  'blank line': (run) => `слово\n${run}\nслово`
+};
+
+for (const format of ['text', 'html']) {
+  for (const unit of [' ', '\t', ' \t']) {
+    for (const [where, build] of Object.entries(INDENT_SHAPES)) {
+      test(`${format}: ${JSON.stringify(unit)} indent, ${where}, processes < 200ms`, () => {
+        const typo = new MicroTypo({ input: format, html: format === 'html' });
+        const input = build(unit.repeat(Math.floor((N - 20) / unit.length)));
+        const start = performance.now();
+        typo.process(input);
+        const ms = performance.now() - start;
+        assert.ok(ms < 200, `${where} indent of ${JSON.stringify(unit)}: ${ms.toFixed(0)}ms`);
+      });
+    }
+  }
 }
 
 test('number/date groups keep no-digit prose within budget', () => {
@@ -81,10 +110,22 @@ for (const unit of ['1,', '1.']) {
   });
 }
 
-// `TAG_RE` goes exponential on a stray-quote run before an unterminated tag opener, and it hangs
-// inside an atomic `String.replace` before any budget checkpoint, so a small n keeps a reintroduced
-// regression at low seconds rather than hanging the suite.
-test('TAG_RE linear on stray-quote run before an unterminated tag', () => {
+// Outside an HTML document a tag the text never ends leaves the next `<` free to open one, and every
+// one of these runs to the end of the text: read from each `<` in turn, that is quadratic.
+test('tags the text never ends are read in linear time', () => {
+  const typo = new MicroTypo({ input: 'markdown', maxInputLength: 5_000_000, maxProcessingMs: 0 });
+  const t = (n) => {
+    typo.process(`<a x='${"<a x='".repeat(n)} Корвин - принц`);
+  };
+  t(500);
+  const r = best(t, 16000) / best(t, 8000);
+  assert.ok(r < 3, `quadratic unterminated-tag reading: ratio ${r.toFixed(1)}`);
+});
+
+// A tag reader with a backtracking pattern goes exponential on a stray-quote run before an
+// unterminated tag opener, and it hangs before any budget checkpoint, so a small n keeps a
+// reintroduced regression at low seconds rather than hanging the suite.
+test('tag reading linear on stray-quote run before an unterminated tag', () => {
   const typo = new MicroTypo({ maxProcessingMs: 5_000 });
   const t = (n) => {
     const s = performance.now();

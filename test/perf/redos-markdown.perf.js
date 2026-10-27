@@ -1,8 +1,14 @@
+// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node from
+// `.nvmrc`, one file at a time, and no other test run, coverage or build beside it. Ratio
+// checks hold on any machine; absolute limits were set on an Intel i9-10910 under macOS and are
+// smoke limits elsewhere.
+
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
   codeSpanReader,
+  commentReader,
   opaqueInline,
   scanCodeSpans,
   scanFences,
@@ -12,6 +18,7 @@ import {
   scanReferenceDefinitions
 } from '../../src/input/markdown.js';
 import { templateReader } from '../../src/input/template.js';
+import { SafeBlocks } from '../../src/protect/blocks.js';
 
 // Best of three at each size, and a fourfold step: one timed pass at a few milliseconds picks up GC
 // and scheduling noise large enough to swamp the ratio. Linear growth lands near 4x, quadratic near
@@ -212,4 +219,31 @@ test('many code spans in front of one expression stay ~linear', () => {
   const settle = opaqueInline(codeSpanReader, templateReader('mustache'));
 
   assertLinear('opaqueInline', settle, (n) => `${'`К` '.repeat(n / 4 - 2)}{{Р}}`);
+});
+
+// Raw HTML is settled against code spans by the same walk: every element is paired in one pass, and
+// a comment that never closes is looked for once, so code spans holding tags, elements holding
+// backticks and openers left open each cost one step.
+test('code spans against elements and comments settle in ~linear time', () => {
+  const blocks = new SafeBlocks();
+
+  blocks.addTag('code');
+  blocks.addTag('script', { nests: false });
+
+  const settle = opaqueInline(codeSpanReader, null, [
+    (text, checkBudget) => blocks.elementReader(text, checkBudget),
+    commentReader
+  ]);
+
+  for (const unit of [
+    '`<code>` ',
+    '<code>`</code> ',
+    '<code>` ',
+    '<script>` ',
+    '`</script>` <script>` ',
+    '<!-- ` ',
+    '<!-- ` --> ` '
+  ]) {
+    assertLinear(`opaqueInline ${unit}`, settle, (n) => unit.repeat(n / unit.length));
+  }
 });

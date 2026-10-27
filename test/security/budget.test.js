@@ -195,20 +195,20 @@ const tight = (format) => ({
   maxProcessingMs: 0.0001
 });
 
+// `where` pins the origin: a value pipeline never ran, so only the scan could have reported.
+const throwsFrom = (format, document, where) => {
+  assert.throws(
+    () => new MicroTypo(tight(format)).process(document),
+    (error) => {
+      assert.ok(error instanceof MicroTypoBudgetError, `expected a budget error, got ${error}`);
+      assert.equal(error.details.where, where);
+
+      return true;
+    }
+  );
+};
+
 describe('a structured scan is interruptible on a document with no typeset values', () => {
-  // `where` pins the origin: a value pipeline never ran, so only the scan could have reported.
-  const throwsFrom = (format, document, where) => {
-    assert.throws(
-      () => new MicroTypo(tight(format)).process(document),
-      (error) => {
-        assert.ok(error instanceof MicroTypoBudgetError, `expected a budget error, got ${error}`);
-        assert.equal(error.details.where, where);
-
-        return true;
-      }
-    );
-  };
-
   // `JSON.parse` runs before the scan and cannot be interrupted, so the budget is read the moment it
   // returns.
   test('JSON of numbers stops right after the native parse', () => {

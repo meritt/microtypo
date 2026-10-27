@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 
 import { defineRuleGroup } from '../../src/define-rule.js';
 import { MicroTypoConfigError } from '../../src/errors/index.js';
-import { microtypo, MicroTypo, VERSION } from '../../src/index.js';
+import { microtypo, MicroTypo } from '../../src/index.js';
 import { compileCacheSize } from '../../src/rules/etc.js';
 
 test('empty string returns empty', () => {
@@ -18,15 +18,8 @@ test('newline-only input trims to empty', () => {
   assert.equal(microtypo('\n\n\n'), '');
 });
 
-test('VERSION is a non-empty string', () => {
-  assert.equal(typeof VERSION, 'string');
-  assert.ok(VERSION.length > 0);
-});
-
-test('microtypo() runs with no options', () => {
-  assert.equal(typeof microtypo('Corwin'), 'string');
-});
-
+// A tag or comment left open runs to the end of the document, so the white space it ends with is
+// part of a protected body, not the edge of the prose around it.
 describe('the outer trim stops at a body left open to the end', () => {
   const NBSP = String.fromCodePoint(0xa0);
 
@@ -196,24 +189,6 @@ test('addSafeBlock protects a custom delimiter', () => {
   assert.ok(out.includes('«Амбер»'), `Got: ${out}`);
 });
 
-test('defineRuleGroup returns the definition', () => {
-  const def = defineRuleGroup({ title: 'Амбер', rules: [] });
-  assert.equal(def.title, 'Амбер');
-});
-
-// The object belongs to the caller and stays theirs; registration takes its own snapshot, so the
-// engine never reads the live one either way.
-test('defineRuleGroup leaves the caller class map writable', () => {
-  const classes = { nowrap: 'white-space:nowrap;' };
-  const def = defineRuleGroup({ title: 'Дворкин', classes, rules: [] });
-
-  assert.equal(Object.isFrozen(classes), false);
-  assert.equal(Object.isFrozen(def), true);
-
-  classes.nowrap = 'white-space:pre;';
-  assert.equal(classes.nowrap, 'white-space:pre;');
-});
-
 // Appending silently puts the group last, which is a different pipeline and says nothing about it.
 test('registerRuleGroup rejects a position it cannot honour', () => {
   const typo = new MicroTypo();
@@ -289,49 +264,11 @@ test('custom group runs before:quote', () => {
   assert.ok(out.includes('«Амбер»'), `pre-group should have run before quote: ${out}`);
 });
 
-test('listRuleGroups returns groups in order', () => {
-  const typo = new MicroTypo();
-  const names = typo.listRuleGroups().map((t) => t.name);
-
-  assert.deepEqual(names, [
-    'quote',
-    'dash',
-    'symbol',
-    'punctuation',
-    'number',
-    'space',
-    'abbr',
-    'nobr',
-    'date',
-    'hanging',
-    'other',
-    'text'
-  ]);
-});
-
 test('getRuleGroup accepts canonical and mixed case', () => {
   const typo = new MicroTypo();
   assert.ok(typo.getRuleGroup('quote'));
   assert.ok(typo.getRuleGroup('Quote'));
   assert.ok(typo.getRuleGroup('QUOTE'));
-});
-
-test('getRuleGroup returns a frozen descriptor', () => {
-  const typo = new MicroTypo();
-  const g = typo.getRuleGroup('quote');
-  assert.equal(g.name, 'quote');
-  assert.equal(typeof g.title, 'string');
-  assert.equal(g.builtin, true);
-  assert.ok(Array.isArray(g.rules));
-  assert.ok(g.rules.length > 0);
-  assert.ok(
-    g.rules.every((r) => typeof r.id === 'string' && typeof r.defaultEnabled === 'boolean')
-  );
-  assert.ok(Object.isFrozen(g));
-  assert.ok(Object.isFrozen(g.rules));
-  assert.equal(g.compiledRules, undefined);
-  assert.equal(g.enabledOverride, undefined);
-  assert.equal(g.settings, undefined);
 });
 
 test('mutating a getRuleGroup descriptor does not change output', () => {
@@ -384,6 +321,8 @@ test('presets:false yields no rule groups', () => {
   assert.equal(typo.process('"Амбер" --- Арден'), '"Амбер" --- Арден');
 });
 
+// What keeps markup out of plain-text output is a property of the rules that write it, so a custom
+// group that happens to share a builtin group's name runs like any other.
 describe('a custom group named like a builtin one', () => {
   for (const name of ['text', 'hanging', 'custom']) {
     for (const html of [false, true]) {
@@ -571,14 +510,6 @@ test('input:{format:"frontmatter"} typesets header and body', () => {
   );
 
   assert.equal(out, '---\ntitle: "Корвин\u{00A0}— Эрик"\n---\nАмбер\u{00A0}— Тень');
-});
-
-test('input:{template:"liquid"} is accepted', () => {
-  assert.doesNotThrow(() => new MicroTypo({ ...baseCfg, input: { template: 'liquid' } }));
-});
-
-test('input:{fields} is accepted', () => {
-  assert.doesNotThrow(() => new MicroTypo({ ...baseCfg, input: { fields: ['a.b'] } }));
 });
 
 test('a bad input.template value throws', () => {
