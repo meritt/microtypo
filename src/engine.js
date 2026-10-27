@@ -5,13 +5,15 @@ import { splitFrontmatter } from './input/frontmatter.js';
 import { compileSpanSelectors, scanJson, selectValueSpans } from './input/json.js';
 import {
   codeSpanReader,
+  commentReader,
   opaqueInline,
-  scanCodeSpans,
   scanFences,
   scanIndentedCode,
   scanLinePrefix,
   scanLinkDestinations,
-  scanReferenceDefinitions
+  scanMarkdownComments,
+  scanReferenceDefinitions,
+  scanUnclosedHtmlBlock
 } from './input/markdown.js';
 import { scannerFor, templateReader } from './input/template.js';
 import { scanToml } from './input/toml.js';
@@ -122,36 +124,55 @@ export class MicroTypo {
     }
 
     this.#initVaults();
-    this.#addSafeElements();
 
     // A string-aware scan, so a delimiter inside a quoted expression does not close the span early.
     const readTemplates =
       this.#input.template === 'off' ? null : templateReader(this.#input.template);
     const scanTemplate = scannerFor(readTemplates);
-    const addTemplate = () => {
-      if (scanTemplate) {
-        this.#safeBlocks.addScanner(`tmpl-${this.#input.template}`, scanTemplate);
-      }
-    };
+
+    const markdown = BLOCK_RENDER_FORMATS.has(this.#input.format);
 
     // Registration order is load-bearing: an earlier block's placeholder hides its content from every
     // later block's regex.
-    if (BLOCK_RENDER_FORMATS.has(this.#input.format)) {
-      // Line-oriented scanner: a same-length fence run mid-line can't close the block early.
-      this.#safeBlocks.addScanner('md-fence', scanFences);
+    if (!markdown) {
+      this.#addSafeElements();
+    }
+
+    if (markdown) {
+      // Every block scanner asks one question of where an HTML block opens: a template expression
+      // stays opaque to it.
+      const templatesIn = (text, checkBudget) => () => scanTemplate?.(text, checkBudget) ?? [];
+
+      // Line-oriented scanner: a same-length fence run mid-line can't close the block early. The
+      // lines of an HTML block open no fence.
+      this.#safeBlocks.addScanner('md-fence', (text, checkBudget) =>
+        scanFences(text, checkBudget, templatesIn(text, checkBudget))
+      );
 
       // Block-level constructs first: their interiors must be opaque to every inline scanner below.
       // A backtick inside a reference definition is part of that block and must not pair with one in
       // the prose around it, which is why definitions are taken before code spans — and why the
       // reference scanner resolves code spans itself before deciding which labels are uses.
-      this.#safeBlocks.addScanner('md-indented-code', scanIndentedCode);
+      this.#safeBlocks.addScanner('md-indented-code', (text, checkBudget) =>
+        scanIndentedCode(text, checkBudget, templatesIn(text, checkBudget))
+      );
+
+      // An HTML block is block structure too: read after code blocks, so a tag written in one opens
+      // nothing, and before every inline construct, whose backticks inside the block are its own
+      // bytes and may hold the end tag that closes it. The code-block scanners skip the lines it
+      // owns, so a fence or indent inside it hides no end tag.
+      this.#safeBlocks.addScanner('md-html-block', (text, checkBudget) =>
+        scanUnclosedHtmlBlock(text, checkBudget, templatesIn(text, checkBudget))
+      );
 
       // One answer about the opaque inline constructs, shared by the reader that needs it early and
       // the pass that applies it: the reference scanner decides which labels are uses by where the
-      // code spans fall, and templates move where they fall.
-      const scanInline = readTemplates
-        ? opaqueInline(codeSpanReader, readTemplates)
-        : scanCodeSpans;
+      // code spans fall, and templates move where they fall. An element or comment that opened first
+      // owns the backticks inside it.
+      const scanInline = opaqueInline(codeSpanReader, readTemplates, [
+        (text, checkBudget) => this.#safeBlocks.elementReader(text, checkBudget),
+        commentReader
+      ]);
 
       this.#safeBlocks.addScanner('md-reference-definition', (text, checkBudget, resolve) =>
         scanReferenceDefinitions(text, checkBudget, resolve, scanInline)
@@ -164,6 +185,10 @@ export class MicroTypo {
       // expression could span a fence boundary and take the fence apart.
       this.#safeBlocks.addScanner('md-inline-opaque', scanInline);
 
+      // A tag written in code is text, so elements are paired once every kind of code is out of
+      // sight.
+      this.#addSafeElements();
+
       // Balanced scanner: a literal ) inside the destination doesn't end the span early.
       this.#safeBlocks.addScanner('md-link-destination', scanLinkDestinations);
 
@@ -171,12 +196,12 @@ export class MicroTypo {
       // rather than becoming an em dash and the spaces that set a content column survive.
       this.#safeBlocks.addScanner('md-line-prefix', scanLinePrefix);
 
-      // Two or more trailing spaces before a `\n`; the zero-width open and close vault the spaces
-      // rather than the text in front of them.
+      // Two or more trailing spaces before a line ending of any of the three kinds; the zero-width
+      // open and close vault the spaces rather than the text in front of them.
       this.addSafeBlock({
         id: 'md-hard-break',
-        open: '(?=[ ]{2,}\\n)',
-        close: '(?<=[ ]{2,})(?=\\n)',
+        open: '(?=[ ]{2,}[\\r\\n])',
+        close: '(?<=[ ]{2,})(?=[\\r\\n])',
         unsafeRegex: true
       });
 
@@ -212,16 +237,30 @@ export class MicroTypo {
       });
     }
 
-    // text and html need only comment protection; TAG_RE would otherwise split `<!-- … -->` at the
-    // first bare `>`.
-    if (this.#input.format === 'text' || this.#input.format === 'html') {
-      this.#safeBlocks.addScanner('html-comment', scanHtmlComments);
-      this.#safeBlocks.setTail({ opaque: NOTG_RE });
-      this.#safeBlocks.setIndents(scanLineIndent);
+    const html = this.#input.format === 'text' || this.#input.format === 'html';
+
+    // TAG_RE would otherwise split `<!-- … -->` at the first bare `>`. Markdown passes raw HTML
+    // through, comments included.
+    if (html || markdown) {
+      this.#safeBlocks.addScanner(
+        'html-comment',
+        markdown ? scanMarkdownComments : scanHtmlComments
+      );
     }
 
-    if (!BLOCK_RENDER_FORMATS.has(this.#input.format)) {
-      addTemplate();
+    if (!markdown && scanTemplate) {
+      this.#safeBlocks.addScanner(`tmpl-${this.#input.template}`, scanTemplate);
+    }
+
+    // Only an HTML document is markup to its end. Markdown reads an element left open as text unless
+    // it opens an HTML block, which `scanUnclosedHtmlBlock` takes; a value of a data format is a
+    // fragment, and XML closes every element or is rejected.
+    if (html) {
+      this.#safeBlocks.setTail({ opaque: NOTG_RE });
+    }
+
+    if (html) {
+      this.#safeBlocks.setIndents(scanLineIndent);
     }
 
     this.#applyValidatedOptions(validated);

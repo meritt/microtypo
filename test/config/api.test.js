@@ -27,6 +27,71 @@ test('microtypo() runs with no options', () => {
   assert.equal(typeof microtypo('Corwin'), 'string');
 });
 
+describe('the outer trim stops at a body left open to the end', () => {
+  const NBSP = String.fromCodePoint(0xa0);
+
+  for (const src of [
+    '<textarea>x\n ',
+    '<pre>x\n ',
+    '<!-- x\n ',
+    '<script>x \t\n\n  ',
+    '<textarea>\n'
+  ]) {
+    for (const input of ['text', 'html']) {
+      test(`${JSON.stringify(src)} as ${input}`, () => {
+        assert.equal(microtypo(src, { input }), src);
+      });
+    }
+  }
+
+  test('the blank line in front of it is still trimmed, the indent of its line kept', () => {
+    assert.equal(microtypo('\n  Корвин - принц <pre>x\n '), `  Корвин${NBSP}— принц <pre>x\n `);
+  });
+
+  test('a body closed before the end is trimmed around as before, its indent kept', () => {
+    assert.equal(microtypo('\n  <pre> x\n </pre>  \n'), '  <pre> x\n </pre>');
+  });
+
+  // Markdown trims whole blank lines only, and the same body left open keeps its last ones.
+  const FRONTMATTER = '---\ntitle: Амбер\n---\n';
+
+  for (const src of [
+    '<textarea>x\n ',
+    '<pre>x\n ',
+    '<!-- x\n ',
+    '<script>x \t\n\n  ',
+    '```\nкод\n  \n\n',
+    '~~~js\nconst a = 1;\n   '
+  ]) {
+    test(`${JSON.stringify(src)} as markdown`, () => {
+      assert.equal(microtypo(src, { input: 'markdown' }), src);
+      assert.equal(microtypo(src, { input: 'markdown', html: true }), src);
+    });
+
+    test(`${JSON.stringify(src)} as a frontmatter body`, () => {
+      assert.equal(microtypo(src, { input: 'frontmatter' }), src);
+      assert.equal(microtypo(FRONTMATTER + src, { input: 'frontmatter' }), FRONTMATTER + src);
+    });
+  }
+
+  test('markdown still drops the blank lines in front of it', () => {
+    assert.equal(microtypo('\n  \n<!-- x\n\n', { input: 'markdown' }), '<!-- x\n\n');
+  });
+
+  test('markdown keeps the indent of indented code and drops blank edge lines as before', () => {
+    const config = { input: 'markdown' };
+
+    assert.equal(microtypo('\n\n    код\n\n', config), '    код');
+    assert.equal(microtypo('Текст.\n\n    код\n\n\n', config), 'Текст.\n\n    код');
+    assert.equal(microtypo('\n\n  Корвин - принц  \n\n', config), `  Корвин${NBSP}— принц  `);
+    assert.equal(microtypo('\n\n```\nкод\n```\n\n\n', config), '```\nкод\n```');
+    assert.equal(
+      microtypo(`${FRONTMATTER}\n\n    код\n\n`, { input: 'frontmatter' }),
+      `${FRONTMATTER}    код`
+    );
+  });
+});
+
 test('microtypo() tolerates null options', () => {
   assert.doesNotThrow(() => microtypo('Corwin', null));
 });

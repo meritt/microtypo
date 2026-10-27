@@ -145,7 +145,7 @@ describe('a tag ends where HTML ends it', () => {
 describe('a quote inside a comment or a declaration', () => {
   const NBSP = '\u{00A0}';
 
-  for (const input of ['text', 'html']) {
+  for (const input of ['text', 'html', 'markdown']) {
     for (const [name, body] of [
       ['script', 'if (a > b) x = "y - z";'],
       ['style', 'a::after { content: "y - z" }'],
