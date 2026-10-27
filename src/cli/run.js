@@ -15,6 +15,7 @@ import { mergeConfig } from './util.js';
 // UTF-8 encodes any UTF-16 code unit in at most 3 bytes, so this byte cap never rejects input the
 // engine's own length check would accept.
 const BYTES_PER_CHAR_BOUND = 3;
+const READ_CHUNK_BYTES = 64 * 1024;
 
 export async function run(argv, io) {
   const { stderr } = io;
@@ -207,9 +208,41 @@ async function readCappedFile(abs, maxInputLength) {
     );
   }
 
+  // `size` is a snapshot, and a FIFO or a device reports 0 whatever it delivers, so the cap is held
+  // on the bytes actually read: never more than one past it, and no read left pending to block the
+  // close until the writer's EOF.
   const handle = await open(abs, 'r');
   try {
-    return { content: await handle.readFile('utf8'), mode: info.mode & 0o777 };
+    let buffer = Buffer.allocUnsafe(Math.min(READ_CHUNK_BYTES, maxBytes + 1));
+    let bytes = 0;
+
+    for (;;) {
+      if (bytes === buffer.length) {
+        const grown = Buffer.allocUnsafe(Math.min(buffer.length * 2, maxBytes + 1));
+
+        buffer.copy(grown, 0, 0, bytes);
+        buffer = grown;
+      }
+
+      const { bytesRead } = await handle.read({
+        buffer,
+        offset: bytes,
+        length: buffer.length - bytes
+      });
+
+      if (bytesRead === 0) {
+        break;
+      }
+      bytes += bytesRead;
+      if (bytes > maxBytes) {
+        throw new MicroTypoInputError(
+          `${abs} exceeds the ${maxBytes}-byte pre-read cap for maxInputLength ${maxInputLength}`,
+          { details: { path: abs, maxBytes, maxInputLength } }
+        );
+      }
+    }
+
+    return { content: buffer.toString('utf8', 0, bytes), mode: info.mode & 0o777 };
   } finally {
     await handle.close();
   }
