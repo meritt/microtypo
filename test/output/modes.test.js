@@ -343,12 +343,7 @@ describe('a paragraph of protected content survives <p> wrapping', () => {
     assert.equal(microtypo(once, { input: 'html', html: true }), once);
   });
 
-  // The author's own `<p>` inside a block is a paragraph marker like any other by the time the text
-  // group runs, so it splits the block in two and the unwrap can no longer take the block out of the
-  // paragraph around it: the block comes out wrapped, which HTML forbids. Telling the two kinds of
-  // `<p>` apart needs the foreign markup parsed, which this engine deliberately does not do. What
-  // must hold either way is that the document stops moving.
-  test('a block holding an author paragraph comes out wrapped, but settles', () => {
+  test('a block holding an author paragraph keeps its structure', () => {
     const config = { input: 'html', html: true };
 
     for (const src of [
@@ -356,9 +351,7 @@ describe('a paragraph of protected content survives <p> wrapping', () => {
       '<div><p>Корвин</p></div>',
       '<blockquote><p>Корвин</p><p>Рэндом</p></blockquote>'
     ]) {
-      const once = microtypo(src, config);
-
-      assert.equal(microtypo(once, config), once, `never settles: ${once}`);
+      assert.equal(microtypo(src, config), src);
     }
   });
 
@@ -383,5 +376,383 @@ describe('a paragraph of protected content survives <p> wrapping', () => {
     const out = microtypo('Корвин\nЭрик', { html: true, render: { paragraphs: false } });
 
     assert.ok(out.includes('<br>'), out);
+  });
+});
+
+// Taking a block out of the `<p>` around it repairs markup the text group wrote; a code block's body
+// and the author's own markup under html:false are text nobody wrapped, so neither is touched.
+describe('a block tag the text group did not wrap stays where it is', () => {
+  const BLOCK = '<p><div>Корвин</div></p>';
+
+  test('inside a fenced code block', () => {
+    const out = wrapped(`Текст.\n\n\`\`\`\n${BLOCK}\n\`\`\`\n\nЕщё.`, { input: 'markdown' });
+
+    assert.ok(out.includes(`\`\`\`\n${BLOCK}\n\`\`\``), out);
+  });
+
+  test('inside a <pre> element', () => {
+    const out = wrapped(`Текст.\n\n<pre>${BLOCK}</pre>\n\nЕщё.`, { input: 'html' });
+
+    assert.ok(out.includes(`<pre>${BLOCK}</pre>`), out);
+  });
+
+  test('in the author markup under html:false', () => {
+    assert.equal(microtypo(BLOCK, { html: false }), BLOCK);
+  });
+
+  test('a block the text group wrapped is still taken out of its paragraph', () => {
+    const out = wrapped('Текст.\n\n<div>Корвин</div>\n\nЕщё.', { input: 'html' });
+
+    assert.equal(out, '<p>Текст.</p>\n\n<div>Корвин</div>\n\n<p>Ещё.</p>');
+  });
+});
+
+// A paragraph the text group writes belongs to the top level of the author's block tree: it never
+// opens on one side of a block boundary and closes on the other, and a block is never inside one.
+describe('paragraphs follow the author block tree', () => {
+  const BLOCKS = new Set(['div', 'table', 'tr', 'td', 'ul', 'li', 'blockquote', 'section', 'h1']);
+  const config = { html: true, rules: { 'hanging.*': false } };
+
+  function assertSound(out) {
+    const open = [];
+
+    for (const [, slash, tag] of out.matchAll(/<(\/?)([a-z][a-z0-9]*)[^>]*>/g)) {
+      if (tag !== 'p' && !BLOCKS.has(tag) && tag !== 'hr') {
+        continue;
+      }
+
+      if (slash) {
+        assert.ok(open.includes(tag), `</${tag}> closes nothing: ${out}`);
+
+        // What it closes past is an element whose end tag HTML lets the author leave out.
+        while (open.at(-1) !== tag) {
+          assert.notEqual(open.pop(), 'p', `</${tag}> leaves a paragraph open: ${out}`);
+        }
+
+        open.pop();
+      } else {
+        assert.notEqual(open.at(-1), 'p', `<${tag}> inside a paragraph: ${out}`);
+
+        if (tag !== 'hr') {
+          open.push(tag);
+        }
+      }
+    }
+
+    assert.deepEqual(open, [], `left open: ${out}`);
+    assert.doesNotMatch(out, /<p>\s*<\/p>/, `empty paragraph: ${out}`);
+    assert.equal(microtypo(out, config), out, `never settles: ${out}`);
+  }
+
+  const cases = [
+    ['<div><p>Корвин</p></div>', '<div><p>Корвин</p></div>'],
+    ['<div>Корвин\n\nЭрик</div>', '<div>Корвин\n\nЭрик</div>'],
+    ['До<div>Амбер</div>После', '<p>До</p>\n\n<div>Амбер</div>\n\n<p>После</p>'],
+    ['Корвин <hr> Эрик', '<p>Корвин</p>\n\n<hr>\n\n<p>Эрик</p>'],
+    [
+      'Абзац.\n\n\u{00A0}уже текст <div>блок</div>',
+      '<p>Абзац.</p>\n\n<p>\u{00A0}уже текст</p>\n\n<div>блок</div>'
+    ],
+    ['<div>блок</div> - "Эрик" идёт', '<div>блок</div>\n\n<p>—\u{00A0}«Эрик» идёт</p>'],
+    ['Корвин\n<hr>\nЭрик', '<p>Корвин</p>\n\n<hr>\n\n<p>Эрик</p>'],
+    ['Принцы:\n<ul>\n<li>Корвин</li>\n</ul>', '<p>Принцы:</p>\n\n<ul>\n<li>Корвин</li>\n</ul>'],
+    [
+      '<table>\n<tr><td>Корвин\n\nЭрик</td></tr>\n</table>',
+      '<table>\n<tr><td>Корвин\n\nЭрик</td></tr>\n</table>'
+    ],
+    [
+      '<blockquote><p>Корвин</p><p>Рэндом</p></blockquote>',
+      '<blockquote><p>Корвин</p><p>Рэндом</p></blockquote>'
+    ],
+    // The line breaks inside an author element are its markup's and stay as written.
+    [
+      '<section>\n<h1>Амбер</h1>\n\nКорвин\n</section>',
+      '<section>\n<h1>Амбер</h1>\n\nКорвин\n</section>'
+    ],
+    [
+      '<section>\n<h1>Амбер</h1>\n\nКорвин\n\nЭрик\n</section>',
+      '<section>\n<h1>Амбер</h1>\n\nКорвин\n\nЭрик\n</section>'
+    ],
+    ['<div>Начало<p>Корвин</p>Конец</div>', '<div>Начало<p>Корвин</p>Конец</div>'],
+    ['<div><p>Корвин</p>Конец</div>\n\nДальше', '<div><p>Корвин</p>Конец</div>\n\n<p>Дальше</p>'],
+    ['<div>\n<p>Корвин</p>\n</div>', '<div>\n<p>Корвин</p>\n</div>'],
+    // White space at the edge of a block's run goes, as the unwrap always took it.
+    [
+      'Корвин\n\n  <div>Эрик</div>  \n\nРэндом',
+      '<p>Корвин</p>\n\n<div>Эрик</div>\n\n<p>Рэндом</p>'
+    ],
+    // An end tag HTML lets the author leave out is closed by its parent's.
+    [
+      '<ul>\n<li>Корвин\n<li>Эрик\n</ul>\n\nДальше',
+      '<ul>\n<li>Корвин\n<li>Эрик\n</ul>\n\n<p>Дальше</p>'
+    ]
+  ];
+
+  for (const [src, expected] of cases) {
+    test(JSON.stringify(src), () => {
+      const out = microtypo(src, config);
+
+      assert.equal(out, expected);
+      assertSound(out);
+    });
+  }
+
+  test('a protected body inside a block is not touched', () => {
+    const src = '<div>Корвин\n\nЭрик\n\n<pre>Рэндом\n\nи\n\nБлейз</pre></div>';
+
+    assert.equal(microtypo(src, config), src);
+  });
+
+  test('a blank line inside a heading stays as written', () => {
+    assert.equal(microtypo('<h1>Корвин\n\nЭрик</h1>', config), '<h1>Корвин\n\nЭрик</h1>');
+  });
+
+  // A self-closing flag empties an SVG or MathML element, so the text after one is outside it.
+  test('a self-closing <svg/> holds nothing', () => {
+    assert.equal(microtypo('<svg/>\none\n\ntwo', config), '<p><svg/><br>\none</p>\n\n<p>two</p>');
+    assert.equal(
+      microtypo('<svg/><math/>\nКорвин\n\nЭрик', config),
+      '<p><svg/><math/><br>\nКорвин</p>\n\n<p>Эрик</p>'
+    );
+  });
+
+  const emptyForeign = [
+    ['<svg/>', '<svg></svg>'],
+    ['<math/>', '<math></math>'],
+    ['<svg width="1" viewBox="0 0 1 1" />', '<svg width="1" viewBox="0 0 1 1"></svg>'],
+    ['<math display="block"/>', '<math display="block"></math>']
+  ];
+  const around = [
+    (tag) => `${tag}\nКорвин\n\nЭрик`,
+    (tag) => `Дворкин\n\n${tag} Корвин\nЭрик\n\nРэндом`,
+    (tag) => `<div>Амбер</div>\n${tag}\nКорвин\n\nЭрик\n<div>Рэндом</div>`,
+    (tag) => `<b>Амбер</b>${tag}<em>Блейз</em>\nКорвин\n\nЭрик`,
+    (tag) => `<svg>${tag}</svg>\nКорвин\n\nЭрик`,
+    (tag) => `${tag}\nКорвин\n\n<p>Эрик</p>\n\nРэндом`
+  ];
+  const settings = [
+    ['paragraphs and breakline', config],
+    ['paragraphs alone', { ...config, rules: { ...config.rules, 'text.breakline': false } }],
+    ['breakline alone', { ...config, rules: { ...config.rules, 'text.paragraphs': false } }]
+  ];
+
+  for (const [self, pair] of emptyForeign) {
+    for (const [label, options] of settings) {
+      test(`${self} reads as ${pair} with ${label}`, () => {
+        for (const wrap of around) {
+          const out = microtypo(wrap(self), options);
+
+          assert.equal(out.replaceAll(self, pair), microtypo(wrap(pair), options), out);
+        }
+      });
+    }
+  }
+});
+
+// In HTML the line breaks inside the author's markup lay out the source, so paragraphs and `<br>` go
+// into the text outside every author element only. A paragraph boundary inside an inline element
+// would also end it: a `</p>` closes every element opened inside its paragraph.
+describe('line breaks inside an author element stay as written', () => {
+  const config = { html: true, rules: { 'hanging.*': false } };
+  const VOID = new Set(['br', 'hr', 'img']);
+
+  // The elements open around every word, as the parser nests them, failing on an end tag that does
+  // not close the innermost open element and on a repeated `id`. `marks` counts the `<p>` and `<br>`
+  // standing inside an element other than a paragraph at the top.
+  function ancestry(html) {
+    const open = [];
+    const ids = new Set();
+    const words = new Map();
+    let marks = 0;
+
+    for (const [token, slash, tag, attrs, text] of html.matchAll(
+      /<(\/?)([a-z][a-z0-9-]*)([^>]*)>|([^<]+)/g
+    )) {
+      if (text !== undefined) {
+        for (const word of text.split(/[\s\u{00A0}]+/u).filter(Boolean)) {
+          words.set(word, open.join(''));
+        }
+      } else if (slash) {
+        assert.equal(open.pop()?.slice(1, tag.length + 1), tag, `</${tag}> crosses: ${html}`);
+      } else {
+        const id = /\bid="([^"]*)"/.exec(attrs)?.[1];
+
+        assert.ok(id === undefined || !ids.has(id), `id="${id}" repeated: ${html}`);
+        ids.add(id);
+
+        if (tag === 'p' && open.length > 0) {
+          marks += 1;
+        } else if (tag === 'br' && (open.length > 1 || (open.length === 1 && open[0] !== '<p>'))) {
+          marks += 1;
+        }
+
+        if (!VOID.has(tag) && !attrs.endsWith('/')) {
+          open.push(token);
+        }
+      }
+    }
+
+    assert.deepEqual(open, [], `left open: ${html}`);
+
+    return { words, marks };
+  }
+
+  // The source of every case but the last ones is its expected output: inside an element nothing
+  // changes.
+  const unchanged = [
+    ['<div>Корвин\nЭрик</div>', { Эрик: '<div>' }],
+    ['<p>Корвин\nЭрик</p>', { Эрик: '<p>' }],
+    ['<div><span class="red">Корвин\n\nЭрик</span></div>', { Эрик: '<div><span class="red">' }],
+    [
+      '<div><span style="color:red" id="s">Корвин\n\nЭрик</span></div>',
+      { Эрик: '<div><span style="color:red" id="s">' }
+    ],
+    [
+      '<div><em>Принцы <span id="s">Корвин\n\nЭрик\n\nРэндом</span></em></div>',
+      { Эрик: '<em><span id="s">', Рэндом: '<em><span id="s">' }
+    ],
+    ['<div><a href="/amber">Корвин\n\nЭрик</a></div>', { Эрик: '<div><a href="/amber">' }],
+    [
+      '<div>Дворкин\n\n<span class="red">Корвин\n\nЭрик</span>\n\nРэндом</div>',
+      { Дворкин: '<div>', Эрик: '<div><span class="red">', Рэндом: '<div>' }
+    ],
+    ['<a href="/amber">\n<div>Корвин\n\nЭрик</div>\n</a>', { Эрик: '<a href="/amber"><div>' }],
+    [
+      '<span class="red">Корвин\n\nЭрик<p>Рэндом</p>Блейз</span>',
+      { Эрик: '<span class="red">', Рэндом: '<span class="red"><p>', Блейз: '<span class="red">' }
+    ]
+  ];
+
+  const changed = [
+    ['Корвин\nЭрик', '<p>Корвин<br>\nЭрик</p>', { Эрик: '<p>' }],
+    ['Корвин\n\nЭрик', '<p>Корвин</p>\n\n<p>Эрик</p>', { Эрик: '<p>' }],
+    [
+      '<div><span class="red">Корвин\n\nЭрик</span></div>\n<div>Рэндом\n\nБлейз</div>',
+      '<div><span class="red">Корвин\n\nЭрик</span></div>\n\n<div>Рэндом\n\nБлейз</div>',
+      { Эрик: '<div><span class="red">', Блейз: '<div>' }
+    ],
+    // An inline element at the top stands in its paragraph, and keeps its line breaks.
+    [
+      '<span class="red">Корвин\n\nЭрик</span>',
+      '<p><span class="red">Корвин\n\nЭрик</span></p>',
+      { Эрик: '<p><span class="red">' }
+    ],
+    [
+      'Дворкин\n\n<span class="red">Корвин\nЭрик</span>\nРэндом',
+      '<p>Дворкин</p>\n\n<p><span class="red">Корвин\nЭрик</span><br>\nРэндом</p>',
+      { Эрик: '<p><span class="red">', Рэндом: '<p>' }
+    ],
+    [
+      'Корвин <b>Эрик\nРэндом</b> Блейз\nДворкин',
+      '<p>Корвин <b>Эрик\nРэндом</b> Блейз<br>\nДворкин</p>',
+      { Рэндом: '<p><b>', Дворкин: '<p>' }
+    ],
+    [
+      'Корвин\n\n<em>Эрик\n\nРэндом</em><p>Блейз</p>\n<div>Дворкин</div>',
+      '<p>Корвин</p>\n\n<p><em>Эрик\n\nРэндом</em></p>\n\n<p>Блейз</p>\n\n<div>Дворкин</div>',
+      { Корвин: '<p>', Рэндом: '<p><em>', Дворкин: '<div>' }
+    ],
+    // A block inside an inline element is inside an element too, and the run around it stays bare.
+    [
+      'Дворкин\n\n<a href="/amber"><div>Корвин\n\nЭрик</div></a>\n\nРэндом',
+      '<p>Дворкин</p><a href="/amber"><div>Корвин\n\nЭрик</div></a><p>Рэндом</p>',
+      { Эрик: '<a href="/amber"><div>', Рэндом: '<p>' }
+    ],
+    // An element with no end tag wraps nothing.
+    [
+      '<img src="a.png">\n\nКорвин\nЭрик',
+      '<p><img src="a.png"></p>\n\n<p>Корвин<br>\nЭрик</p>',
+      { Эрик: '<p>' }
+    ],
+    [
+      '<svg><path d="M0"/></svg> Корвин\n\nЭрик',
+      '<p><svg><path d="M0"/></svg> Корвин</p>\n\n<p>Эрик</p>',
+      { Эрик: '<p>' }
+    ],
+    // Text at the top beside an inline element that goes on past an author paragraph.
+    [
+      'Дворкин\n\n<span class="red">Корвин\n\nЭрик<p>Рэндом</p>Блейз</span>',
+      '<p>Дворкин</p><span class="red">Корвин\n\nЭрик<p>Рэндом</p>Блейз</span>',
+      { Дворкин: '<p>', Эрик: '<span class="red">', Блейз: '<span class="red">' }
+    ],
+    [
+      'Дворкин\n\n<div>Амбер</div>\n\n<span class="red">Корвин\n\nЭрик<p>Рэндом</p>Блейз</span>',
+      '<p>Дворкин</p>\n\n<div>Амбер</div><span class="red">Корвин\n\nЭрик<p>Рэндом</p>Блейз</span>',
+      { Амбер: '<div>', Эрик: '<span class="red">', Блейз: '<span class="red">' }
+    ],
+    [
+      '<div><p>Корвин</p>Эрик\n\nРэндом</div>Блейз\n\nДворкин',
+      '<div><p>Корвин</p>Эрик\n\nРэндом</div><p>Блейз</p>\n\n<p>Дворкин</p>',
+      { Рэндом: '<div>', Дворкин: '<p>' }
+    ]
+  ];
+
+  for (const [src, expected, inside] of [
+    ...unchanged.map(([same, path]) => [same, same, path]),
+    ...changed
+  ]) {
+    test(JSON.stringify(src), () => {
+      const out = microtypo(src, config);
+
+      assert.equal(out, expected);
+
+      const { words, marks } = ancestry(out);
+
+      assert.equal(marks, ancestry(src).marks, `a <p> or <br> inside an element: ${out}`);
+
+      for (const [word, path] of Object.entries(inside)) {
+        assert.ok(words.get(word)?.endsWith(path), `${word} left ${path}: ${out}`);
+      }
+
+      assert.equal(microtypo(out, config), out, `never settles: ${out}`);
+    });
+  }
+
+  // Open to the end, it holds every line break after it.
+  test('an element never closed', () => {
+    const out = microtypo('Корвин\n\n<b>Эрик\n\nРэндом\nБлейз', config);
+
+    assert.equal(out, '<p>Корвин</p>\n\n<p><b>Эрик\n\nРэндом\nБлейз</p>');
+    assert.equal(microtypo(out, config), out);
+  });
+
+  test('an end tag closes what opened inside its element past an author paragraph', () => {
+    const out = microtypo('<div><p>Корвин</p><section>Эрик</div>Рэндом\n\nБлейз', config);
+
+    assert.equal(out, '<div><p>Корвин</p><section>Эрик</div><p>Рэндом</p>\n\n<p>Блейз</p>');
+    assert.equal(microtypo(out, config), out);
+  });
+
+  // HTML ignores the slash on a start tag of its own non-void element, and on one ending an unquoted
+  // attribute value; inside an SVG the slash empties the element, which the SVG's end tag closes
+  // anyway.
+  test('a self-closing slash empties only a foreign element', () => {
+    const breakline = { ...config, rules: { ...config.rules, 'text.paragraphs': false } };
+
+    assert.equal(microtypo('<svg/>\nКорвин\nЭрик', breakline), '<svg/><br>\nКорвин<br>\nЭрик');
+    assert.equal(microtypo('<math/>\nКорвин\nЭрик', breakline), '<math/><br>\nКорвин<br>\nЭрик');
+    assert.equal(microtypo('<span/>\nКорвин\nЭрик', breakline), '<span/>\nКорвин\nЭрик');
+    assert.equal(microtypo('<span/>\nКорвин\n\nЭрик', config), '<p><span/>\nКорвин\n\nЭрик</p>');
+    assert.equal(
+      microtypo('<svg width=1/>\nКорвин\n\nЭрик', config),
+      '<p><svg width=1/>\nКорвин\n\nЭрик</p>'
+    );
+    assert.equal(
+      microtypo('<svg><path d="M0"/>\nКорвин\n</svg>\nЭрик\n\nРэндом', config),
+      '<p><svg><path d="M0"/>\nКорвин\n</svg><br>\nЭрик</p>\n\n<p>Рэндом</p>'
+    );
+  });
+
+  test('Markdown with paragraphs on follows the same rule', () => {
+    const markdown = {
+      ...config,
+      input: 'markdown',
+      render: { paragraphs: true, breakline: true }
+    };
+
+    assert.equal(
+      microtypo('Корвин <b>Эрик\nРэндом</b>\nБлейз\n\nДворкин', markdown),
+      '<p>Корвин <b>Эрик\nРэндом</b><br>\nБлейз</p>\n\n<p>Дворкин</p>'
+    );
   });
 });

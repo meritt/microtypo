@@ -319,6 +319,44 @@ test('presets:false yields no rule groups', () => {
   assert.equal(typo.process('"Амбер" --- Арден'), '"Амбер" --- Арден');
 });
 
+describe('a custom group named like a builtin one', () => {
+  for (const name of ['text', 'hanging', 'custom']) {
+    for (const html of [false, true]) {
+      test(`"${name}" runs under html:${html}`, () => {
+        const typo = new MicroTypo({ presets: false, html });
+
+        typo.registerRuleGroup({
+          name,
+          rules: [{ id: 'substitute', pattern: /Корвин/g, replacement: 'Эрик' }]
+        });
+
+        assert.equal(typo.process('Корвин'), 'Эрик');
+      });
+    }
+  }
+
+  test('its htmlOnly rule is still skipped under html:false', () => {
+    const typo = new MicroTypo({ presets: false });
+
+    typo.registerRuleGroup({
+      name: 'text',
+      rules: [{ id: 'mark', htmlOnly: true, pattern: /Корвин/g, replacement: 'Эрик' }]
+    });
+
+    assert.equal(typo.process('Корвин'), 'Корвин');
+  });
+
+  test('the builtin markup rules still write nothing under html:false', () => {
+    const src = 'Принц «Корвин» (Амбер)\n\nhttp://amber.example\ncorwin@amber.example';
+    const config = { rules: { 'hanging.*': true, 'text.*': true } };
+
+    assert.equal(
+      microtypo(src, config),
+      'Принц «Корвин» (Амбер)\n\nhttp://amber.example\ncorwin@amber.example'
+    );
+  });
+});
+
 test('mixed quote forms normalise consistently', () => {
   const a = microtypo('«Козырь»', { render: { paragraphs: false } });
   const b = microtypo('"Козырь"', { render: { paragraphs: false } });

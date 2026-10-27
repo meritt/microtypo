@@ -20,8 +20,8 @@ import { scanYaml } from './input/yaml.js';
 import { BLOCK_TAG_NAMES, VOID_BLOCK_TAG_NAMES } from './lib/block-tags.js';
 import { changedRanges } from './lib/diff.js';
 import { G, unicodeToEntities, unicodeToXmlEntities } from './lib/glyphs.js';
-import { edgeWhitespace, trimBlankLines } from './lib/strings.js';
-import { SafeBlocks, scanHtmlComments } from './protect/blocks.js';
+import { edgeWhitespace, leadingIndent, trimBlankLines } from './lib/strings.js';
+import { SafeBlocks, scanHtmlComments, scanLineIndent } from './protect/blocks.js';
 import { TokenBudget } from './protect/forgery.js';
 import { dropParagraphs, restoreParagraphs, stripReservedPua } from './protect/placeholders.js';
 import { escapeReserved, hasReserved } from './protect/reserved.js';
@@ -217,6 +217,7 @@ export class MicroTypo {
     if (this.#input.format === 'text' || this.#input.format === 'html') {
       this.#safeBlocks.addScanner('html-comment', scanHtmlComments);
       this.#safeBlocks.setTail({ opaque: NOTG_RE });
+      this.#safeBlocks.setIndents(scanLineIndent);
     }
 
     if (!BLOCK_RENDER_FORMATS.has(this.#input.format)) {
@@ -544,8 +545,7 @@ export class MicroTypo {
   }
 
   #typeset(text, checkBudget) {
-    // Reserved PUA is escaped per fragment before it reaches a vault.
-    let result = text;
+    // Reserved PUA in the input is escaped per fragment in `#runPipeline`, where placeholders live.
     // Snapshot the hook so a rule callback can't swap it mid-process.
     const hook = this.onCycleLimit;
     this.#resetVaults();
@@ -553,39 +553,53 @@ export class MicroTypo {
     const session = this.#makeSession(hook, checkBudget);
 
     if (this.#input.format === 'json') {
-      return this.#processJson(result, session, checkBudget);
+      return this.#processJson(text, session, checkBudget);
     }
 
     if (this.#input.format === 'toml') {
-      return this.#typesetStructured(result, scanToml, session, checkBudget);
+      return this.#typesetStructured(text, scanToml, session, checkBudget);
     }
 
     if (this.#input.format === 'yaml') {
-      return this.#typesetStructured(result, scanYaml, session, checkBudget);
+      return this.#typesetStructured(text, scanYaml, session, checkBudget);
     }
 
     if (this.#input.format === 'xml') {
-      validateXml(result, checkBudget);
+      validateXml(text, checkBudget);
 
       // XML edge whitespace is spliced out and back, so interior rules and the newline collapse
       // never mangle it.
-      const lead = /^\s*/.exec(result)[0];
-      const rest = result.slice(lead.length);
-      const trail = /\s*$/.exec(rest)[0];
-      const core = trail.length > 0 ? rest.slice(0, -trail.length) : rest;
+      const { start, end } = edgeWhitespace(text);
+      const core = text.slice(start, end);
 
-      return lead + this.#runPipeline(core, session, checkBudget, { destination: 'xml' }) + trail;
+      return (
+        text.slice(0, start) +
+        this.#runPipeline(core, session, checkBudget, { destination: 'xml' }) +
+        text.slice(end)
+      );
     }
 
     if (this.#input.format === 'frontmatter') {
-      return this.#typesetFrontmatter(result, session, checkBudget);
+      return this.#typesetFrontmatter(text, session, checkBudget);
     }
 
-    result = this.#runPipeline(result, session, checkBudget, { destination: 'html' });
-
     // Markdown trims edge-aware, keeping the leading indent of indented code; text and HTML trim
-    // as `String.prototype.trim` does.
-    return this.#input.format === 'markdown' ? trimBlankLines(result) : result.trim();
+    // as `String.prototype.trim` does, all but the indent of the first line with content.
+    if (this.#input.format === 'markdown') {
+      return this.#runPipeline(text, session, checkBudget, { trim: this.#trimBlankLines });
+    }
+
+    // Spliced out rather than lifted onto a line of its own, which would put a line break in front of
+    // content the rules read at the start of the document; the blank lines before it stay for the
+    // trim.
+    const [from, to] = leadingIndent(text);
+    const body = this.#runPipeline(text.slice(0, from) + text.slice(to), session, checkBudget, {
+      destination: 'html',
+      trim: (s) => s.trim(),
+      indents: true
+    });
+
+    return body === '' ? body : text.slice(from, to) + body;
   }
 
   // `null` is no header, the whole document being a Markdown body; MALFORMED is an opening delimiter
@@ -594,7 +608,7 @@ export class MicroTypo {
     const fm = splitFrontmatter(text);
 
     if (fm === null) {
-      return trimBlankLines(this.#runPipeline(text, session, checkBudget));
+      return this.#runPipeline(text, session, checkBudget, { trim: this.#trimBlankLines });
     }
 
     if (fm.malformed) {
@@ -608,7 +622,9 @@ export class MicroTypo {
       fm.open === '+++'
         ? this.#typesetStructured(fm.header, scanToml, session, checkBudget)
         : this.#typesetStructured(fm.header, scanYaml, session, checkBudget);
-    const typedBody = trimBlankLines(this.#runPipeline(fm.body, session, checkBudget));
+    const typedBody = this.#runPipeline(fm.body, session, checkBudget, {
+      trim: this.#trimBlankLines
+    });
 
     // Delimiter lines come straight from the original text, so they stay byte-exact.
     return (
@@ -767,7 +783,7 @@ export class MicroTypo {
     text,
     session,
     checkBudget,
-    { destination = 'html' } = {}
+    { destination = 'html', trim, indents = false } = {}
   ) {
     const effHtml = destination === 'html' && this.#html;
     session.ctx.html = effHtml;
@@ -798,20 +814,30 @@ export class MicroTypo {
     result = result.replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n');
     checkBudget('newlineInvariant');
 
-    for (const groupName of this.#order) {
-      if (!effHtml && (groupName === 'text' || groupName === 'hanging')) {
-        continue;
-      }
+    if (indents) {
+      result = this.#safeBlocks.liftIndents(result);
+    }
 
+    for (const groupName of this.#order) {
       const group = this.#groups.get(groupName);
 
       if (!group) {
         continue;
       }
 
+      // The text group lays out lines and paragraphs, and to it an indent is the white space at the
+      // start of a line, which it keeps or drops with the line break in front of it.
+      if (indents && groupName === 'text') {
+        result = this.#safeBlocks.settleIndents(result);
+      }
+
       result = session.runGroup(group, result);
 
       checkBudget(`group:${groupName}`);
+    }
+
+    if (indents) {
+      result = this.#safeBlocks.settleIndents(result);
     }
 
     // Entity-encoding runs before restore, on rule-produced glyphs only: vault placeholders are
@@ -831,16 +857,30 @@ export class MicroTypo {
 
     result = this.#safeTags.restore(result);
 
+    // The text group never puts a block in a `<p>` of its own, but a plain `<p>` the author wrapped
+    // around one is taken off: HTML forbids a block inside an inline. Only under html:true: without
+    // the text group the markup is the author's, and a protected body is still a placeholder here.
+    if (effHtml) {
+      result = unwrapBlocks(result);
+    }
+
+    // While protected bodies are still placeholders, so a tag or comment left open to the end keeps
+    // the white space it ends with: that is its content, not the edge of the prose.
+    if (trim !== undefined) {
+      result = trim(result);
+    }
+
     result = this.#safeBlocks.restore(result);
 
     result = this.#safeSequences.restore(result);
 
-    // The text group wraps in `<p>` indiscriminately, so block-level tags are unwrapped again: HTML
-    // forbids a block inside an inline.
-    result = unwrapBlocks(result);
-
     return result;
   }
+
+  // Whole blank edge lines, judged by what a line shows once restored: the Markdown layer vaults a
+  // line of white space too, while a body left open to the end keeps the white space it ends with.
+  #trimBlankLines = (text) =>
+    trimBlankLines(text, (line) => this.#restoreProtected(line).trim() === '');
 
   // The same chain the pipeline ends with, minus the paragraph markers: a `<p>` belongs to the
   // document, never inside an attribute. Used where content has to be readable before the last thing
@@ -865,6 +905,15 @@ export class MicroTypo {
 
     // A placeholder the engine minted for the group, which its input could not have carried.
     const credit = (token) => budget?.mint(token);
+
+    // Credit only the wrapper tokens `makeTag` just minted, never rescanning caller-supplied content.
+    const record = ({ html, tokens }) => {
+      for (const token of tokens) {
+        credit(token);
+      }
+
+      return html;
+    };
 
     // `tag()` and `iblock()` vault what they are handed, so the scrub of the returned text never
     // reads it: a forged token hidden in an attribute value would expand at restore time into
@@ -929,16 +978,6 @@ export class MicroTypo {
         if (!this.html) {
           return attributes.class === 'nowrap' ? content.replaceAll(' ', G.NBSP) : content;
         }
-
-        // Credit only the wrapper tokens `makeTag` just minted, never rescanning caller-supplied
-        // content.
-        const record = ({ html, tokens }) => {
-          for (const token of tokens) {
-            credit(token);
-          }
-
-          return html;
-        };
 
         const { group } = this;
         const groupClasses = group?.raw?.classes ?? {};

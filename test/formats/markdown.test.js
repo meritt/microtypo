@@ -138,9 +138,8 @@ test('markdown mode keeps leading indented-code indentation', () => {
   assert.equal(microtypo('    Корвин\n    Эрик\n', md), '    Корвин\n    Эрик');
 });
 
-test('text mode does not apply the edge-code-preserving trim', () => {
-  // Plain text has no indented-code concept, so a blank-prefix plus indentation is fully trimmed.
-  assert.equal(microtypo('\n\n    Корвин\nЭрик\n\n', base), 'Корвин\nЭрик');
+test('text mode trims the blank edge lines and keeps the indent as the author laid it out', () => {
+  assert.equal(microtypo('\n\n    Корвин\nЭрик\n\n', base), '    Корвин\nЭрик');
 });
 
 test('markdown mode: inline same-length fence inside code keeps the block open', () => {

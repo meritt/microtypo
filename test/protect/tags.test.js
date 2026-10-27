@@ -58,6 +58,164 @@ describe('">" inside a quoted attribute value', () => {
   });
 });
 
+// HTML's tokenizer opens a quoted value only after `=` and ends a tag at the first `>` outside one,
+// so a quote in a name or an unquoted value and a `<` inside the tag are characters of the tag.
+describe('a tag ends where HTML ends it', () => {
+  const NBSP = '\u{00A0}';
+
+  for (const html of [false, true]) {
+    const wrap = (s) => (html ? `<p>${s}</p>` : s);
+
+    test(`a quote in an attribute name stays in the tag (html: ${html})`, () => {
+      assert.equal(
+        microtypo('Текст <b>x - y</b> <i a="1" b="2"c">z - "w"</i>', { html }),
+        wrap(`Текст <b>x${NBSP}— y</b> <i a="1" b="2"c">z${NBSP}— «w»</i>`)
+      );
+    });
+
+    test(`a character reference in a value is not decoded (html: ${html})`, () => {
+      for (const src of ['<img alt="&quot; onerror=x x="y">', '<a title="&laquo;x&raquo;">']) {
+        assert.equal(microtypo(src, { html }), wrap(src));
+      }
+    });
+
+    test(`quotes in an unquoted value stay in the tag (html: ${html})`, () => {
+      assert.equal(
+        microtypo(`<a href=x"y'z data-x=a"b>Корвин - "принц"</a>`, { html }),
+        wrap(`<a href=x"y'z data-x=a"b>Корвин${NBSP}— «принц»</a>`)
+      );
+    });
+
+    test(`a < inside a tag is a character of it (html: ${html})`, () => {
+      assert.equal(
+        microtypo('<a title=x <b data-y="1 - 2">Корвин - "принц"</a>', { html }),
+        wrap(`<a title=x <b data-y="1 - 2">Корвин${NBSP}— «принц»</a>`)
+      );
+    });
+
+    test(`a > inside a quoted value stays in the tag (html: ${html})`, () => {
+      assert.equal(
+        microtypo(`<a title='a > "b"' data-x="c > 'd'">Корвин - принц</a>`, { html }),
+        wrap(`<a title='a > "b"' data-x="c > 'd'">Корвин${NBSP}— принц</a>`)
+      );
+    });
+  }
+
+  test('a safe element opener with a quote in a name keeps its body', () => {
+    for (const tag of ['pre', 'code', 'script', 'textarea']) {
+      const src = `<${tag} a="1" b="2"c">x - "y"</${tag}> Корвин - принц`;
+
+      assert.equal(
+        microtypo(src, flat),
+        `<${tag} a="1" b="2"c">x - "y"</${tag}> Корвин${NBSP}— принц`
+      );
+    }
+  });
+
+  test('in markdown too', () => {
+    assert.equal(
+      microtypo('Текст <i a="1" b="2"c">z - "w"</i> и <img alt="&quot;">', { input: 'markdown' }),
+      `Текст <i a="1" b="2"c">z${NBSP}— «w»</i> и <img alt="&quot;">`
+    );
+  });
+
+  test('in a value of a data format too', () => {
+    assert.equal(
+      microtypo(JSON.stringify({ a: '<i a="1" b="2"c">z - "w"</i>' }), { input: 'json' }),
+      JSON.stringify({ a: `<i a="1" b="2"c">z${NBSP}— «w»</i>` })
+    );
+  });
+
+  // A tag the text never ends reads to the end, so in a fragment the next `<` may still open one:
+  // the link behind such a tag keeps its quotes.
+  test('a tag the value never ends leaves the tags after it read', () => {
+    for (const input of ['json', 'markdown']) {
+      const wrap = (s) => (input === 'json' ? JSON.stringify({ a: s }) : s);
+
+      assert.equal(
+        microtypo(wrap(`<b x='y> c <a href="u">Корвин - "принц"</a>`), { input }),
+        wrap(`<b x='y> c <a href="u">Корвин${NBSP}— «принц»</a>`)
+      );
+    }
+  });
+});
+
+// HTML ends a comment at its `-->` and a doctype, a bogus comment or a processing instruction at its
+// first `>`, whatever quotes they hold, so an apostrophe in one hides no element behind it.
+describe('a quote inside a comment or a declaration', () => {
+  const NBSP = '\u{00A0}';
+
+  for (const input of ['text', 'html']) {
+    for (const [name, body] of [
+      ['script', 'if (a > b) x = "y - z";'],
+      ['style', 'a::after { content: "y - z" }'],
+      ['code', 'x = "y - z"'],
+      ['textarea', 'x = "y - z"']
+    ]) {
+      test(`leaves a later <${name}> protected in ${input}`, () => {
+        for (const comment of ["<!-- don't edit -->", '<!-- "TODO -->']) {
+          const src = `${comment}\n\n<${name}>${body}</${name}>\n\nКорвин - "принц"`;
+
+          assert.equal(
+            microtypo(src, { input, render: { paragraphs: false, breakline: false } }),
+            src.replace('Корвин - "принц"', `Корвин${NBSP}— «принц»`)
+          );
+        }
+      });
+    }
+  }
+
+  test('keeps a textarea left open behind such a comment out of the paragraphs', () => {
+    assert.equal(
+      microtypo('<!-- don\'t -->\nТекст\n<textarea>a - "b"\n\nc', { html: true }),
+      '<p><!-- don\'t --><br>\nТекст</p>\n<textarea>a - "b"\n\nc'
+    );
+  });
+
+  test('does not run a declaration on to the end of the document', () => {
+    for (const declaration of ["<?php // don't ?>", "<!x it's>", '<!DOCTYPE "x>']) {
+      const out = microtypo(`${declaration}\nТекст - "d"\n\nЕщё - "e"`, { html: true });
+
+      assert.ok(out.endsWith(`Текст${NBSP}— «d»</p>\n\n<p>Ещё${NBSP}— «e»</p>`), out);
+    }
+  });
+});
+
+// Outside an HTML document a stray `<` before a letter is text: CommonMark's raw HTML and a value of
+// a data format hold no `<` outside a quoted value, so the text behind it up to the next tag is read
+// as before.
+describe('a stray < outside an HTML document', () => {
+  const NBSP = '\u{00A0}';
+
+  test('in markdown leaves the paragraphs behind it typeset', () => {
+    assert.equal(
+      microtypo(
+        'Условие x<y - "важно".\n\n- Пункт - "один"\n\nСм. <https://example.com> - "сайт"',
+        {
+          input: 'markdown'
+        }
+      ),
+      `Условие x<y${NBSP}— «важно».\n\n- Пункт${NBSP}— «один»\n\nСм. <https://example.com>${NBSP}— «сайт»`
+    );
+  });
+
+  test('in a value of a data format leaves the text up to the next tag typeset', () => {
+    assert.equal(
+      microtypo(JSON.stringify({ a: 'Если x<y, то "всё" - хорошо, а <b>это</b>' }), {
+        input: 'json'
+      }),
+      JSON.stringify({ a: `Если x<y, то${NBSP}«всё»${NBSP}— хорошо, а <b>это</b>` })
+    );
+  });
+
+  // In an HTML document the same `<` opens a tag, read to its `>` as a browser reads it.
+  test('in an HTML document opens a tag', () => {
+    const src = 'Если x<y, то "всё" - хорошо, а <b>это</b>';
+
+    assert.equal(microtypo(src), src);
+  });
+});
+
 describe('safe-tag opener with ">" in a quoted attribute', () => {
   const tags = ['pre', 'code', 'script', 'style', 'kbd', 'samp', 'var', 'tt'];
 
@@ -267,6 +425,38 @@ describe('attributed <p> keeps its attributes', () => {
     assert.ok(!once.includes('<p><p') && !once.includes('</p></p>'), `double-wrapped: ${once}`);
     assert.equal(twice, once, 'not idempotent');
   });
+});
+
+// What is left once every `<p>`, `</p>`, `<br>` and white space is gone, and the paragraph tags.
+const withoutParagraphs = (s) => s.replaceAll(/<\/?p(?:\s[^>]*)?>|<br>|\s+/g, '');
+const paragraphTags = (s) => s.match(/<\/?p(?:\s[^>]*)?>/g) ?? [];
+
+// The paragraphs add `<p>`, `</p>` and `<br>` and move white space; they never repeat or drop what
+// the author wrote, however unpaired their own paragraph tags are, and they do not repair them.
+describe('unpaired author <p> and </p>', () => {
+  for (const src of [
+    '</p>X<p class="a">',
+    'a</p>b<p>c',
+    '</p>a</p>b<p>c',
+    'a\n</p>\nb\n\n<p class="x">c\n\nd',
+    'a</p>b<p>c</p>d',
+    '<p>b</p>c</p>d',
+    '</p>X',
+    'X<p>'
+  ]) {
+    for (const render of [{}, { breakline: false }, { paragraphs: false }]) {
+      test(`${JSON.stringify(src)} with ${JSON.stringify(render)}`, () => {
+        const out = microtypo(src, { html: true, render });
+
+        assert.equal(withoutParagraphs(out), withoutParagraphs(src), out);
+        assert.equal(microtypo(out, { html: true, render }), out, 'not stable');
+
+        for (const tag of paragraphTags(src).filter((t) => t !== '<p>' && t !== '</p>')) {
+          assert.equal(out.split(tag).length, src.split(tag).length, `${tag} in ${out}`);
+        }
+      });
+    }
+  }
 });
 
 describe('<code>/<pre> content is protected', () => {

@@ -172,6 +172,128 @@ describe('space presets', () => {
   });
 });
 
+const site = (format) =>
+  new MicroTypo({ input: { format, template: 'handlebars' }, html: false, entities: false });
+
+const siteText = (src) => site('text').process(src);
+
+// In `text` and `html` the spaces and tabs in front of a line's first character are the author's
+// layout — a verse indent, the nesting of HTML source — and come out as they went in.
+describe('indent at the start of a line', () => {
+  test('an inner line keeps its indent, the text behind it is typeset', () => {
+    assert.equal(siteText('Строка\n    стих - тут'), `Строка\n    стих${NBSP}— тут`);
+    assert.equal(microtypo('Строка\n    стих - тут'), `Строка\n    стих${NBSP}— тут`);
+  });
+
+  test('HTML source keeps its nesting', () => {
+    const src = '<ul>\n  <li>Один</li>\n</ul>';
+
+    assert.equal(site('html').process(src), src);
+    assert.equal(microtypo(src, { input: 'html' }), src);
+  });
+
+  test('the first line keeps its indent, and spaces inside a line still collapse', () => {
+    assert.equal(siteText('    тихий  морской  ветер'), '    тихий морской ветер');
+  });
+
+  test('tabs and mixed indents survive byte for byte', () => {
+    assert.equal(siteText('Строка\n\tстих - тут'), `Строка\n\tстих${NBSP}— тут`);
+    assert.equal(siteText('\t \tстих\n \t ещё'), '\t \tстих\n \t ещё');
+  });
+
+  test('the edges lose blank lines and trailing spaces, not the first indent', () => {
+    assert.equal(siteText('\n\n   \n    первая\n  вторая   \n\n  '), '    первая\n  вторая');
+  });
+
+  test('a line of spaces alone is no indent and is collapsed as before', () => {
+    assert.equal(siteText('раз\n    \nдва'), 'раз\n \nдва');
+  });
+
+  test('every line ending opens a line', () => {
+    assert.equal(siteText('Строка\r\n    стих - тут'), `Строка\n    стих${NBSP}— тут`);
+    assert.equal(siteText('Строка\r    стих - тут'), `Строка\n    стих${NBSP}— тут`);
+  });
+
+  test('a rule reading the start of a line reads it behind the indent', () => {
+    assert.equal(siteText('Пролог.\n    - Реплика'), `Пролог.\n    —${NBSP}Реплика`);
+    assert.equal(siteText('Пролог.\n    в доме'), `Пролог.\n    в${NBSP}доме`);
+    assert.equal(siteText('    1997год.'), '    1997 год.');
+  });
+
+  test('a line reads the same behind an indent as without one', () => {
+    for (const line of [
+      '- Реплика - сказал он',
+      'А.С. Пушкин - поэт',
+      "д'Артаньян и P.S. приписка",
+      'Гост 5773-90 - правила',
+      '«Цитата» и (скобка)',
+      '1997год.'
+    ]) {
+      for (const indent of ['    ', '\t', ' \t ']) {
+        assert.equal(siteText(`${indent}${line}`), `${indent}${siteText(line)}`, line);
+        assert.equal(
+          siteText(`Пролог.\n${indent}${line}\nЭпилог.`),
+          siteText(`Пролог.\n${line}\nЭпилог.`).replace('\n', `\n${indent}`),
+          line
+        );
+      }
+    }
+  });
+
+  test('hanging punctuation opens an indented line', () => {
+    const out = new MicroTypo({
+      html: true,
+      render: { paragraphs: false, breakline: false },
+      rules: { 'hanging.quote': true }
+    }).process('Пролог.\n    «Цитата»');
+
+    assert.equal(out, 'Пролог.\n    <span style="margin-left:-0.44em;">«</span>Цитата»');
+  });
+
+  test('html: true breaks lines and keeps the indent behind the break', () => {
+    assert.equal(
+      microtypo('Строка\n    стих - тут', { html: true }),
+      `<p>Строка<br>\n    стих${NBSP}— тут</p>`
+    );
+  });
+
+  // A line break between two blocks is laid out again as the blank line between them, and the white
+  // space beside it goes with it.
+  test('html: true lays out a block boundary as before', () => {
+    assert.equal(
+      microtypo('<p>Раз</p>\n    <p>Два</p>', { html: true }),
+      '<p>Раз</p>\n\n<p>Два</p>'
+    );
+  });
+
+  test('protected bodies and template blocks keep theirs as before', () => {
+    assert.equal(
+      siteText('<pre>\n    код  -  тут\n</pre>\n  текст - тут'),
+      `<pre>\n    код  -  тут\n</pre>\n  текст${NBSP}— тут`
+    );
+    assert.equal(
+      siteText('{{#each items}}\n    Корвин - принц\n{{/each}}'),
+      `{{#each items}}\n    Корвин${NBSP}— принц\n{{/each}}`
+    );
+  });
+
+  test('the indent is never a changed range', () => {
+    const { text: out, changes } = site('text').process('    стих - тут\n\tещё - раз', {
+      changes: true
+    });
+
+    assert.equal(out, `    стих${NBSP}— тут\n\tещё${NBSP}— раз`);
+    assert.deepEqual(changes, [
+      [8, 10],
+      [19, 21]
+    ]);
+  });
+
+  test('entities leave the indent alone', () => {
+    assert.equal(ent('Строка\n    стих - тут'), 'Строка\n    стих&nbsp;&mdash; тут');
+  });
+});
+
 describe('space.strip_quote_padding (GAP-W2)', () => {
   const NOP = { html: true, render: { paragraphs: false } };
 
