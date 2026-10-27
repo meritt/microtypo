@@ -564,3 +564,61 @@ describe('safe blocks and tags', () => {
     assert.doesNotThrow(() => typo.addSafeTag('trump-card'));
   });
 });
+
+describe('process() with changes', () => {
+  const NBSP = String.fromCodePoint(0xa0);
+  const text = 'Он сказал: "Привет" - и ушёл';
+
+  test('without the option the result is the string it always was', () => {
+    const typo = new MicroTypo();
+    const plain = typo.process(text);
+
+    assert.equal(typeof plain, 'string');
+    assert.equal(typo.process(text, { changes: false }), plain);
+    assert.equal(typo.process(text, { changes: undefined }), plain);
+    // Callers pass constructor options there, and those are not the call's to apply.
+    assert.equal(typo.process(text, { html: true }), plain);
+    assert.equal(typo.process(text, null), plain);
+    assert.equal(typo.process(text, 'changes'), plain);
+  });
+
+  test('changes: true returns the same text and the ranges that differ from the input', () => {
+    const typo = new MicroTypo();
+    const { text: typeset, changes } = typo.process(text, { changes: true });
+
+    assert.equal(typeset, `Он${NBSP}сказал: «Привет»${NBSP}— и${NBSP}ушёл`);
+    assert.deepEqual(
+      changes.map(([start, end]) => typeset.slice(start, end)),
+      [NBSP, '«', `»${NBSP}—`, NBSP]
+    );
+  });
+
+  test('ranges are in the coordinates of the typeset text, markup included', () => {
+    const { text: typeset, changes } = new MicroTypo({ html: true }).process('a - b', {
+      changes: true
+    });
+
+    assert.equal(typeset, `<p>a${NBSP}— b</p>`);
+    // The shortest edit keeps the input's first space as the one after the dash, so the `'- '` it
+    // drops shows as an empty range right before `b`.
+    assert.deepEqual(changes, [
+      [0, 3],
+      [4, 6],
+      [7, 7],
+      [8, 12]
+    ]);
+  });
+
+  test('an untouched text has no changes', () => {
+    assert.deepEqual(new MicroTypo().process('Корвин', { changes: true }), {
+      text: 'Корвин',
+      changes: []
+    });
+  });
+
+  test('a changes value that is not a boolean is refused', () => {
+    for (const changes of [1, 'yes', null, {}]) {
+      assert.throws(() => new MicroTypo().process(text, { changes }), MicroTypoConfigError);
+    }
+  });
+});

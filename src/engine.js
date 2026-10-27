@@ -18,6 +18,7 @@ import { scanToml } from './input/toml.js';
 import { scanDoctype, scanXmlSpacePreserve, validateXml, xmlBlocks } from './input/xml.js';
 import { scanYaml } from './input/yaml.js';
 import { BLOCK_TAG_NAMES, VOID_BLOCK_TAG_NAMES } from './lib/block-tags.js';
+import { changedRanges } from './lib/diff.js';
 import { G, unicodeToEntities, unicodeToXmlEntities } from './lib/glyphs.js';
 import { edgeWhitespace, trimBlankLines } from './lib/strings.js';
 import { SafeBlocks } from './protect/blocks.js';
@@ -486,12 +487,14 @@ export class MicroTypo {
     }
   }
 
-  process(text) {
+  process(text, options) {
     if (typeof text !== 'string') {
       throw new MicroTypoInputError(`process() expects string, got ${typeof text}`, {
         details: { receivedType: typeof text }
       });
     }
+
+    const withChanges = readProcessOptions(options);
 
     // A recursive call would reset vaults mid-pipeline and corrupt the outer call's restore chain.
     if (this.#processing) {
@@ -510,65 +513,66 @@ export class MicroTypo {
 
     this.#processing = true;
 
+    // Small input can still burn CPU, so budget wall-clock between groups.
+    const checkBudget = budgetCheck(this.#maxProcessingMs, performance.now());
+    let result;
+
     try {
-      // Strip reserved PUA first; otherwise crafted input could forge placeholders.
-      let result = stripReservedPua(text);
-      // Snapshot the hook so a rule callback can't swap it mid-process.
-      const hook = this.onCycleLimit;
-      this.#resetVaults();
-
-      // Small input can still burn CPU, so budget wall-clock between groups.
-      const budget = this.#maxProcessingMs;
-      const start = performance.now();
-
-      const checkBudget = (where) => {
-        if (budget > 0 && performance.now() - start > budget) {
-          throw new MicroTypoBudgetError(
-            `Processing exceeded ${budget}ms budget at ${where} — likely adversarial input`,
-            { details: { budgetMs: budget, where } }
-          );
-        }
-      };
-
-      const session = this.#makeSession(hook, checkBudget);
-
-      if (this.#input.format === 'json') {
-        return this.#processJson(result, session, checkBudget);
-      }
-
-      if (this.#input.format === 'toml') {
-        return this.#typesetStructured(result, scanToml, session, checkBudget);
-      }
-
-      if (this.#input.format === 'yaml') {
-        return this.#typesetStructured(result, scanYaml, session, checkBudget);
-      }
-
-      if (this.#input.format === 'xml') {
-        validateXml(result, checkBudget);
-
-        // XML edge whitespace is spliced out and back, so interior rules and the newline collapse
-        // never mangle it.
-        const lead = /^\s*/.exec(result)[0];
-        const rest = result.slice(lead.length);
-        const trail = /\s*$/.exec(rest)[0];
-        const core = trail.length > 0 ? rest.slice(0, -trail.length) : rest;
-
-        return lead + this.#runPipeline(core, session, checkBudget, { destination: 'xml' }) + trail;
-      }
-
-      if (this.#input.format === 'frontmatter') {
-        return this.#typesetFrontmatter(result, session, checkBudget);
-      }
-
-      result = this.#runPipeline(result, session, checkBudget, { destination: 'html' });
-
-      // Markdown trims edge-aware, keeping the leading indent of indented code; text and HTML trim
-      // as `String.prototype.trim` does.
-      return this.#input.format === 'markdown' ? trimBlankLines(result) : result.trim();
+      result = this.#typeset(text, checkBudget);
     } finally {
       this.#processing = false;
     }
+
+    if (!withChanges) {
+      return result;
+    }
+
+    return { text: result, changes: changedRanges(text, result, checkBudget) };
+  }
+
+  #typeset(text, checkBudget) {
+    // Strip reserved PUA first; otherwise crafted input could forge placeholders.
+    let result = stripReservedPua(text);
+    // Snapshot the hook so a rule callback can't swap it mid-process.
+    const hook = this.onCycleLimit;
+    this.#resetVaults();
+
+    const session = this.#makeSession(hook, checkBudget);
+
+    if (this.#input.format === 'json') {
+      return this.#processJson(result, session, checkBudget);
+    }
+
+    if (this.#input.format === 'toml') {
+      return this.#typesetStructured(result, scanToml, session, checkBudget);
+    }
+
+    if (this.#input.format === 'yaml') {
+      return this.#typesetStructured(result, scanYaml, session, checkBudget);
+    }
+
+    if (this.#input.format === 'xml') {
+      validateXml(result, checkBudget);
+
+      // XML edge whitespace is spliced out and back, so interior rules and the newline collapse
+      // never mangle it.
+      const lead = /^\s*/.exec(result)[0];
+      const rest = result.slice(lead.length);
+      const trail = /\s*$/.exec(rest)[0];
+      const core = trail.length > 0 ? rest.slice(0, -trail.length) : rest;
+
+      return lead + this.#runPipeline(core, session, checkBudget, { destination: 'xml' }) + trail;
+    }
+
+    if (this.#input.format === 'frontmatter') {
+      return this.#typesetFrontmatter(result, session, checkBudget);
+    }
+
+    result = this.#runPipeline(result, session, checkBudget, { destination: 'html' });
+
+    // Markdown trims edge-aware, keeping the leading indent of indented code; text and HTML trim
+    // as `String.prototype.trim` does.
+    return this.#input.format === 'markdown' ? trimBlankLines(result) : result.trim();
   }
 
   // `null` is no header, the whole document being a Markdown body; MALFORMED is an opening delimiter
@@ -994,6 +998,38 @@ const VOID_BLOCK_RE = new RegExp(
   `<p>(\\s*)(<(?:${VOID_BLOCK_TAG_NAMES.join('|')})\\b[^>]*\\/?>)(\\s*)<\\/p>`,
   'gi'
 );
+
+function budgetCheck(budget, start) {
+  return (where) => {
+    if (budget > 0 && performance.now() - start > budget) {
+      throw new MicroTypoBudgetError(
+        `Processing exceeded ${budget}ms budget at ${where} — likely adversarial input`,
+        { details: { budgetMs: budget, where } }
+      );
+    }
+  };
+}
+
+// Callers pass constructor options here, so anything other than `changes` is ignored. `changes`
+// decides the return type, so a value that is not a boolean is refused rather than guessed at.
+function readProcessOptions(options) {
+  const changes =
+    options !== null && typeof options === 'object' && Object.hasOwn(options, 'changes')
+      ? options.changes
+      : undefined;
+
+  if (changes === undefined) {
+    return false;
+  }
+
+  if (typeof changes !== 'boolean') {
+    throw new MicroTypoConfigError('process() option "changes" must be a boolean', {
+      details: { option: 'changes', receivedType: typeof changes }
+    });
+  }
+
+  return changes;
+}
 
 function unwrapBlocks(text) {
   // Both patterns anchor on a literal <p>, so without one there is nothing to unwrap — and a
