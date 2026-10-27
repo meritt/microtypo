@@ -277,7 +277,8 @@ export const etcGroup = {
       // minus working. `(?<!\d )` guards the other side: grouping `100644` behind a bare `8 ` builds
       // `8 100 644`, which the next pass reads as one number. The digits of a numeric character
       // reference are an identifier for the same reason an ISBN's are — `&#128512;` is one codepoint.
-      pattern: /(?<![a-zA-Z0-9<)])(?<!\d-)(?<!\d )(?<!&#)([0-9]{5,})([^a-zA-Z>(]|$)/gu,
+      // The leading lookahead keeps the lookbehinds, `\p{L}` the costliest, off every non-digit.
+      pattern: /(?=[0-9]{5})(?<![\p{L}0-9<)])(?<!\d-)(?<!\d )(?<!&#)([0-9]{5,})([^a-zA-Z>(]|$)/gu,
       replacement: (m) => {
         const [m0, p1, p2] = m;
 
