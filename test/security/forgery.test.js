@@ -116,16 +116,16 @@ describe('input guards', () => {
   });
 
   test('long line of repeated quote chars (potential ReDoS) returns quickly', () => {
-    const start = Date.now();
+    const start = performance.now();
     microtypo('"'.repeat(2000));
-    const ms = Date.now() - start;
+    const ms = performance.now() - start;
     assert.ok(ms < 1000, `Took ${ms}ms — possible ReDoS`);
   });
 
   test('deeply nested parens (URL regex stress) return quickly', () => {
-    const start = Date.now();
+    const start = performance.now();
     microtypo(`Корвин ${'('.repeat(100)}http://amber.example/y${')'.repeat(100)}`);
-    const ms = Date.now() - start;
+    const ms = performance.now() - start;
     assert.ok(ms < 1000, `Took ${ms}ms — possible ReDoS`);
   });
 });

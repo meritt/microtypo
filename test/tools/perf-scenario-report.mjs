@@ -1,21 +1,14 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'node:child_process';
+import { join } from 'node:path';
 
-function parseArgs(argv) {
-  const args = ['test/tools/perf-profile.mjs'];
+const PROFILE = join(import.meta.dirname, 'perf-profile.mjs');
 
-  for (let i = 0; i < argv.length; i += 1) {
-    args.push(argv[i]);
-  }
-
-  args.push('--json');
-
-  return args;
-}
-
-function loadRows(args) {
-  const stdout = execFileSync(process.execPath, args, { encoding: 'utf8' });
+function loadRows(argv) {
+  const stdout = execFileSync(process.execPath, [PROFILE, ...argv, '--json'], {
+    encoding: 'utf8'
+  });
 
   return stdout
     .trim()
@@ -50,7 +43,7 @@ function print(rows) {
 }
 
 try {
-  print(loadRows(parseArgs(process.argv.slice(2))));
+  print(loadRows(process.argv.slice(2)));
 } catch (error) {
   console.error(error.message);
   process.exit(1);
