@@ -119,7 +119,7 @@ Microtypo типографирует текст, но не очищает HTML: 
 
 ## Автор
 
-[Алексей Симоненко](https://github.com/meritt)
+[Алексей Симоненко](https://simonenko.xyz)
 
 ## Лицензия
 
