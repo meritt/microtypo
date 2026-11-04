@@ -1,11 +1,9 @@
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 import { build } from 'rolldown';
 
-const ROOT = fileURLToPath(new URL('../', import.meta.url));
-
-const BROWSER_ENTRY = `${ROOT}src/browser.js`;
-const BROWSER_FILE = `${ROOT}dist/microtypo.browser.js`;
+const BROWSER_ENTRY = join(import.meta.dirname, '../src/browser.js');
+const BROWSER_FILE = join(import.meta.dirname, '../dist/microtypo.browser.js');
 
 // One readable ES module with no imports and no comments: sites copy it as a file and serve it as is.
 export async function buildBrowser(file = BROWSER_FILE) {

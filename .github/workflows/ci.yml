@@ -6,26 +6,31 @@ on:
   pull_request:
     branches: [main]
 
-permissions:
-  contents: read
+permissions: {}
+
+defaults:
+  run:
+    shell: bash --noprofile --norc -euo pipefail {0}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  verify:
-    runs-on: ubuntu-latest
+  test:
+    name: Test
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
-
+    permissions:
+      contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Toolchain
-        uses: pnpm/setup@v2
+      - name: Setup
+        uses: pnpm/setup@fa36a5ef7dcdefc3a7cb25655c122e00cf6e636e # v3.1.2
         with:
           cache: true
           require-lockfile: true
@@ -36,21 +41,19 @@ jobs:
       - name: Format
         run: pnpm format:check
 
-      - name: Glyphs
-        run: pnpm lint:glyphs
+      - name: Policy
+        run: |
+          pnpm lint:glyphs
+          pnpm lint:redos
 
-      - name: ReDoS
-        run: pnpm lint:redos
-
-      - name: Coverage
+      - name: Test
         run: pnpm coverage
 
-      # Apart from coverage: the build is heavy enough to skew the suite's timing assertions.
-      - name: Browser bundle
+      - name: Build
         run: pnpm test:browser
 
-      - name: Coveralls
-        uses: coverallsapp/github-action@v2
+      - name: Coverage
+        uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
         with:
           file: coverage/lcov.info
           format: lcov

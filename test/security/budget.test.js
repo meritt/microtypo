@@ -39,9 +39,9 @@ describe('input length cap', () => {
   test('30K adversarial input finishes within 5s', () => {
     const typo = new MicroTypo();
     const input = 'a'.repeat(30_000);
-    const start = Date.now();
+    const start = performance.now();
     typo.process(input);
-    const ms = Date.now() - start;
+    const ms = performance.now() - start;
     assert.ok(ms < 5000, `adversarial 30K took ${ms}ms (budget 5000)`);
   });
 });
@@ -134,9 +134,9 @@ describe('wall-clock budget', () => {
   test('real text stays well under the default budget', () => {
     const typo = new MicroTypo();
     const text = 'Корвин шёл к «Амберу» — путь длиной 1000 шагов.'.repeat(200);
-    const start = Date.now();
+    const start = performance.now();
     typo.process(text);
-    assert.ok(Date.now() - start < 500, `Took too long`);
+    assert.ok(performance.now() - start < 500, `Took too long`);
   });
 });
 

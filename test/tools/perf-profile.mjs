@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { parseArgs } from 'node:util';
+
 import { MicroTypo, microtypo } from '../../src/index.js';
 import { DEFAULT_GROUPS } from '../../src/rules/registry.js';
 import { compactStats, measure } from './perf/measure.mjs';
@@ -9,46 +11,37 @@ import { WORKLOADS } from './perf/workloads.mjs';
 const GROUPS = DEFAULT_GROUPS.map(([name]) => name);
 const PROFILES = new Set(['summary', 'groups', 'all', 'scanners']);
 
-function parseArgs(argv) {
-  const opts = {
-    format: 'table',
-    profile: 'summary',
-    workload: null,
-    priority: null,
-    iterations: 50,
-    samples: 9,
-    warmup: 5
-  };
-
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-
-    if (arg === '--') {
-      continue;
-    } else if (arg === '--json') {
-      opts.format = 'json';
-    } else if (arg === '--table') {
-      opts.format = 'table';
-    } else if (arg === '--profile') {
-      opts.profile = argv[++i] ?? opts.profile;
-    } else if (arg === '--workload') {
-      opts.workload = argv[++i] ?? null;
-    } else if (arg === '--priority') {
-      opts.priority = argv[++i] ?? null;
-    } else if (arg === '--iterations') {
-      opts.iterations = Number(argv[++i] ?? opts.iterations);
-    } else if (arg === '--samples') {
-      opts.samples = Number(argv[++i] ?? opts.samples);
-    } else if (arg === '--warmup') {
-      opts.warmup = Number(argv[++i] ?? opts.warmup);
-    } else if (arg === '--help') {
-      opts.help = true;
-    } else {
-      throw new Error(`Unknown option: ${arg}`);
+function readOptions(argv) {
+  const { values, tokens } = parseArgs({
+    args: argv.filter((arg) => arg !== '--'),
+    tokens: true,
+    options: {
+      json: { type: 'boolean' },
+      table: { type: 'boolean' },
+      profile: { type: 'string', default: 'summary' },
+      workload: { type: 'string' },
+      priority: { type: 'string' },
+      iterations: { type: 'string', default: '50' },
+      samples: { type: 'string', default: '9' },
+      warmup: { type: 'string', default: '5' },
+      help: { type: 'boolean', default: false }
     }
-  }
+  });
 
-  return opts;
+  const format = tokens.findLast(
+    (token) => token.kind === 'option' && (token.name === 'json' || token.name === 'table')
+  );
+
+  return {
+    format: format?.name ?? 'table',
+    profile: values.profile,
+    workload: values.workload ?? null,
+    priority: values.priority ?? null,
+    iterations: Number(values.iterations),
+    samples: Number(values.samples),
+    warmup: Number(values.warmup),
+    help: values.help
+  };
 }
 
 function help() {
@@ -272,7 +265,7 @@ function printTable(rows) {
 }
 
 try {
-  const opts = parseArgs(process.argv.slice(2));
+  const opts = readOptions(process.argv.slice(2));
 
   if (opts.help) {
     console.log(help());

@@ -157,15 +157,15 @@ test('no-op budget leaves quotes intact', () => {
 // 10K Cyrillic letters with no '@' must not trigger email-regex backtracking.
 test('many cyrillic letters without at-sign stay fast', () => {
   const text = 'а'.repeat(10000);
-  const start = Date.now();
+  const start = performance.now();
   microtypo(text, params);
-  assert.ok(Date.now() - start < 1000, `Took too long`);
+  assert.ok(performance.now() - start < 1000, `Took too long`);
 });
 
 // Long digit run: isolated split is O(n); the full pipeline stays under the budget.
 test('long digit run processes quickly', () => {
   const text = `1${'2'.repeat(10000)}`;
-  const start = Date.now();
+  const start = performance.now();
   new MicroTypo({ maxProcessingMs: 30_000 }).process(text);
-  assert.ok(Date.now() - start < 5_000, `Took too long`);
+  assert.ok(performance.now() - start < 5_000, `Took too long`);
 });

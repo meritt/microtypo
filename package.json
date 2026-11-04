@@ -1,6 +1,6 @@
 {
   "name": "microtypo",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Russian typography that never mangles your code, URLs, or markup. Zero-dependency, safe on untrusted text",
   "keywords": [
     "cyrillic",
@@ -42,6 +42,7 @@
   },
   "scripts": {
     "build:browser": "node scripts/build-browser.mjs",
+    "build:conformance": "node test/conformance/build.mjs",
     "coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-lines=98 --test-coverage-branches=94 --test-coverage-functions=96 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info 'test/**/*.test.js'",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
@@ -58,22 +59,26 @@
     "test:watch": "node --test --watch 'test/**/*.test.js'"
   },
   "devDependencies": {
-    "oxfmt": "^0.74.0",
-    "oxlint": "^1.89.0",
+    "oxfmt": "^0.76.0",
+    "oxlint": "^1.91.0",
     "redos-detector": "^6.1.4",
-    "rolldown": "^1.2.15",
+    "rolldown": "^1.2.16",
     "smol-toml": "^1.9.1",
     "yaml": "^2.9.1"
   },
   "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "^12.16.1",
+      "onFail": "download"
+    },
     "runtime": {
       "name": "node",
-      "version": "^26.12.1",
+      "version": "^26.13.0",
       "onFail": "error"
     }
   },
   "engines": {
-    "node": ">=26.12.1"
-  },
-  "packageManager": "pnpm@12.15.0"
+    "node": ">=26.13.0"
+  }
 }
