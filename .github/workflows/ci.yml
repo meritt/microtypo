@@ -25,7 +25,7 @@ jobs:
           persist-credentials: false
 
       - name: Toolchain
-        uses: pnpm/setup@v2
+        uses: pnpm/setup@v3
         with:
           cache: true
           require-lockfile: true
