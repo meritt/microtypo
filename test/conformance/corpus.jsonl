@@ -1,4 +1,4 @@
-{"corpus":"microtypo-conformance","schema":1,"engine":"0.3.0","cases":52052}
+{"corpus":"microtypo-conformance","schema":1,"engine":"0.3.1","cases":52052}
 {"id":"0001a58801df65db","config":{"html":false},"ops":[],"text":"«ююя»«b»","expect":{"output":"«ююя»«b»"}}
 {"id":"000301a75617cecd","config":{"html":false},"ops":[],"text":"axя юx «axя» xaю","expect":{"output":"axя юx «axя» xaю"}}
 {"id":"000553d0e1d44c0d","config":{"html":true},"ops":[],"text":"aяx \"ax\" ююax","expect":{"output":"<p>aяx «ax» ююax</p>"}}
