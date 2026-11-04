@@ -42,6 +42,7 @@
   },
   "scripts": {
     "build:browser": "node scripts/build-browser.mjs",
+    "build:conformance": "node test/conformance/build.mjs",
     "coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-lines=98 --test-coverage-branches=94 --test-coverage-functions=96 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info 'test/**/*.test.js'",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
