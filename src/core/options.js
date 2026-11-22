@@ -87,7 +87,7 @@ const ENGINE_KEYS = new Set([
   'maxProcessingMs',
 ]);
 
-export function normaliseOptions(input) {
+export function normaliseOptions(input, groups) {
   const out = emptyIntent();
 
   if (!input || typeof input !== 'object') {
@@ -101,7 +101,7 @@ export function normaliseOptions(input) {
   }
 
   if (Object.hasOwn(input, 'rules')) {
-    applyRules(input.rules, out);
+    applyRules(input.rules, out, groups);
   }
 
   if (Object.hasOwn(input, 'render')) {
@@ -151,7 +151,7 @@ function applyRender(opts, out) {
   }
 }
 
-export const KNOWN_GROUPS = new Set([
+const KNOWN_GROUPS = new Set([
   'quote',
   'dash',
   'symbol',
@@ -197,7 +197,7 @@ function pushDotted(out, key, value) {
   pushOverride(out, key.slice(0, dotIdx), key.slice(dotIdx + 1), value);
 }
 
-function applyRules(rulesObj, out) {
+function applyRules(rulesObj, out, groups = KNOWN_GROUPS) {
   if (!rulesObj || typeof rulesObj !== 'object') {
     return;
   }
@@ -229,7 +229,7 @@ function applyRules(rulesObj, out) {
       continue;
     }
 
-    if (KNOWN_GROUPS.has(canonicalGroupName(key))) {
+    if (groups.has(canonicalGroupName(key))) {
       pushOverride(out, key, '*', isOn(value));
     }
   }

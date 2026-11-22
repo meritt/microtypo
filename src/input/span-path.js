@@ -7,11 +7,47 @@ export function collectSpans(next) {
   let span;
 
   while ((span = next(from)) !== null) {
-    spans.push([span[0], span[1]]);
+    spans.push(span[3] === 'tail' ? [span[0], span[1], 'tail'] : [span[0], span[1]]);
     from = span[2];
   }
 
   return spans;
+}
+
+// The earliest opener owns the overlap. An address may start on punctuation also
+// opening a template: explicit markup wins a tie over the address's local-part alphabet.
+export function precedesInline(candidate, first) {
+  return (
+    candidate !== null &&
+    (first == null ||
+      candidate[0] < first[0] ||
+      (candidate[0] === first[0] && first[3] === 'address'))
+  );
+}
+
+export function lineReader(readers) {
+  let through = 0;
+  return (from, to) => {
+    let cursor = Math.max(from, through);
+    while (cursor < to) {
+      let first = null;
+      for (const reader of readers) {
+        if (reader.at === undefined || (reader.at !== null && reader.at[0] < cursor)) {
+          reader.at = reader.next(cursor);
+        }
+        if (precedesInline(reader.at, first?.at)) {
+          first = reader;
+        }
+      }
+      if (first === null || first.at[0] >= to) {
+        break;
+      }
+      const span = first.read ? first.read(first.at[0]) : first.at;
+      cursor = span[2];
+      through = cursor;
+    }
+    return through;
+  };
 }
 
 // Ancestry is a shared immutable chain, never an array copied into every frame: a frame's key or

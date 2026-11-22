@@ -56,3 +56,32 @@ export function splitFrontmatter(src) {
 
   return MALFORMED;
 }
+
+const YAML_KEY_RE = /^[^\s#][^\r\n]*?:(?:[ \t]|$)/u;
+
+// `---` is also a thematic break, so a block it opens is a header only as Pandoc reads a YAML
+// metadata block: no blank line right after the opener, and a mapping inside.
+function readsAsYamlHeader(header) {
+  if (header === '') {
+    return true;
+  }
+  const lines = header.split(/\r\n?|\n/u);
+  if (lines[0].trim() === '') {
+    return false;
+  }
+  const first = lines.find((line) => line.trim() !== '' && !line.trimStart().startsWith('#'));
+  return first === undefined || YAML_KEY_RE.test(first);
+}
+
+// The header a Markdown document opens with, through its closing delimiter: the site generator's
+// data, which a Markdown document carries as it is. An opener with no close is no header there, and
+// the document is read as Markdown from its first line.
+export function scanLeadingHeader(src) {
+  const fm = splitFrontmatter(src);
+
+  if (fm === null || fm.malformed || (fm.open === '---' && !readsAsYamlHeader(fm.header))) {
+    return [];
+  }
+
+  return [[0, fm.headerStart + fm.header.length + fm.close.length]];
+}

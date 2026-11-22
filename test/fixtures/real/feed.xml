@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Вестник Амбера - новости королевства</title>
+    <link>https://vestnik.amber.ru/</link>
+    <description>Официальные новости канцелярии регента: указы, стройки, дипломатия - и немного сплетен</description>
+    <language>ru</language>
+    <atom:link href="https://vestnik.amber.ru/rss.xml" rel="self" type="application/rss+xml"/>
+    <lastBuildDate>Mon, 14 Apr 2025 09:30:00 +0300</lastBuildDate>
+
+    <item>
+      <title>Открыт мост через Колвир - "путь в Арден стал вдвое короче"</title>
+      <link>https://vestnik.amber.ru/2025/03/most-kolvir?utm_source=rss&amp;utm_medium=feed</link>
+      <guid isPermaLink="false">vestnik-2025-0314-01</guid>
+      <pubDate>Fri, 14 Mar 2025 12:00:00 +0300</pubDate>
+      <description>Регент Рэндом открыл мост длиной 318,75 м. Стоимость - 48,5 млн руб., на 12% меньше сметы. Проезд для жителей склона - 50 руб.</description>
+    </item>
+
+    <item>
+      <title>Посол Кашфы перенёс переговоры на 17.04.2025г.</title>
+      <link>https://vestnik.amber.ru/2025/03/kashfa</link>
+      <guid isPermaLink="false">vestnik-2025-0315-02</guid>
+      <pubDate>Sat, 15 Mar 2025 10:15:00 +0300</pubDate>
+      <description><![CDATA[Посол прибыл со свитой в 25 человек. По словам источника, "посол хотел увидеть мост раньше договора". Пошлина на зерно - <b>предмет торга</b>.]]></description>
+    </item>
+
+    <item>
+      <title>Мастерская Фионы: Козыри подорожают на 7%</title>
+      <link>https://vestnik.amber.ru/2025/04/trumps-price</link>
+      <guid isPermaLink="false">vestnik-2025-0401-03</guid>
+      <pubDate>Tue, 01 Apr 2025 08:00:00 +0300</pubDate>
+      <description>С 1 мая именной Козырь будет стоить 12 840 руб. вместо 12 000 руб., типовой - 3 745 руб. Причина - подорожание лака и серебра (+15% за квартал). Заказы, оформленные до 30.04.2025, - по старой цене.</description>
+    </item>
+
+    <item>
+      <title>Трёхпалые следы у заставы № 3</title>
+      <link>https://vestnik.amber.ru/2025/04/arden-tracks</link>
+      <guid isPermaLink="false">vestnik-2025-0410-04</guid>
+      <pubDate>Thu, 10 Apr 2025 18:45:00 +0300</pubDate>
+      <description>Егеря Ардена в третий раз за месяц нашли следы неизвестного зверя: длина отпечатка 25 см, шаг 1,75 м. Джулиан просит жителей не ходить в лес в одиночку и сообщать о находках по тел. 8-800-555-35-35 или на julian@arden.amber.ru.</description>
+    </item>
+
+    <item>
+      <title>Указ № 114 "О пошлинах на ввоз из Теней"</title>
+      <link>https://vestnik.amber.ru/2025/04/decree-114</link>
+      <guid isPermaLink="false">vestnik-2025-0414-05</guid>
+      <pubDate>Mon, 14 Apr 2025 09:30:00 +0300</pubDate>
+      <description>Пошлина на ввоз оружия из Теней - 15%, на предметы роскоши - 25%, на зерно &amp; фураж - 0%. Ввоз Козырей, сделанных вне Амбера, запрещён (ч. 2 ст. 7). Текст указа - на сайте канцелярии amber-gov.ru/decrees/114.</description>
+    </item>
+  </channel>
+</rss>

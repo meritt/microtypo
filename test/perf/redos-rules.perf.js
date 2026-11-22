@@ -1,5 +1,5 @@
-// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node from
-// `.nvmrc`, one file at a time, and no other test run, coverage or build beside it. Ratio
+// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node pinned in
+// `package.json`, one file at a time, and no other test run, coverage or build beside it. Ratio
 // checks hold on any machine; absolute limits were set on an Intel i9-10910 under macOS and are
 // smoke limits elsewhere.
 
@@ -73,6 +73,18 @@ test('number/date groups keep no-digit prose within budget', () => {
   assert.ok(ms < 80, `no-digit prose took ${ms.toFixed(1)}ms`);
 });
 
+test('an incomplete dimension chain is read once', () => {
+  const engine = new MicroTypo({ maxInputLength: 100_000 });
+  const run = (n) => {
+    const text = `${'1x 1x '.repeat(n)}1xL`;
+    assert.equal(engine.process(text), text);
+  };
+  run(500);
+  const one = best(run, 2500);
+  const two = best(run, 5000);
+  assert.ok(two < Math.max(one, 0.5) * 3.5, `N ${one} ms, 2N ${two} ms`);
+});
+
 // `URL_REGEX` goes quadratic on dotted and hyphenated ASCII runs, which V8 does not Latin1-mask.
 for (const unit of ['a.', '1.', 'a-', '1.0.']) {
   test(`${JSON.stringify(unit)}×N scales ~linearly`, () => {
@@ -139,4 +151,83 @@ test('tag reading linear on stray-quote run before an unterminated tag', () => {
 
   const ms = t(400);
   assert.ok(ms < 100, `TAG_RE too slow on 400 stray quotes: ${ms.toFixed(1)}ms`);
+});
+
+// A fourfold step: linear growth lands near 4x and quadratic near 16x, and the slack absorbs the
+// noise floor of a run of a millisecond or two.
+function assertFourfoldLinear(name, run, n) {
+  run(n);
+  const small = best(run, n);
+  const large = best(run, 4 * n);
+
+  assert.ok(
+    large < small * 8 + 1,
+    `${name}: 4x the input cost ${(large / small).toFixed(1)}x the time (${small.toFixed(2)}ms -> ${large.toFixed(2)}ms)`
+  );
+}
+
+const LINEAR_INPUTS = [
+  ['a scheme and an unclosed paren before a long run', (n) => `http://(${'a'.repeat(n)}`, 20_000],
+  [
+    'a bare domain and an unclosed paren before a long run',
+    (n) => `www.example.com/(${'a'.repeat(n)}`,
+    20_000
+  ],
+  ['a URL of nothing but closing parens', (n) => `http://${')'.repeat(n)}`, 10_000],
+  [
+    'a URL behind a run of opening parens',
+    (n) => `Корвин ${'('.repeat(n)}http://amber.example/y${')'.repeat(n)}`,
+    2500
+  ],
+  ['a run of straight quotes', (n) => '"'.repeat(n), 8000],
+  ['a run of Cyrillic letters with no at-sign', (n) => 'а'.repeat(n), 7500],
+  ['a long digit run', (n) => `1${'2'.repeat(n)}`, 10_000],
+  ['a printf sign before a long digit run and a dollar', (n) => `%${'1'.repeat(n)}$`, 10_000],
+  ['a long digit run before a ruble sign', (n) => `${'1'.repeat(n)}₽`, 10_000],
+  [
+    'a digit before a long run of spaces and tabs and triads',
+    (n) => `1${' \t'.repeat(n)}123 456`,
+    10_000
+  ],
+  ['a long run of spaces between two words', (n) => `a${' '.repeat(n)}b`, 5000],
+  [
+    'a long run of spaces and no-break spaces between two words',
+    (n) => `a${' \u{00A0}'.repeat(n)}b`,
+    2500
+  ],
+  ['registered marks after names', (n) => 'Windows(R) '.repeat(n), 2000],
+  ['hyphens between operands of equations', (n) => 'a = b - c - 10 - 2 = 8 '.repeat(n), 500],
+  ['a hyphen after a long operand of an equation', (n) => `x = ${'a'.repeat(n)} - b`, 10_000],
+  ['copyright marks behind an enumeration', (n) => '(a) (c) Амбер '.repeat(n), 1000],
+  ['a run of one Latin letter', (n) => 'a'.repeat(n), 20_000],
+  ['repeated prose', (n) => 'Корвин шёл к «Амберу» — путь длиной 1000 шагов.'.repeat(n), 200]
+];
+
+for (const [name, build, n] of LINEAR_INPUTS) {
+  test(`${name} scales ~linearly`, () => {
+    const typo = new MicroTypo({
+      html: true,
+      render: { paragraphs: false },
+      maxInputLength: 5_000_000,
+      maxProcessingMs: 0
+    });
+
+    assertFourfoldLinear(name, (k) => typo.process(build(k)), n);
+  });
+}
+
+// A selector with too many stars is refused before it is compiled to a pattern that backtracks.
+test('a many-star selector is refused in time that does not grow with the stars', () => {
+  assertFourfoldLinear(
+    'many-star selector',
+    (stars) => {
+      for (let i = 0; i < 200; i += 1) {
+        assert.throws(
+          () => new MicroTypo({ rules: { [`quote.c${'*'.repeat(stars)}Z`]: false } }),
+          /selector/i
+        );
+      }
+    },
+    40
+  );
 });

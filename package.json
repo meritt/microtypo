@@ -1,6 +1,6 @@
 {
   "name": "microtypo",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Russian typography that never mangles your code, URLs, or markup. Zero-dependency, safe on untrusted text",
   "keywords": [
     "cyrillic",
@@ -44,11 +44,14 @@
     "build:browser": "node scripts/build-browser.mjs",
     "build:conformance": "node test/conformance/build.mjs",
     "coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-lines=98 --test-coverage-branches=94 --test-coverage-functions=96 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info 'test/**/*.test.js'",
+    "diff:texts": "node test/tools/text-diff.mjs",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
+    "fuzz": "node test/tools/fuzz-invariants.mjs",
     "lint": "oxlint --report-unused-disable-directives",
     "lint:glyphs": "node test/tools/glyph-check.mjs",
     "lint:redos": "node test/tools/redos-check.mjs",
+    "perf:compare": "node test/tools/perf-compare.mjs",
     "perf:profile": "node test/tools/perf-profile.mjs",
     "perf:profile:json": "node test/tools/perf-profile.mjs --json",
     "perf:scenarios": "node test/tools/perf-scenario-report.mjs",
@@ -59,26 +62,22 @@
     "test:watch": "node --test --watch 'test/**/*.test.js'"
   },
   "devDependencies": {
-    "oxfmt": "^0.76.0",
-    "oxlint": "^1.91.0",
+    "oxfmt": "^0.79.0",
+    "oxlint": "^1.94.0",
     "redos-detector": "^6.1.4",
-    "rolldown": "^1.2.16",
+    "rolldown": "^1.3.3",
     "smol-toml": "^1.9.1",
     "yaml": "^2.9.1"
   },
   "devEngines": {
-    "packageManager": {
-      "name": "pnpm",
-      "version": "^12.16.1",
-      "onFail": "download"
-    },
     "runtime": {
       "name": "node",
-      "version": "^26.13.0",
-      "onFail": "error"
+      "version": "26.13.1",
+      "onFail": "download"
     }
   },
   "engines": {
     "node": ">=26.13.0"
-  }
+  },
+  "packageManager": "pnpm@12.21.0"
 }

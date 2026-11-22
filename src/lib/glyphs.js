@@ -10,6 +10,7 @@ export const G = Object.freeze({
   LSQUO: '‘',
   RSQUO: '’',
   PRIME: '″',
+  SINGLE_PRIME: '′',
 
   MDASH: '—',
   NDASH: '–',
@@ -36,6 +37,9 @@ export const G = Object.freeze({
 
   LARR: '←',
   RARR: '→',
+  HARR: '↔',
+  RIMPL: '⇒',
+  HEQUIV: '⇔',
 
   SUP2: '²',
   SUP3: '³',
@@ -43,6 +47,12 @@ export const G = Object.freeze({
   FRAC12: '½',
   FRAC14: '¼',
   FRAC34: '¾',
+  FRAC13: '⅓',
+  FRAC23: '⅔',
+  FRAC18: '⅛',
+  FRAC38: '⅜',
+  FRAC58: '⅝',
+  FRAC78: '⅞',
 
   COMBINING_ACUTE: '\u{0301}' // combining acute accent
 });
@@ -92,8 +102,47 @@ export const GLYPH_TO_ENTITY = Object.freeze({
 // class.
 const GLYPH_RE = new RegExp(`[${Object.keys(GLYPH_TO_ENTITY).map(RegExp.escape).join('')}]`, 'gu');
 
-export function unicodeToEntities(text) {
-  return text.replace(GLYPH_RE, (g) => GLYPH_TO_ENTITY[g] ?? g);
+const EXTENDED_FRACTION_GLYPHS = [G.FRAC13, G.FRAC23, G.FRAC18, G.FRAC38, G.FRAC58, G.FRAC78];
+// Every vulgar fraction the engine writes, as the body of a character class.
+export const FRACTION_GLYPHS = `${G.FRAC12}${G.FRAC14}${G.FRAC34}${EXTENDED_FRACTION_GLYPHS.join('')}`;
+
+export const OPTIONAL_GLYPH_RULES = [
+  ['number', 'fraction_extended', EXTENDED_FRACTION_GLYPHS],
+  ['number', 'minus', EXTENDED_FRACTION_GLYPHS],
+  ['number', 'prime', [G.SINGLE_PRIME]],
+  ['symbol', 'arrows_extended', [G.HARR, G.RIMPL, G.HEQUIV]]
+];
+const OPTIONAL_CODES = new Map(
+  OPTIONAL_GLYPH_RULES.flatMap(([, , glyphs]) =>
+    glyphs.map((glyph) => [glyph.codePointAt(0), glyph])
+  )
+);
+const OPTIONAL_RE = new RegExp(`[${[...OPTIONAL_CODES.values()].join('')}]`, 'gu');
+// A numeric character reference up to its `;`: the hexadecimal digits in group 1, decimal in 2.
+export const NUMERIC_REFERENCE_HEAD = '&#(?:[xX]([0-9A-Fa-f]+)|([0-9]+))';
+const OPTIONAL_REFERENCE_RE = new RegExp(`${NUMERIC_REFERENCE_HEAD};`, 'gu');
+
+export function decodeOptionalGlyphs(text, selected, reference = OPTIONAL_REFERENCE_RE) {
+  return text.replace(reference, (match, hex, decimal) => {
+    const radix = hex === undefined ? 10 : 16;
+    const glyph = OPTIONAL_CODES.get(Number.parseInt(hex ?? decimal, radix));
+    return selected.has(glyph) ? glyph : match;
+  });
+}
+
+function encodeOptionalGlyphs(text, selected) {
+  return selected === null
+    ? text
+    : text.replace(OPTIONAL_RE, (glyph) =>
+        selected.has(glyph) ? `&#${glyph.codePointAt(0)};` : glyph
+      );
+}
+
+export function unicodeToEntities(text, optional = null) {
+  return encodeOptionalGlyphs(
+    text.replace(GLYPH_RE, (g) => GLYPH_TO_ENTITY[g] ?? g),
+    optional
+  );
 }
 
 // XML 1.0 predefines only `amp`, `lt`, `gt`, `quot` and `apos`, so a named entity has to be spelled
@@ -102,6 +151,9 @@ const GLYPH_TO_NUMERIC = Object.freeze(
   Object.fromEntries(Object.keys(GLYPH_TO_ENTITY).map((g) => [g, `&#${g.codePointAt(0)};`]))
 );
 
-export function unicodeToXmlEntities(text) {
-  return text.replace(GLYPH_RE, (g) => GLYPH_TO_NUMERIC[g] ?? g);
+export function unicodeToXmlEntities(text, optional = null) {
+  return encodeOptionalGlyphs(
+    text.replace(GLYPH_RE, (g) => GLYPH_TO_NUMERIC[g] ?? g),
+    optional
+  );
 }

@@ -22,12 +22,5 @@ describe('big text', () => {
       const actual = new MicroTypo({ entities: false }).process(input);
       assert.equal(actual, read(`${scene}.expected.unicode.txt`));
     });
-
-    test(`${scene}: both modes process under 50ms`, () => {
-      const start = performance.now();
-      new MicroTypo({ html: true, entities: true }).process(input);
-      new MicroTypo({ entities: false }).process(input);
-      assert.ok(performance.now() - start < 50, `${scene} exceeded 50ms budget`);
-    });
   }
 });

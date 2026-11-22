@@ -1,5 +1,5 @@
-// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node from
-// `.nvmrc`, one file at a time, and no other test run, coverage or build beside it. Ratio
+// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node pinned in
+// `package.json`, one file at a time, and no other test run, coverage or build beside it. Ratio
 // checks hold on any machine; absolute limits were set on an Intel i9-10910 under macOS and are
 // smoke limits elsewhere.
 
@@ -250,3 +250,57 @@ test('TOML key paths under a deep header cost the document, not the document squ
     `4x the size cost ${(large / small).toFixed(1)}x the time (${small.toFixed(2)}ms -> ${large.toFixed(2)}ms)`
   );
 });
+
+// A selector compared against the full path walks the whole ancestry of every span; a chain of k
+// nested values is then k(k+1)/2 segments for one selection.
+const valueChain = (depth) => `${'["x",'.repeat(depth)}"x"${']'.repeat(depth)}`;
+const CHAIN_SELECTORS = [
+  ['absent'],
+  ['a.absent'],
+  ['/1/*'],
+  ['*.0'],
+  ['0'],
+  ['absent', 'a.absent', '/absent', ...Array.from({ length: 6 }, (_, i) => `absent${i}`)]
+];
+
+function selectBoth(spans, list) {
+  selectValueSpans(spans, { fields: list });
+  selectValueSpans(spans, { exclude: list });
+}
+
+for (const list of CHAIN_SELECTORS) {
+  test(`selecting ${JSON.stringify(list)} from a deep chain costs the chain, not its square`, () => {
+    const small = scanJson(valueChain(5000));
+    const large = scanJson(valueChain(20_000));
+
+    const smallMs = once(() => selectBoth(small, list));
+    const largeMs = once(() => selectBoth(large, list));
+
+    assert.ok(
+      largeMs < smallMs * 8 + 1,
+      `4x the depth cost ${(largeMs / smallMs).toFixed(1)}x the time (${smallMs.toFixed(2)}ms -> ${largeMs.toFixed(2)}ms)`
+    );
+  });
+}
+
+// Every value of the chain sits at index 0 but the innermost, at 1, so `exclude` names both to
+// leave nothing for the pipeline and time the selection alone.
+for (const selector of ['absent', 'a.absent', '/absent', '/1/*']) {
+  for (const choice of [{ fields: [selector] }, { exclude: [selector, '0', '1'] }]) {
+    test(`deep JSON selection ${JSON.stringify(choice)} through the public API costs the chain`, () => {
+      const typo = new MicroTypo({
+        input: { format: 'json', ...choice },
+        maxInputLength: 1_000_000,
+        maxProcessingMs: 0
+      });
+
+      const small = once(() => typo.process(valueChain(5000)));
+      const large = once(() => typo.process(valueChain(20_000)));
+
+      assert.ok(
+        large < small * 8 + 1,
+        `4x the depth cost ${(large / small).toFixed(1)}x the time (${small.toFixed(2)}ms -> ${large.toFixed(2)}ms)`
+      );
+    });
+  }
+}

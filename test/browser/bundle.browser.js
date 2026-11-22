@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 
 import { buildBrowser } from '../../scripts/build-browser.mjs';
 import * as main from '../../src/index.js';
+import { ADDED_RULE_PROSE } from '../tools/fuzz/grammar.mjs';
 
 let dir;
 let bundle;
@@ -43,11 +44,86 @@ test('the bundle typesets the corpus exactly as the sources do', async () => {
   }
 });
 
+test('the bundle executes JSON data rules and exposes reconstructing edits and original trace ranges', () => {
+  const config = {
+    presets: false,
+    input: 'json',
+    ruleGroups: [
+      {
+        name: 'terms',
+        rules: [
+          { id: 'first', pattern: { source: 'a', flags: 'g' }, replacement: 'b' },
+          { id: 'second', pattern: { source: 'b', flags: 'g' }, replacement: 'c' }
+        ]
+      }
+    ]
+  };
+  const input = '{"x":"\\u0061a"}';
+  const result = new bundle.MicroTypo(config).process(input, {
+    trace: true,
+    edits: true,
+    changes: true
+  });
+  assert.equal(result.text, '{"x":"cc"}');
+  assert.deepEqual(
+    result.trace.map(({ count, ranges }) => ({ count, ranges })),
+    [
+      {
+        count: 2,
+        ranges: [
+          [6, 12],
+          [12, 13]
+        ]
+      },
+      {
+        count: 2,
+        ranges: [
+          [6, 12],
+          [12, 13]
+        ]
+      }
+    ]
+  );
+  let output = input;
+  for (const { start, end, text } of result.edits.toReversed()) {
+    output = output.slice(0, start) + text + output.slice(end);
+  }
+  assert.equal(output, result.text);
+  assert.deepEqual(
+    result,
+    new main.MicroTypo(config).process(input, { trace: true, edits: true, changes: true })
+  );
+});
+
+test('the bundle typesets the added rules and their references in every output mode', () => {
+  for (const [, text] of ADDED_RULE_PROSE) {
+    for (const html of [false, true]) {
+      for (const entities of [false, true]) {
+        const config = { html, entities };
+        const expected = main.microtypo(text, config);
+        assert.equal(bundle.microtypo(text, config), expected);
+        assert.equal(bundle.microtypo(expected, config), main.microtypo(expected, config));
+      }
+    }
+  }
+});
+
 test('the bundle typesets every format and option as the sources do', async () => {
   const fixtures = new URL('../fixtures/big-text/', import.meta.url);
   const texts = [
     'Корвин сказал: "Амбер \u{E000} - тут" http://amber.example/x и т.д.',
-    '{"title":"Амбер - лучший"}'
+    '{"title":"Амбер - лучший"}',
+    `\${name}: {n, plural, one {# день - текст} other {# дней - тексты}} %1$s`,
+    '<!-- microtypo-ignore-start -->Код - "текст"<!-- microtypo-ignore-end -->\r\nКорвин - принц\r\n',
+    'если a<b, то "c" - d',
+    '| Альфа | Бета |\r\n| :- | -: |\r\n| Корвин - принц | Эрик |\r\n',
+    '$a - b$ \\(x - y\\) $$\r\na - b\r\n$$ Корвин - принц',
+    '$a - b<c$> Корвин - принц',
+    '$a - b\\\nc - d$\n\n\\(a - b\\\rc - d\\)',
+    '{(() => { if (ok) {} else /}}/.test(x); return "А - б"; })()} Корвин - принц',
+    '{(() => { const x = function() {} / 2; return "А - б"; })()} Корвин - принц',
+    'import X from "./x.js"\n\n<Box value={<Inner>{"}"}</Inner>}>Корвин - принц</Box>',
+    '<img alt="Корвин - принц &quot;текст&quot;" title=\'"Амбер" - город\'><meta name="description" content="А - б">'
   ];
 
   const names = await readdir(fixtures);
@@ -61,7 +137,17 @@ test('the bundle typesets every format and option as the sources do', async () =
     { html: true, entities: true },
     { input: 'html', html: true },
     { input: 'markdown' },
-    { input: 'json' }
+    { input: { format: 'markdown', math: true } },
+    { input: { format: 'mdx', math: true } },
+    {
+      html: true,
+      entities: true,
+      input: { format: 'html', attributes: ['alt', 'title', 'content'] }
+    },
+    { input: 'json' },
+    { input: 'plain' },
+    { input: { placeholders: 'all' } },
+    { input: { format: 'markdown', pragmas: 'microtypo' } }
   ];
 
   for (const config of configs) {

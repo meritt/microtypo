@@ -14,7 +14,11 @@ const OPTIONS = {
   render: { type: 'string', multiple: true },
   set: { type: 'string', multiple: true },
   config: { type: 'string' },
+  'stdin-filepath': { type: 'string' },
   write: { type: 'boolean', short: 'w' },
+  explain: { type: 'boolean' },
+  check: { type: 'boolean' },
+  diff: { type: 'boolean' },
   'output-file': { type: 'string', short: 'o' },
   help: { type: 'boolean', short: 'h' },
   version: { type: 'boolean' }
@@ -39,8 +43,12 @@ export function parse(argv) {
     help: values.help === true,
     version: values.version === true,
     write: values.write === true,
+    explain: values.explain === true,
+    check: values.check === true,
+    diff: values.diff === true,
     outputFile: values['output-file'],
     configPath: values.config,
+    stdinFilepath: values['stdin-filepath'],
     files: positionals,
     config: buildConfig(values)
   };

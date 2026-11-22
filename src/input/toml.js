@@ -336,6 +336,13 @@ function scanInlineCollection(src, i, n, base, spans, checkBudget) {
 }
 
 export function scanToml(src, checkBudget) {
+  const bareCr = /\r(?!\n)/.exec(src);
+  if (bareCr !== null) {
+    throw new MicroTypoInputError('TOML newlines must use LF or CRLF; bare CR is not permitted', {
+      details: { offset: bareCr.index, reason: 'toml-bare-cr' }
+    });
+  }
+
   const spans = [];
   const n = src.length;
   let i = 0;

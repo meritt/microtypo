@@ -17,8 +17,7 @@ const md = { ...base, input: 'markdown' };
 const mdRender = { ...base, input: { format: 'markdown' }, render: { paragraphs: false } };
 const NBSP = '\u{00A0}';
 
-// A CR of its own ends a line as LF and CRLF do, CommonMark §2.1. The output writes LF wherever it
-// rewrites a line ending; a protected construct keeps the bytes it was written with.
+// A CR of its own ends a line as LF and CRLF do, CommonMark §2.1. Files retain their authored endings.
 const toCr = (src) => src.replaceAll('\n', '\r');
 const toCrlf = (src) => src.replaceAll('\n', '\r\n');
 const lf = (src) => src.replace(/\r\n?/g, '\n');
@@ -43,6 +42,151 @@ test('markdown mode preserves single-backtick code spans', () => {
   const out = microtypo('Корвин `--no-verify` Эрик', md);
   assert.match(out, /`--no-verify`/);
   assert.doesNotMatch(out.replace(/`[^`]*`/g, ''), /—/);
+});
+
+test('an email cannot take a delimiter from either adjacent Markdown code span', () => {
+  for (const format of ['markdown', 'mdx']) {
+    for (const html of [false, true]) {
+      const config = { input: format, html, render: { paragraphs: false } };
+      for (const [source, expected] of [
+        ['Сравните `a@b.ru` и `5 - 3`.', 'Сравните `a@b.ru` и\u00a0`5 - 3`.'],
+        [
+          'Код: ``a`b@host.ru``, ``x = "a" + 5 - 3``. Название "Лес".',
+          'Код: ``a`b@host.ru``, ``x = "a" + 5 - 3``. Название «Лес».'
+        ],
+        ['[`a@b.ru` и `5 - 3`](/том) "Лес".', '[`a@b.ru` и\u00a0`5 - 3`](/том) «Лес».'],
+        [
+          'Письмо mailto:o`b@host.ru. Название "Лес".',
+          html
+            ? 'Письмо <a href="mailto:o`b@host.ru">mailto:o`b@host.ru</a>. Название «Лес».'
+            : 'Письмо mailto:o`b@host.ru. Название «Лес».'
+        ]
+      ]) {
+        const first = microtypo(source, config);
+        assert.equal(first, expected, source);
+        assert.equal(microtypo(first, config), expected, source);
+      }
+    }
+  }
+});
+
+test('a backtick in an earlier address leaves the following code span intact', () => {
+  for (const input of ['markdown', 'mdx']) {
+    const config = { input, html: true, render: { paragraphs: false } };
+    for (const address of ['post`tag@city.ru', 'mailto:post`tag@city.ru']) {
+      const source = `${address} затем \`"метка"\`. Заголовок "Лес".`;
+      const expected = `<a href="mailto:post\`tag@city.ru">${address}</a> затем \`"метка"\`. Заголовок «Лес».`;
+      assert.equal(microtypo(source, config), expected, source);
+      assert.equal(microtypo(expected, config), expected, expected);
+    }
+    for (const [source, expected] of [
+      ['<post`tag@city.ru> затем `"метка"`.', '<post`tag@city.ru> затем `"метка"`.'],
+      [
+        '[Контакт](mailto:post`tag@city.ru) затем `"метка"`.',
+        '[Контакт](mailto:post`tag@city.ru) затем `"метка"`.'
+      ],
+      ['Код =`a@b.ru` и `"метка"`.', 'Код =`a@b.ru` и\u00a0`"метка"`.'],
+      ['Код`a@b.ru` и `"метка"`.', 'Код`a@b.ru` и\u00a0`"метка"`.'],
+      [
+        'Сайт https://museum.ru/a%60b, `a@b.ru`, `"метка"`.',
+        'Сайт <a href="https://museum.ru/a%60b">museum.ru/a%60b</a>, `a@b.ru`, `"метка"`.'
+      ]
+    ]) {
+      assert.equal(microtypo(source, config), expected, source);
+      assert.equal(microtypo(expected, config), expected, expected);
+    }
+  }
+  const config = { input: { format: 'markdown', template: 'twig' } };
+  const source = '{{title}}`m@city.ru и "Лес"` затем `"метка"`.';
+  assert.equal(microtypo(source, config), source);
+});
+
+test('an angle email owns its leading backticks before the following Markdown code', () => {
+  for (const input of ['markdown', 'mdx']) {
+    for (const html of [false, true]) {
+      const config = { input, html, render: { paragraphs: false } };
+      for (const fence of ['`', '``']) {
+        const email = `${fence}p@host.ru`;
+        const code = `${fence}mode = "x"; 7 - 3${fence}`;
+        for (const prefix of [
+          `<${email}> Затем ${code}`,
+          `<${fence}p@e> ${code}`,
+          `<p${fence}q@host.a> ${code}`,
+          `<${email}>${code}`,
+          `\\\\<${email}> ${code}`,
+          `${code} <${email}> ${code}`,
+          `<a href="mailto:${email}">Почта</a> ${code}`
+        ]) {
+          const source = `${prefix} Дальше - "пример".`;
+          const expected = `${prefix} Дальше\u00a0— «пример».`;
+          const first = microtypo(source, config);
+          assert.equal(first, expected, source);
+          assert.equal(microtypo(first, config), expected, source);
+        }
+      }
+
+      for (const source of [
+        '\\<`p@host.ru> отсюда "код"`',
+        '<`p@host.ru отсюда "код"`',
+        '< `p@host.ru> отсюда "код"`',
+        '<`p@host..ru> отсюда "код"`',
+        '<`п@host.ru> отсюда "код"`',
+        '<`p@-host.ru> отсюда "код"`',
+        '``<`p@host.ru> текст "код"`` затем `"метка"`'
+      ]) {
+        const first = microtypo(source, config);
+        assert.equal(first, source);
+        assert.equal(microtypo(first, config), source);
+      }
+    }
+  }
+});
+
+test('the scheme of a Markdown autolink opens before a backtick in its URI', () => {
+  const code = '`"внутри" - код`';
+  for (const input of ['markdown', 'mdx']) {
+    for (const html of [false, true]) {
+      const config = { input, html, render: { paragraphs: false } };
+      for (const address of [
+        '<mailto:`q@x>',
+        '<MAILTO:q`@127.0.0.1>',
+        '<https://host.ru/a`b--c>',
+        '<ab:p`x>',
+        `<${'a'.repeat(32)}:p\`x>`,
+        '<news:p`x\u00a0y>'
+      ]) {
+        const source = `${address} Затем ${code} Дальше - "текст".`;
+        const expected = `${address} Затем ${code} Дальше\u00a0— «текст».`;
+        const first = microtypo(source, config);
+        assert.equal(first, expected, source);
+        assert.equal(microtypo(first, config), expected, source);
+      }
+      for (const source of [
+        '\\<mailto:`q@x> внутри "код"`',
+        '<1a:`q@x> внутри "код"`',
+        '<news:`q<x> внутри "код"`',
+        '``<mailto:`q@x> внутри "код"``',
+        '<Box addr="mailto:`q@x">Почта</Box> затем `"метка"`'
+      ]) {
+        const first = microtypo(source, config);
+        assert.equal(first, source);
+        assert.equal(microtypo(first, config), source);
+      }
+    }
+  }
+});
+
+test('Markdown leaves malformed angle URIs open to ordinary code spans', () => {
+  for (const source of [
+    '<a:`q@x> внутри "код"`',
+    `<${'a'.repeat(33)}:\`q@x> внутри "код"\``,
+    '<mailto:`q @x> внутри "код"`',
+    '<news:q`x без конца "код"`'
+  ]) {
+    const first = microtypo(source, md);
+    assert.equal(first, source);
+    assert.equal(microtypo(first, md), source);
+  }
 });
 
 test('markdown mode preserves triple-backtick fences', () => {
@@ -120,7 +264,7 @@ test('markdown mode preserves hard-break trailing spaces', () => {
 
 test('a hard break keeps its trailing spaces before CRLF and CR too', () => {
   for (const ending of ['\r\n', '\r']) {
-    assert.equal(microtypo(`Корвин  ${ending}Эрик`, md), 'Корвин  \nЭрик');
+    assert.equal(microtypo(`Корвин  ${ending}Эрик`, md), `Корвин  ${ending}Эрик`);
   }
 });
 
@@ -159,7 +303,7 @@ test('markdown mode: spaced thematic break survives the dash rule', () => {
 });
 
 test('markdown mode keeps leading indented-code indentation', () => {
-  assert.equal(microtypo('    Корвин\n    Эрик\n', md), '    Корвин\n    Эрик');
+  assert.equal(microtypo('    Корвин\n    Эрик\n', md), '    Корвин\n    Эрик\n');
 });
 
 test('text mode trims the blank edge lines and keeps the indent as the author laid it out', () => {
@@ -315,6 +459,165 @@ describe('scanFences', () => {
   });
 });
 
+describe('container directives', () => {
+  test('the fence lines come back as written and the content between them is typeset', () => {
+    for (const options of [md, { ...base, input: 'frontmatter' }]) {
+      assert.equal(
+        sameOnEveryEnding(':::note\nТекст - тире\n:::', options),
+        `:::note\nТекст${NBSP}— тире\n:::`
+      );
+    }
+
+    assert.equal(
+      microtypo('---\ntitle: x\n---\n\n:::note\nТекст - тире\n:::', {
+        ...base,
+        input: 'frontmatter'
+      }),
+      `---\ntitle: x\n---\n\n:::note\nТекст${NBSP}— тире\n:::`
+    );
+  });
+
+  test('the name and attributes stay with the fence to the end of the line', () => {
+    for (const fence of [
+      ':::tip Заголовок - "тире"',
+      ':::note{.class #id title="a - b"}',
+      '::: warning Осторожно...',
+      ':::details[Корвин - принц]'
+    ]) {
+      assert.equal(
+        microtypo(`${fence}\nТекст - тире\n:::`, md),
+        `${fence}\nТекст${NBSP}— тире\n:::`
+      );
+    }
+  });
+
+  test('a nested fence of more colons is a fence line too', () => {
+    assert.equal(
+      microtypo('::::outer\n:::inner{.x}\nТекст - тире\n:::\n::::', md),
+      `::::outer\n:::inner{.x}\nТекст${NBSP}— тире\n:::\n::::`
+    );
+  });
+
+  test('a fence opens behind its indent and the quote or list markers in front of it', () => {
+    for (const [src, expected] of [
+      ['   :::note\nТекст - тире\n   :::', `   :::note\nТекст${NBSP}— тире\n   :::`],
+      [
+        '> :::tip Заголовок - тире\n> Текст - тире\n> :::',
+        `> :::tip Заголовок - тире\n> Текст${NBSP}— тире\n> :::`
+      ],
+      ['- :::note\n  Текст - тире\n  :::', `- :::note\n  Текст${NBSP}— тире\n  :::`],
+      [
+        'Текст - тире\n:::note\nЕщё - тире\n:::',
+        `Текст${NBSP}— тире\n:::note\nЕщё${NBSP}— тире\n:::`
+      ]
+    ]) {
+      assert.equal(microtypo(src, md), expected, src);
+    }
+  });
+
+  test('the fence lines are found by scanFences', () => {
+    const src = ':::note{.x}\nТекст\n> :::';
+
+    assert.deepEqual(spanText(src, scanFences(src)), [':::note{.x}', '> :::']);
+  });
+
+  test('colons inside a line or past the indent of a fence stay prose', () => {
+    assert.equal(microtypo('а ::: б', md), 'а: б');
+    assert.equal(microtypo('Текст\n    :::note', md), 'Текст\n    :note');
+  });
+
+  test('text and html read the colons as prose', () => {
+    for (const options of [base, { ...base, input: 'html' }]) {
+      assert.equal(
+        microtypo(':::note\nТекст - тире\n:::', options),
+        `:note\nТекст${NBSP}— тире\n:`
+      );
+    }
+  });
+});
+
+describe('a leading YAML or TOML header', () => {
+  test('comes back as written and the body is typeset', () => {
+    assert.equal(
+      microtypo('---\ntitle: "Амбер - город"\ndate: "2024-01-01"\n---\n\nТекст - тире', md),
+      `---\ntitle: "Амбер - город"\ndate: "2024-01-01"\n---\n\nТекст${NBSP}— тире`
+    );
+    assert.equal(
+      microtypo('+++\ntitle = "Амбер - город"\n+++\nТекст - тире', md),
+      `+++\ntitle = "Амбер - город"\n+++\nТекст${NBSP}— тире`
+    );
+    assert.equal(
+      microtypo('---\ntitle: "a - b"\n...\nТекст - тире', md),
+      `---\ntitle: "a - b"\n...\nТекст${NBSP}— тире`
+    );
+  });
+
+  test('keeps the line endings it was written with', () => {
+    assert.equal(
+      microtypo('---\r\ntitle: "Амбер - город"\r\n---\r\n\r\nТекст - тире', md),
+      `---\r\ntitle: "Амбер - город"\r\n---\r\n\r\nТекст${NBSP}— тире`
+    );
+  });
+
+  test('opens no block of the body: a fence spelled in it is the header', () => {
+    assert.equal(
+      microtypo('---\ntitle: "```"\n---\n\nТекст - тире\n```\nкод - тире\n```', md),
+      `---\ntitle: "\`\`\`"\n---\n\nТекст${NBSP}— тире\n\`\`\`\nкод - тире\n\`\`\``
+    );
+  });
+
+  test('is none without its closing line, and the document is typeset as Markdown', () => {
+    assert.equal(
+      microtypo('---\ntitle: "Амбер - город"\n\nТекст - тире', md),
+      `---\ntitle: «Амбер${NBSP}— город»\n\nТекст${NBSP}— тире`
+    );
+    assert.equal(
+      microtypo('+++\ntitle = "Амбер - город"\n---\nТекст', md),
+      `+++\ntitle = «Амбер${NBSP}— город»\n---\nТекст`
+    );
+  });
+
+  test('a thematic break before prose opens no header, and the prose is typeset', () => {
+    assert.equal(
+      microtypo('---\n\nГлава - первая, "начало"\n\n---\n\nДальше - текст', md),
+      `---\n\nГлава${NBSP}— первая, «начало»\n\n---\n\nДальше${NBSP}— текст`
+    );
+    assert.equal(
+      microtypo('---\nГлава - первая\n---\n\nДальше - текст', md),
+      `---\nГлава${NBSP}— первая\n---\n\nДальше${NBSP}— текст`
+    );
+    assert.equal(
+      microtypo('---\nГлава - первая\n---\n\nДальше - текст', { ...md, input: 'mdx' }),
+      `---\nГлава${NBSP}— первая\n---\n\nДальше${NBSP}— текст`
+    );
+  });
+
+  test('an empty header and one opening with a comment are headers', () => {
+    assert.equal(microtypo('---\n---\nТекст - тире', md), `---\n---\nТекст${NBSP}— тире`);
+    assert.equal(
+      microtypo('---\n# заметка\ntitle: "a - b"\n---\nТекст - тире', md),
+      `---\n# заметка\ntitle: "a - b"\n---\nТекст${NBSP}— тире`
+    );
+  });
+
+  test('is a header only on the first line', () => {
+    assert.equal(
+      microtypo('Текст\n---\ntitle: "a - b"\n---', md),
+      `Текст\n---\ntitle: «a${NBSP}— b»\n---`
+    );
+  });
+
+  test('the front-matter format still typesets it as YAML', () => {
+    assert.equal(
+      microtypo('---\ntitle: "Амбер - город"\n---\n\nТекст - тире', {
+        ...base,
+        input: 'frontmatter'
+      }),
+      `---\ntitle: "Амбер${NBSP}— город"\n---\n\nТекст${NBSP}— тире`
+    );
+  });
+});
+
 describe('scanLinkDestinations', () => {
   // Spans are interior-only: strictly between "](" and ")", neither delimiter included.
   test('angle-bracket destination form with a space inside', () => {
@@ -423,6 +726,115 @@ test('over-limit markdown link destination fails closed, never typographed', () 
   );
 });
 
+describe('a link destination and the address in its text', () => {
+  const mdHtml = { input: 'markdown', html: true };
+
+  test('a destination stays protected whatever the text in front of it', () => {
+    for (const [src, options] of [
+      ['[0::](#якорь-2)', md],
+      ['[3::](../x/y.md#раздел-1 "")', { input: 'frontmatter' }],
+      ['[ http:7](</img/a - b.png>)', mdHtml],
+      ['[http:1](https://localhost:8080/docs/v1.2/api#section-1)', mdHtml]
+    ]) {
+      assert.equal(microtypo(src, options), src);
+    }
+  });
+
+  test('an address in the text of a link is not made a link', () => {
+    for (const src of [
+      '[see https://example.com](https://example.com)',
+      '[see https://example.com here](https://example.com)',
+      '[write corwin@amber.example now](https://example.com)',
+      '![alt http://amber.example y](img.png)'
+    ]) {
+      const out = microtypo(src, mdHtml);
+
+      assert.equal(out, src);
+      assert.equal(microtypo(out, mdHtml), out);
+    }
+  });
+
+  test('an address in a destination ends at the parenthesis that closes it', () => {
+    for (const src of ['[](arden.technology/t?n=100000)𝔸', '[a](amber.example/t?n=1)x далее']) {
+      assert.equal(microtypo(src, mdHtml), src);
+    }
+  });
+
+  test('an address outside a link is still made one', () => {
+    assert.equal(
+      microtypo('[ссылка](https://ex.com/a) http://amber.example', mdHtml),
+      '[ссылка](https://ex.com/a) <a href="http://amber.example">amber.example</a>'
+    );
+    assert.equal(
+      microtypo('(см. https://amber.example/a) и', mdHtml),
+      '(см.\u{00A0}<a href="https://amber.example/a">amber.example/a</a>) и'
+    );
+  });
+
+  test('an ordinary link keeps its destination and its typeset text', () => {
+    assert.equal(
+      microtypo('[Корвин - король](https://ex.com/a-b "t")', mdHtml),
+      '[Корвин\u{00A0}— король](https://ex.com/a-b "t")'
+    );
+  });
+});
+
+describe('the text and the label of a reference link', () => {
+  const mdHtml = { input: 'markdown', html: true };
+
+  test('an address in the text is not made a link', () => {
+    for (const src of [
+      '[см. http://amber.example/a][ref]',
+      '[см. http://amber.example/a][]',
+      '[write corwin@amber.example now][Амбер]'
+    ]) {
+      const out = microtypo(src, mdHtml);
+
+      assert.equal(out, src);
+      assert.equal(microtypo(out, mdHtml), out);
+    }
+  });
+
+  test('the label is returned byte for byte and the text is typeset', () => {
+    assert.equal(microtypo('[текст - тире][a - b "c"]', md), '[текст\u{00A0}— тире][a - b "c"]');
+    assert.equal(
+      microtypo('Читай [Корвин - король][Глава 1-2] дальше', mdHtml),
+      'Читай [Корвин\u{00A0}— король][Глава 1-2] дальше'
+    );
+  });
+
+  test('an address outside the brackets is still made a link', () => {
+    assert.equal(
+      microtypo('[ссылка][ref] http://amber.example', mdHtml),
+      '[ссылка][ref] <a href="http://amber.example">amber.example</a>'
+    );
+  });
+
+  test('brackets with an inline link behind them are no label', () => {
+    assert.equal(
+      microtypo('[a - b][c - d](http://x.example/a-b)', md),
+      '[a\u{00A0}— b][c\u{00A0}— d](http://x.example/a-b)'
+    );
+  });
+
+  test('brackets across a paragraph break are no label', () => {
+    assert.equal(microtypo('[a][b - c\n\nd - e]', md), '[a][b\u{00A0}— c\n\nd\u{00A0}— e]');
+  });
+
+  test('a span covers the label alone, and an empty label has none', () => {
+    const src = '[см. там][a - b] и [x][] и [y][z](/p)';
+
+    assert.deepEqual(spanText(src, scanLinkDestinations(src)), ['a - b', '/p']);
+  });
+});
+
+test('the address of a link that does not parse is not made a link', () => {
+  const src = 'Читай [Мерлин](https://amber.io/a_b "Мерлин "цитата"") тут';
+  const out = microtypo(src, { input: 'markdown', html: true });
+
+  assert.match(out, /^Читай \[Мерлин\]\(https:\/\/amber\.io\/a_b /u);
+});
+
 test('in-bound markdown link destination stays byte-identical (not typographed)', () => {
   const src = '[Амбер](/amber/10-19-foo)';
   const out = microtypo(src, { input: 'markdown', render: { paragraphs: false } });
@@ -442,7 +854,7 @@ describe('code spans of any delimiter length', () => {
 
   test('two spans on one line each stay protected', () => {
     const src = 'Мерлин: ```a - "b"``` и ```c - "d"``` готово.';
-    assert.equal(microtypo(src, mdRender), src);
+    assert.equal(microtypo(src, mdRender), src.replace('и ', `и${NBSP}`));
   });
 
   test('a span closes only on a run of its own length', () => {
@@ -752,7 +1164,7 @@ describe('scanIndentedCode', () => {
     assert.deepEqual(spanText(src, scanIndentedCode(src)), [
       '    merlin.walk("Амбер")\n\n\n    merlin.walk("Хаос")'
     ]);
-    assert.equal(microtypo(src, md), src.trimEnd());
+    assert.equal(microtypo(src, md), src);
   });
 
   test('blank lines after the last chunk stay outside the block', () => {
@@ -767,7 +1179,7 @@ describe('scanIndentedCode', () => {
     const src = '>\n>     merlin.walk()\n';
 
     assert.deepEqual(spanText(src, scanIndentedCode(src)), ['    merlin.walk()']);
-    assert.equal(microtypo(src, mdRender), '>\n>     merlin.walk()');
+    assert.equal(microtypo(src, mdRender), '>\n>     merlin.walk()\n');
   });
 
   test('a lazy continuation inside a blockquote is still not code', () => {
@@ -1003,7 +1415,10 @@ describe('block definitions and inline code keep their order', () => {
   test('a definition and a code span side by side both survive', () => {
     const src = '[амбер]: /url\n\nСмотри `Корвин - принц` и [Книга][амбер] тут';
 
-    assert.equal(microtypo(src, mdRender), src);
+    assert.equal(
+      microtypo(src, mdRender),
+      src.replace('и [', `и${NBSP}[`).replace('] тут', `]${NBSP}тут`)
+    );
   });
 
   // Code inside a label is part of the label; code the label runs into carries the label's own `]`
@@ -1027,7 +1442,7 @@ describe('block definitions and inline code keep their order', () => {
     test('a code span crossing the closing bracket leaves no label behind', () => {
       const src = 'Амбер - Хаос `и] Рэндом` тут';
 
-      assert.equal(microtypo(src, mdRender), `Амбер${NBSP}— Хаос \`и] Рэндом\` тут`);
+      assert.equal(microtypo(src, mdRender), `Амбер${NBSP}— Хаос \`и] Рэндом\`${NBSP}тут`);
     });
   });
 });
@@ -1038,13 +1453,13 @@ describe('CRLF source', () => {
     const src = 'Пролог\r\n\r\n    Корвин - принц\r\n';
 
     assert.deepEqual(spanText(src, scanIndentedCode(src)), ['    Корвин - принц']);
-    assert.equal(microtypo(src, mdRender), 'Пролог\n\n    Корвин - принц');
+    assert.equal(microtypo(src, mdRender), src);
   });
 
   test('a CRLF reference definition is protected', () => {
     const src = '[amber]: http://amber.example "Город"\r\nТекст\r\n';
 
-    assert.equal(microtypo(src, mdRender), '[amber]: http://amber.example "Город"\nТекст');
+    assert.equal(microtypo(src, mdRender), src);
   });
 
   test('a whitespace-only CRLF line carries no indent to vault', () => {
@@ -1893,7 +2308,7 @@ describe('a closed HTML block of kind 1', () => {
   test('a CRLF block keeps its body and its line endings', () => {
     const src = `<pre>\r\n${CODE}\r\n</script>\r\n\r\n${TAIL}`;
 
-    assert.equal(microtypo(src, md), `<pre>\r\n${CODE}\r\n</script>\n\n${TAIL_TYPESET}`);
+    assert.equal(microtypo(src, md), `<pre>\r\n${CODE}\r\n</script>\r\n\r\n${TAIL_TYPESET}`);
   });
 
   test('past its own end tag the line is prose', () => {
@@ -1926,7 +2341,7 @@ describe('a closed HTML block of kind 1', () => {
 
       assert.equal(
         microtypo(src, md),
-        `<pre>${eol}${CODE}${eol}</pre> ${TAIL_TYPESET}\n${TAIL_TYPESET}`
+        `<pre>${eol}${CODE}${eol}</pre> ${TAIL_TYPESET}${eol}${TAIL_TYPESET}`
       );
     }
   });
@@ -2068,7 +2483,7 @@ describe('CR line endings', () => {
     const src = '[ref]:\n  /some-path\n  "Title - text"\n\n[ref]';
 
     assert.equal(sameOnEveryEnding(src), src);
-    assert.equal(microtypo(toCr(src), md), '[ref]:\r  /some-path\r  "Title - text"\n\n[ref]');
+    assert.equal(microtypo(toCr(src), md), toCr(src));
   });
 
   test('every part of a definition may stand on a line of its own', () => {
@@ -2253,7 +2668,7 @@ describe('a tag in code and code in an element', () => {
   test('an element left open inside a line is still text around a code span', () => {
     const src = `<code> и \`"а" -- б\` ${PROSE}`;
 
-    assert.equal(microtypo(src, SITE), typesetOnce(src));
+    assert.equal(microtypo(src, SITE), typesetOnce(src).replace('и `', `и${NBSP}\``));
   });
 
   test('every line ending, container and front matter reads the tag in code the same way', () => {
@@ -2341,5 +2756,347 @@ describe('a tag in code and code in an element', () => {
       microtypo(html, md),
       `<script/>\`a\` ${PROSE} \` b</script> ${TYPESET.replace('Корвин', 'Эрик')}`
     );
+  });
+});
+
+const settled = (src, options) => {
+  const out = microtypo(src, options);
+
+  assert.equal(microtypo(out, options), out, `second pass of ${JSON.stringify(out)}`);
+
+  return out;
+};
+
+const templated = (template, render) => ({
+  ...base,
+  html: true,
+  input: { format: 'markdown', template },
+  render
+});
+
+// `<p>` and `<br>` asked for explicitly lay out the document's top-level prose paragraphs and nothing
+// else: a block construct comes out as it does with them off.
+describe('Markdown with paragraphs and breakline on', () => {
+  const on = (render) => ({ ...base, html: true, input: 'markdown', render });
+  const PARAGRAPHS = on({ paragraphs: true });
+  const BREAKLINE = on({ breakline: true });
+  const BOTH = on({ paragraphs: true, breakline: true });
+  const OFF = { ...base, html: true, input: 'markdown' };
+
+  const PROSE = 'Корвин - принц\nРэндом - брат';
+  const PROSE_OUT = `Корвин${NBSP}— принц\nРэндом${NBSP}— брат`;
+  const LAID_OUT = new Map([
+    [PARAGRAPHS, `<p>${PROSE_OUT}</p>`],
+    [BREAKLINE, `Корвин${NBSP}— принц<br>\nРэндом${NBSP}— брат`],
+    [BOTH, `<p>Корвин${NBSP}— принц<br>\nРэндом${NBSP}— брат</p>`]
+  ]);
+
+  test('a paragraph gets <p> and a heading and a list do not', () => {
+    const src =
+      '# Заголовок - тут\n\nПервая строка - тире\nвторая строка\n\n- пункт один\n- пункт два\n\nВторой абзац.';
+
+    assert.equal(
+      settled(src, PARAGRAPHS),
+      `# Заголовок${NBSP}— тут\n\n<p>Первая строка${NBSP}— тире\nвторая строка</p>\n\n- пункт один\n- пункт${NBSP}два\n\n<p>Второй абзац.</p>`
+    );
+  });
+
+  test('a line break inside a paragraph gets <br> and one inside a fence does not', () => {
+    const src =
+      '# Заголовок\n\nПервая строка - тире\nвторая строка\n\n```js\nconst a = "b";\n```\n\nПосле кода\nещё строка';
+
+    assert.equal(
+      settled(src, BREAKLINE),
+      `# Заголовок\n\nПервая строка${NBSP}— тире<br>\nвторая строка\n\n\`\`\`js\nconst a = "b";\n\`\`\`\n\nПосле кода<br>\nещё строка`
+    );
+    assert.equal(
+      settled(src, BOTH),
+      `# Заголовок\n\n<p>Первая строка${NBSP}— тире<br>\nвторая строка</p>\n\n\`\`\`js\nconst a = "b";\n\`\`\`\n\n<p>После кода<br>\nещё строка</p>`
+    );
+  });
+
+  const BLOCKS = [
+    ['ATX headings', '# Заголовок - тут\n## Подзаголовок - там'],
+    ['a setext heading', 'Эрик - старший\nи Каин\n==='],
+    ['a setext heading underlined with hyphens', 'Эрик - старший\nи Каин\n---'],
+    ['a backtick fence', '```js\nconst a = "b - c";\nещё\n```'],
+    ['a tilde fence', '~~~\nкод - "x"\nещё\n~~~'],
+    ['indented code', '    код - "x"\n    ещё'],
+    ['a list item with a continuation', '- пункт - раз\n  продолжение - да\nленивое\n- пункт два'],
+    ['an ordered list', '1. раз - два\n2. три'],
+    ['a paragraph inside a list item', '* пункт\n\n  абзац - в пункте\n  ещё'],
+    ['a quote with a lazy line', '> цитата - раз\n> два\nленивая'],
+    ['reference definitions', '[амбер]: http://example.com "Заголовок - тут"\n[хаос]: /x'],
+    ['thematic breaks', '---\n\n***\n\n___'],
+    ['a table', '| a - b | c |\n| - | - |\n| 1 - 2 | 3 |'],
+    ['a table with aligned columns', '| a - b | c |\n| :-- | --: |\n| 1 - 2 | 3 |'],
+    ['an HTML block', '<div>\nблок - да\nещё\n</div>'],
+    ['an HTML comment', '<!-- комментарий\nещё - да -->'],
+    ['directive lines', ':::note Заголовок - тут\n:::']
+  ];
+
+  for (const [name, block] of BLOCKS) {
+    test(`with paragraphs on, ${name}: as with them off`, () => {
+      const src = `${PROSE}\n\n${block}\n\n${PROSE}`;
+      const typeset = microtypo(src, OFF);
+
+      assert.doesNotMatch(typeset, /<p>|<br>/);
+
+      for (const [options, laidOut] of LAID_OUT) {
+        assert.equal(
+          settled(src, options),
+          typeset.replaceAll(PROSE_OUT, laidOut),
+          JSON.stringify(options.render)
+        );
+      }
+    });
+  }
+
+  test('a leading YAML header comes out as with paragraphs off', () => {
+    const src = `---\ntitle: "А - б"\nlist: x\n---\n\n${PROSE}`;
+    const typeset = microtypo(src, OFF);
+
+    for (const [options, laidOut] of LAID_OUT) {
+      assert.equal(settled(src, options), typeset.replace(PROSE_OUT, laidOut));
+    }
+  });
+
+  // A line the next one cuts off without a blank line, such as a list item, is no paragraph a `<p>`
+  // can close: in front of a line the HTML block it opens would run on into the block below.
+  test('a paragraph a block interrupts gets <br> and no <p>', () => {
+    const src = 'Корвин - принц\nРэндом:\n- раз\n- два';
+
+    assert.equal(settled(src, PARAGRAPHS), `Корвин${NBSP}— принц\nРэндом:\n- раз\n- два`);
+    assert.equal(settled(src, BOTH), `Корвин${NBSP}— принц<br>\nРэндом:\n- раз\n- два`);
+    assert.equal(
+      settled('Корвин - принц\nРэндом\n# Заголовок', BOTH),
+      `Корвин${NBSP}— принц<br>\nРэндом\n# Заголовок`
+    );
+  });
+
+  // A protected region is one line of the text the rules see, however many of the document's it
+  // spans: it is a paragraph's when all of them are, and leaves the paragraphs it straddles unmarked.
+  test('a protected region across lines is laid out with the lines it spans', () => {
+    assert.equal(
+      settled('Корвин `код - a\nb` дальше\nещё', BOTH),
+      '<p>Корвин `код - a\nb` дальше<br>\nещё</p>'
+    );
+    assert.equal(
+      settled('Корвин <!-- коммент\n\nещё --> и\nдальше\n\nТекст', BOTH),
+      '<p>Корвин <!-- коммент</p>\n\n<p>ещё --> и<br>\nдальше</p>\n\n<p>Текст</p>'
+    );
+  });
+
+  // A template expression is a placeholder of its own, and so are the spaces of a hard break behind
+  // it: the close of the paragraph goes in front of both.
+  describe('a template in front of the spaces of a hard break', () => {
+    for (const render of [{ paragraphs: true }, { paragraphs: true, breakline: true }]) {
+      test(`ends its paragraph or breaks a line of it, ${JSON.stringify(render)}`, () => {
+        const liquid = templated('liquid', render);
+
+        assert.equal(settled('{%%}  \n', liquid), '<p>{%%}</p>\n');
+        assert.equal(
+          settled('{% if x %}  \nтекст - тут\n', liquid),
+          `<p>{% if x %}  \nтекст${NBSP}— тут</p>\n`
+        );
+
+        for (const template of ['liquid', 'jinja']) {
+          assert.equal(
+            settled('Привет, {{ name }}  \nвторая строка', templated(template, render)),
+            '<p>Привет, {{ name }}  \nвторая строка</p>'
+          );
+        }
+      });
+    }
+
+    test('beside a template without a hard break or another construct before one', () => {
+      const liquid = templated('liquid', { paragraphs: true });
+
+      assert.equal(settled('{% if x %}\n', liquid), '<p>{% if x %}</p>\n');
+      assert.equal(settled('{% if x %} \n', liquid), '<p>{% if x %}</p>\n');
+      assert.equal(settled('{% if x %}\\\nтекст', liquid), '<p>{% if x %}\\\nтекст</p>');
+
+      for (const line of ['`код`', '<b>слово</b>', 'https://amber.example/a']) {
+        assert.equal(
+          settled(`${line}  \nвторая строка`, liquid),
+          `<p>${line}  \nвторая строка</p>`
+        );
+      }
+
+      assert.equal(
+        settled('{%%}  \n', { ...liquid, input: { format: 'text', template: 'liquid' } }),
+        '<p>{%%}</p>'
+      );
+    });
+
+    test('with breakline alone comes out as with neither', () => {
+      assert.equal(
+        microtypo('{%%}  \n', templated('liquid', { breakline: true })),
+        microtypo('{%%}  \n', templated('liquid', {}))
+      );
+    });
+  });
+
+  // A hard break ends no paragraph: its spaces behind the last one only end the document.
+  test('trailing spaces go while the final file newline remains', () => {
+    assert.equal(settled('Корвин - принц  \n', BOTH), `<p>Корвин${NBSP}— принц</p>\n`);
+    assert.equal(settled('Корвин - принц \n', BOTH), `<p>Корвин${NBSP}— принц</p>\n`);
+    assert.equal(
+      settled('Корвин  \n\nРэндом', BOTH),
+      microtypo('Корвин  \n\nРэндом', OFF)
+        .replace('Корвин', '<p>Корвин</p>')
+        .replace('Рэндом', '<p>Рэндом</p>')
+    );
+  });
+
+  test('white space at the edges of a paragraph stays outside its markup', () => {
+    assert.equal(
+      settled('   Корвин - принц\nРэндом \n\n# Заголовок', BOTH),
+      `   <p>Корвин${NBSP}— принц<br>\nРэндом</p> \n\n# Заголовок`
+    );
+  });
+
+  test('a noncharacter in the document or in a protected block changes nothing', () => {
+    assert.equal(
+      settled('Корвин\u{FFFF} - принц\nРэндом', BOTH),
+      `<p>Корвин\u{FFFF}${NBSP}— принц<br>\nРэндом</p>`
+    );
+    assert.equal(
+      settled('```\nкод\u{FFFF}\n```\n\nКорвин - принц\nРэндом', BOTH),
+      `\`\`\`\nкод\u{FFFF}\n\`\`\`\n\n<p>Корвин${NBSP}— принц<br>\nРэндом</p>`
+    );
+  });
+
+  test('a directive body set apart by blank lines is a paragraph, one against its fences is not', () => {
+    assert.equal(
+      settled(':::note\n\nТекст - внутри\nещё\n\n:::', BOTH),
+      `:::note\n\n<p>Текст${NBSP}— внутри<br>\nещё</p>\n\n:::`
+    );
+    assert.equal(
+      settled(':::note\nТекст - внутри\nещё\n:::', BOTH),
+      `:::note\nТекст${NBSP}— внутри<br>\nещё\n:::`
+    );
+  });
+
+  test('a line that ends in a hard break or an author <br> gets no second one', () => {
+    assert.equal(
+      settled('Корвин - принц  \nРэндом\\\nБлейз<br>\nФиона\nДжулиан', BOTH),
+      `<p>Корвин${NBSP}— принц  \nРэндом\\\nБлейз<br>\nФиона<br>\nДжулиан</p>`
+    );
+  });
+
+  test('every line ending lays out the same', () => {
+    sameOnEveryEnding(`${PROSE}\n\n# Заголовок\n\n- раз\n- два\n\n${PROSE}`, BOTH);
+  });
+
+  test('without them Markdown gets neither, and HTML and text get both everywhere', () => {
+    const src = '# Заголовок - тут\n\nКорвин\nРэндом\n\n- раз\n- два';
+
+    assert.equal(microtypo(src, OFF), `# Заголовок${NBSP}— тут\n\nКорвин\nРэндом\n\n- раз\n- два`);
+
+    for (const input of ['html', 'text']) {
+      assert.equal(
+        microtypo(src, { ...BOTH, input }),
+        `<p># Заголовок${NBSP}— тут</p>\n\n<p>Корвин<br>\nРэндом</p>\n\n<p>—${NBSP}раз<br>\n—${NBSP}два</p>`
+      );
+    }
+  });
+});
+
+// Written with the signs of the brief: `⍽` a no-break space.
+const nb = (text) => text.replaceAll('⍽', NBSP);
+
+describe('Markdown emphasis and links are transparent', () => {
+  test('the brief forms', () => {
+    assert.equal(microtypo('Он в доме и саду, 10 кг.', md), nb('Он⍽в⍽доме и⍽саду, 10⍽кг.'));
+    assert.equal(
+      microtypo('Он в *доме* и [саду](/x), 10 **кг**.', md),
+      nb('Он⍽в⍽*доме* и⍽[саду](/x), 10⍽**кг**.')
+    );
+    assert.equal(
+      microtypo('*Он в* доме, [он в](/x) саду.', md),
+      nb('*Он⍽в*⍽доме, [он⍽в](/x)⍽саду.')
+    );
+    assert.equal(microtypo('Он *в* доме', md), nb('Он⍽*в*⍽доме'));
+    assert.equal(microtypo('Он в _доме_ и `коде`', md), nb('Он⍽в⍽_доме_ и⍽`коде`'));
+  });
+
+  test('every emphasis marker and a reference link; targets and titles stay as written', () => {
+    assert.equal(microtypo('Он в ~~доме~~ и в __саду__', md), nb('Он⍽в⍽~~доме~~ и⍽в⍽__саду__'));
+    assert.equal(
+      microtypo('Он в *доме* и [саду](/x "Он в саду"), 10 **кг**.', md),
+      nb('Он⍽в⍽*доме* и⍽[саду](/x "Он в саду"), 10⍽**кг**.')
+    );
+    assert.equal(
+      microtypo('Он в [саду][m] и в ![доме](/i.png).\n\n[m]: /y "т.е. сад"', md),
+      nb('Он⍽в⍽[саду][m] и в ![доме](/i.png).\n\n[m]: /y "т.е. сад"')
+    );
+  });
+
+  test('a rule that takes away white space beside a marker leaves the emphasis as it reads', () => {
+    const cases = [
+      ['Внимание **!**', 'Внимание **!**'],
+      ['Он ушёл _?_', 'Он⍽ушёл _?_'],
+      ['Вот так **, а** потом', 'Вот так **, а** потом'],
+      ['Он сказал *да* **.**', 'Он⍽сказал *да* **.**']
+    ];
+
+    for (const [input, expected] of cases) {
+      assert.equal(microtypo(input, md), nb(expected), input);
+    }
+
+    assert.equal(microtypo('**Внимание** !', md), '**Внимание**!');
+    assert.equal(microtypo('Он сказал *да* .', md), nb('Он⍽сказал⍽*да*.'));
+    assert.equal(
+      microtypo('Он *и* т.д. там', { ...md, html: true }),
+      'Он <span style="white-space:nowrap;">*и* т. д.</span> там'
+    );
+  });
+
+  test('a rule that rewrites words beside a marker typesets the line as it does without it', () => {
+    assert.equal(
+      microtypo(nb('Он *сказал*.а⍽4:45—3:30⍽в⍽доме'), { ...md, html: true }),
+      nb('Он⍽*сказал*. <span style="white-space:nowrap;">а 4:45–3:30 в доме</span>')
+    );
+  });
+
+  test('a code span beside a quote the rules turn reads as a word on every pass', () => {
+    assert.equal(
+      microtypo('Он сказал: «вот "`код`"» и ушёл', md),
+      nb('Он⍽сказал: «вот „`код`“» и⍽ушёл')
+    );
+    assert.equal(
+      microtypo('Он сказал: «вот "слово"» и ушёл', md),
+      nb('Он⍽сказал: «вот „слово“» и⍽ушёл')
+    );
+
+    const typo = new MicroTypo(md);
+    const once = typo.process('«з"о ``ы``"";мьный«');
+
+    assert.equal(once, nb('«з⍽„о⍽``ы``“»;мьный"'));
+    assert.equal(typo.process(once), once);
+  });
+
+  test('a line ending and an escaped marker stay as they were', () => {
+    assert.equal(microtypo('Он в\n*доме*', md), 'Он в\n*доме*');
+    assert.equal(microtypo('Он в \\*доме\\*', md), 'Он в \\*доме\\*');
+  });
+});
+
+describe('equal maximal backtick runs', () => {
+  test('protects the first real span and typesets prose after it', () => {
+    const input = '`я```,`` три ` прошил - "x" ``';
+    const typo = new MicroTypo({ input: 'frontmatter' });
+    const output = typo.process(input);
+    assert.equal(output, '`я```,`` три ` прошил\u{00A0}— «x» ``');
+    assert.equal(typo.process(output), output);
+  });
+
+  test('preserves a real two-backtick span containing a single backtick', () => {
+    const typo = new MicroTypo({ input: 'markdown' });
+    const input = '`` три ` прошил - "x" `` далее - "текст"';
+    const output = typo.process(input);
+    assert.equal(output, '`` три ` прошил - "x" `` далее\u{00A0}— «текст»');
+    assert.equal(typo.process(output), output);
   });
 });

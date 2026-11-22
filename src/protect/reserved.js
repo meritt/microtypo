@@ -63,6 +63,8 @@ export function escapeReserved(text) {
 
   return {
     text: text.replace(RESERVED_RE, (ch) => forward.get(ch)),
-    unescape: (typeset) => typeset.replace(backRe, (ch) => back.get(ch))
+    unescape: (typeset, mapping) =>
+      mapping?.replace(typeset, backRe, (ch) => back.get(ch)) ??
+      typeset.replace(backRe, (ch) => back.get(ch))
   };
 }

@@ -272,6 +272,46 @@ test('textarea content is protected while the text around it is typeset', () => 
   assert.ok(out.includes('«Амбер»'), out);
 });
 
+// A formula is MathML notation: a hyphen in it is a minus, and its quotes and spaces are its own.
+describe('the content of a math element is a formula', () => {
+  test('it is protected in every format while the text around it is typeset', () => {
+    for (const [options, src, expected] of [
+      [{}, '<math>a - b</math> а - б', '<math>a - b</math> а\u{00A0}— б'],
+      [{}, '<MATH>"a"</MATH> а - б', '<MATH>"a"</MATH> а\u{00A0}— б'],
+      [
+        { input: 'html' },
+        '<p>Формула <math><mi>a</mi><mo>-</mo><mi>b</mi></math> - тут</p>',
+        '<p>Формула <math><mi>a</mi><mo>-</mo><mi>b</mi></math>\u{00A0}— тут</p>'
+      ],
+      [
+        { input: 'markdown' },
+        'Формула <math>"a" - b</math> - тут',
+        'Формула <math>"a" - b</math>\u{00A0}— тут'
+      ],
+      [
+        { input: 'xml' },
+        '<doc><math>a - b</math> а - б</doc>',
+        '<doc><math>a - b</math> а\u{00A0}— б</doc>'
+      ],
+      [{ input: 'json' }, '{"a":"<math>a - b</math> - x"}', '{"a":"<math>a - b</math>\u{00A0}— x"}']
+    ]) {
+      assert.equal(microtypo(src, options), expected, src);
+    }
+  });
+
+  test('<math/> is empty and the prose after it is typeset', () => {
+    assert.equal(microtypo('<math/> а - б'), '<math/> а\u{00A0}— б');
+    assert.equal(
+      microtypo('<doc><math/> а - б</doc>', { input: 'xml' }),
+      '<doc><math/> а\u{00A0}— б</doc>'
+    );
+  });
+
+  test('a name that only begins with math is another element', () => {
+    assert.equal(microtypo('<mathx>a - b</mathx>'), '<mathx>a\u{00A0}— b</mathx>');
+  });
+});
+
 describe('a raw-text element ends at the first closing tag, whatever its own text says', () => {
   const NO_BREAKS = { html: true, render: { paragraphs: false, breakline: false } };
 
@@ -335,6 +375,60 @@ describe('a raw-text element ends at the first closing tag, whatever its own tex
     const source = '<a title="<code>">Корвин - принц</a>';
 
     assert.equal(microtypo(source, NO_BREAKS), '<a title="<code>">Корвин\u{00A0}— принц</a>');
+  });
+
+  test('in Markdown an opener behind a tag that never ends is a tag, as the prose reads it', () => {
+    for (const body of [
+      '<style>a::after{content:"x - y"}</style>',
+      '<script>a = "x - y"</script>',
+      '<code>"x - y"</code>'
+    ]) {
+      for (const source of [`<n E=">${body} и "а" - б`, `текст ${body} и "а" - б`]) {
+        assert.equal(
+          microtypo(source, { input: 'markdown' }),
+          source.replace('и "а" - б', 'и\u{00A0}«а»\u{00A0}— б')
+        );
+      }
+    }
+  });
+
+  test('in Markdown the body of an element behind a tag that never ends is kept, with a quote in it or not', () => {
+    const bodies = [
+      '<style>(c) 2000 - x</style>',
+      '<style>(c) 2000   землях  своих\tтеперь x_2</style>',
+      '<script>if (a - b) { f(x) }</script>',
+      '<code>a - b (c)</code>',
+      '<pre>a - b (c)</pre>',
+      '<textarea>a - b (c)</textarea>',
+      '<kbd>a - b (c)</kbd>'
+    ];
+
+    for (const body of bodies) {
+      // An inline element is a word, so the last word binds to it; a block element takes no binding.
+      const gap = /^<(?:code|textarea|kbd)>/u.test(body) ? '\u{00A0}' : ' ';
+      for (const [source, expected] of [
+        [`<n E=">${body}`, `<n E=">${body}`],
+        [`<n E='>${body}`, `<n E='>${body}`],
+        [`Он <a title=">${body} ушёл`, `Он <a title=">${body}${gap}ушёл`],
+        [`<n E=">${body} и "а" - б`, `<n E=">${body} и\u{00A0}«а»\u{00A0}— б`],
+        [`<n E=">${body}\n\nи "а" - б`, `<n E=">${body}\n\nи\u{00A0}«а»\u{00A0}— б`],
+        [`текст ${body} и "а" - б`, `текст ${body} и\u{00A0}«а»\u{00A0}— б`]
+      ]) {
+        assert.equal(microtypo(source, { input: 'markdown' }), expected, source);
+        assert.equal(
+          microtypo(`---\na: 1\n---\n${source}`, { input: 'frontmatter' }),
+          `---\na: 1\n---\n${expected}`,
+          source
+        );
+      }
+    }
+  });
+
+  test('in Markdown a tag its paragraph ends keeps what it holds, an element name included', () => {
+    assert.equal(
+      microtypo('<n E="><code>а - б</code>" x="y"> и "а" - б', { input: 'markdown' }),
+      '<n E="><code>а - б</code>" x="y"> и\u{00A0}«а»\u{00A0}— б'
+    );
   });
 
   test('an unclosed raw-text opener does not swallow the safe tags behind it', () => {
@@ -1106,5 +1200,39 @@ describe('markdown HTML-block boundaries', () => {
 
       assert.equal(microtypo(head + TAIL, md), head + microtypo(TAIL, md));
     }
+  });
+});
+
+describe('a < before a letter that names no HTML tag', () => {
+  const CODE = '<code>rm -rf "a - b"</code>';
+
+  test('opens no tag, and the element behind it keeps its body', () => {
+    for (const input of ['html', 'text', 'markdown']) {
+      for (const stray of ['<тысячи рублей', '<é x', '<ь', '<_a b', '<1']) {
+        const source = `Цена ${stray}. Команда ${CODE} удаляет всё.`;
+        const output = microtypo(source, { input });
+
+        assert.ok(output.includes(CODE), `${input}: ${output}`);
+        assert.equal(microtypo(output, { input }), output, source);
+      }
+    }
+  });
+
+  test('is text for the rules, as the sign with a space behind it is', () => {
+    assert.equal(
+      microtypo('Цена <тысячи "рублей" - много', { input: 'html' }),
+      'Цена <тысячи «рублей»\u{00A0}— много'
+    );
+  });
+
+  test('a tag HTML names is still one, and XML names a tag by any letter', () => {
+    assert.equal(
+      microtypo('слово <b title="x - y">"в"</b> - г', { input: 'html' }),
+      'слово <b title="x\u{00A0}— y">«в»</b>\u{00A0}— г'
+    );
+    assert.equal(
+      microtypo('<док><книга имя="а - б">текст - "слово"</книга></док>', { input: 'xml' }),
+      '<док><книга имя="а - б">текст\u{00A0}— «слово»</книга></док>'
+    );
   });
 });

@@ -19,6 +19,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { BUNDLE_NAMES, SETTING_SELECTORS } from '../../src/core/options.js';
 import { VERSION } from '../../src/index.js';
 import { DEFAULT_GROUPS } from '../../src/rules/registry.js';
+import { ADDED_RULE_PROSE } from '../tools/fuzz/grammar.mjs';
 import { replay } from './replay.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
@@ -34,7 +35,7 @@ function captureSuite() {
     (f) => !f.startsWith('test/conformance/')
   );
   try {
-    const run = spawnSync(process.execPath, ['--test', ...files], {
+    const run = spawnSync(process.execPath, ['--test', '--test-concurrency=1', ...files], {
       cwd: ROOT,
       stdio: ['ignore', 'pipe', 'inherit'],
       maxBuffer: Infinity,
@@ -294,8 +295,289 @@ function caseKey(c) {
   ]);
 }
 
+function localizationDocument(format, text) {
+  switch (format) {
+    case 'json':
+      return JSON.stringify({ title: text });
+    case 'yaml':
+      return `title: ${JSON.stringify(text)}\r\n`;
+    case 'toml':
+      return `title = ${JSON.stringify(text)}\r\n`;
+    case 'xml':
+      return `<doc>${escapeXml(text)}</doc>\r\n`;
+    case 'frontmatter':
+      return `---\r\ntitle: ${JSON.stringify(text)}\r\n---\r\n\r\n${text}\r\n`;
+    default:
+      return text;
+  }
+}
+
+function formatCases() {
+  const cases = [];
+  const add = (text, input, html = false) => cases.push({ text, config: { html, input }, ops: [] });
+  const placeholders = {
+    icu: '{name}: {n, plural, one {# день - "текст"} other {# дней - "тексты"}}',
+    printf: '%1$s - "текст", %d и %@',
+    interpolation: `\${user.name} - "текст"`,
+    all: `\${name} {count} %1$s - "текст"`
+  };
+  for (const [mode, text] of Object.entries(placeholders)) {
+    for (const format of [
+      'text',
+      'html',
+      'plain',
+      'markdown',
+      'json',
+      'yaml',
+      'toml',
+      'xml',
+      'frontmatter'
+    ]) {
+      const source = localizationDocument(format, text);
+      for (const html of [false, true]) {
+        add(source, { format, placeholders: mode }, html);
+      }
+    }
+  }
+  for (const format of ['text', 'html', 'markdown', 'frontmatter']) {
+    for (const directive of [
+      'file',
+      'start',
+      'start -->\r\nКод - "текст"\r\n<!-- microtypo-ignore-end'
+    ]) {
+      const text = `Корвин - принц\r\n<!-- microtypo-ignore-${directive} -->\r\nЭрик - король\r\n`;
+      for (const pragmas of ['off', 'microtypo']) {
+        add(text, { format, pragmas });
+      }
+    }
+  }
+  for (const text of [
+    'если a<b, то "c" - d',
+    '<code>Корвин - принц</code>',
+    '<!-- Корвин - принц -->',
+    'Назад <- сюда'
+  ]) {
+    for (const html of [false, true]) {
+      add(text, { format: 'plain' }, html);
+    }
+  }
+  for (const ending of ['\n', '\r\n']) {
+    add(`| Альфа | Бета |${ending}| :- | -: |${ending}| Корвин - принц | Эрик |${ending}`, {
+      format: 'markdown'
+    });
+    add(
+      `---${ending}title: "Корвин - принц"${ending}---${ending}${ending}${ending}Эрик - король${ending}`,
+      { format: 'frontmatter' }
+    );
+  }
+  for (const format of ['markdown', 'mdx', 'frontmatter']) {
+    for (const math of [false, true]) {
+      const text =
+        '$a - b$ \\(x - y\\) $$\r\na - b = "c"\r\n$$\r\n\r\nстоит $5, а не $10; Корвин - принц\r\n';
+      add(format === 'frontmatter' ? `---\r\ntitle: "А - б"\r\n---\r\n\r\n${text}` : text, {
+        format,
+        math
+      });
+    }
+  }
+  for (const html of [false, true]) {
+    for (const text of [
+      'import X from "./x.js"\nexport const label = "А - б"\n\nКорвин - принц',
+      '<Box value={<Inner>{"}"}</Inner>}>Корвин - принц</Box>',
+      '{(() => { if (ok) {} /}}/.test(value); return "А - б"; })()} Корвин - принц',
+      '{String.raw`А - б\n~~~\nВ - г`}\n\nКорвин - принц',
+      '{unfinished - "source"\n\nКорвин - принц'
+    ]) {
+      add(text, { format: 'mdx' }, html);
+    }
+  }
+  for (const format of ['text', 'html', 'markdown', 'frontmatter']) {
+    for (const attributes of [[], ['alt', 'title', 'content']]) {
+      add(
+        '<img alt=\'"Амбер" - город &quot;текст&quot;\' title="А - б"><meta property="og:description" content="Корвин - принц"><code title="А - б">А - б</code>',
+        { format, attributes }
+      );
+    }
+  }
+  for (const input of [
+    { format: 'mdx', math: 'invalid' },
+    { attributes: ['href'] },
+    { attributes: 'alt' }
+  ]) {
+    add('А - б', input);
+  }
+  cases.push(
+    { config: { input: 'chaos' }, ops: [] },
+    { config: {}, ops: [], text: 'Амбер - вечен\n' }
+  );
+  return cases;
+}
+
+function diagnosticCases() {
+  const documents = {
+    text: '\uFEFF"Амбер" в <em>доме</em>. 10:00-12:00\r\n',
+    html: '\uFEFF<p title="Амбер - город">"Амбер" в <em>доме</em>.</p>\r\n',
+    plain: '😀 "Амбер" <b>в доме</b>',
+    markdown: '\uFEFF`"код"`\r\n\n"Амбер" в *доме*.\n',
+    mdx: 'export const x = "код";\n\n"Амбер" <X value={"код"} />\n',
+    json: '\uFEFF{"a":"\\u0022Амбер\\u0022 😀", "b":"\\u0022Амбер\\u0022 😀"}\r\n',
+    yaml: 'a: \'"Амбер"\'\r\nb: \'"Амбер"\'\n',
+    toml: 'a = \'"Амбер"\'\r\nb = \'"Амбер"\'\n',
+    xml: '\uFEFF<doc>"Амбер" &amp; "Тень"</doc>\r\n',
+    frontmatter: '\uFEFF---\r\ntitle: \'"Амбер"\'\r\n---\r\n\n"Амбер" в *доме*.\n'
+  };
+  const cases = [];
+  for (const [format, text] of Object.entries(documents)) {
+    for (const html of [false, true]) {
+      for (const entities of [false, true]) {
+        for (let mask = 1; mask < 8; mask++) {
+          const options = {
+            changes: (mask & 1) !== 0,
+            edits: (mask & 2) !== 0,
+            trace: (mask & 4) !== 0
+          };
+          cases.push({
+            name: `diagnostics-${format}-${mask}-${html}-${entities}`,
+            text,
+            config: {
+              html,
+              entities,
+              input: { format, attributes: format === 'html' ? ['title'] : [] }
+            },
+            ops: [],
+            options
+          });
+        }
+      }
+    }
+  }
+  const ruleGroups = [
+    {
+      name: 'terms',
+      rules: [
+        { id: 'first', pattern: { source: 'a', flags: 'g' }, replacement: 'b' },
+        { id: 'unchanged', pattern: { source: 'b', flags: 'g' }, replacement: 'b' },
+        { id: 'second', pattern: { source: '(b)(b)', flags: 'g' }, replacement: '$2$1c' }
+      ]
+    }
+  ];
+  cases.push({
+    name: 'diagnostics-shared-nowrap-handler',
+    text: '+7-999-123-45-67; +7-999-123-45-67',
+    config: {
+      html: true,
+      render: { paragraphs: false },
+      rules: { 'nobr.nowrap_phone_extended': true }
+    },
+    ops: [],
+    options: { trace: true, edits: true }
+  });
+  cases.push({
+    name: 'diagnostics-rejected-inline-trial',
+    text: '5 <i>руб.</i>',
+    config: { html: true, render: { paragraphs: false } },
+    ops: [],
+    options: { trace: true, edits: true }
+  });
+  const roundtrip = {
+    rules: [
+      {
+        id: 'roundtrip',
+        pattern: [
+          { source: 'a', flags: 'g' },
+          { source: 'b', flags: 'g' }
+        ],
+        replacement: ['b', 'a']
+      }
+    ]
+  };
+  for (const [format, text] of Object.entries({
+    text: '\uFEFFa <code>a</code>',
+    html: '<code>a</code><b title="a">a</b><b title="a">a</b>',
+    plain: '😀a a',
+    markdown: '`a`\r\n\na *a*\n',
+    mdx: 'export const x = "a";\n\na *a*\n',
+    json: '\uFEFF{"x":"\\u0061","y":"a"}\r\n',
+    xml: '<doc>a &amp; a</doc>\r\n',
+    yaml: 'first: a\r\nlast: a\n',
+    toml: "first = 'a'\r\nlast = 'a'\n",
+    frontmatter: '\uFEFF---\r\nfirst: a\r\n---\r\n\na *a*\n'
+  })) {
+    cases.push({
+      name: `diagnostics-net-zero-${format}`,
+      text,
+      config: { presets: false, input: { format, attributes: format === 'html' ? ['title'] : [] } },
+      ops: [{ method: 'registerRuleGroup', args: [roundtrip, { name: 'terms' }] }],
+      options: { trace: true, edits: true, changes: true }
+    });
+  }
+  cases.push({
+    name: 'diagnostics-engine-year-step',
+    text: '12.05.20г и 13.05.20г',
+    config: {},
+    ops: [],
+    options: { trace: true, edits: true }
+  });
+  for (const [name, extra] of [
+    ['enabled', {}],
+    ['group-disabled', { rules: { terms: false } }],
+    ['mask-disabled', { rules: { 'terms.sec*': false } }]
+  ]) {
+    cases.push({
+      name: `data-rules-${name}`,
+      config: { presets: false, ruleGroups, ...extra },
+      ops: [],
+      text: 'aa aa <code>aa</code>',
+      options: { trace: true, edits: true, changes: true }
+    });
+  }
+  cases.push({
+    name: 'data-rules-registration',
+    config: { presets: false },
+    ops: [
+      { method: 'registerRuleGroup', args: [ruleGroups[0], { name: 'terms' }] },
+      { method: 'applyOptions', args: [{ rules: { 'terms.second': false } }] }
+    ],
+    text: 'aa aa',
+    options: { trace: true, edits: true }
+  });
+  for (const pattern of [
+    { source: '(', flags: 'g' },
+    { source: 'a', flags: 'gg' }
+  ]) {
+    cases.push({
+      name: `data-rules-invalid-${pattern.source === '(' ? 'source' : 'flags'}`,
+      config: {
+        ruleGroups: [{ name: 'terms', rules: [{ id: 'invalid', pattern, replacement: 'b' }] }]
+      },
+      ops: [],
+      text: 'a'
+    });
+  }
+  return cases;
+}
+
 const captured = captureSuite();
-const all = [...captured, ...generatedCases(prosePool())];
+const addedRuleCases = [
+  ...ADDED_RULE_PROSE,
+  ['negative-fractions', '-1/3; (-2/3); -⅛; -½; -1½; 10 - 1/3; 1-1/3'],
+  ['adjacent-phone-colon', '+7-999-123-45-67\u{00A0}как то:+7-999-123-45-67'],
+  ['colon-grammar', 'и пр.\u{00A0}КАК ТО:; +7-999-123-45-67\u{00A0}почему\u{00A0}то:']
+].flatMap(([name, text]) =>
+  [false, true].map((html) => ({
+    name: `added-${name}-${html ? 'html' : 'text'}`,
+    text,
+    config: { html },
+    ops: []
+  }))
+);
+const all = [
+  ...captured,
+  ...generatedCases(prosePool()),
+  ...formatCases(),
+  ...addedRuleCases,
+  ...diagnosticCases()
+];
 const unique = new Map();
 
 for (const c of all) {

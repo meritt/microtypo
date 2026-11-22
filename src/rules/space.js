@@ -1,5 +1,9 @@
-import { CONTENT_START_GROUP } from '../lib/boundaries.js';
+import { DOTTED_INITIALS, SURNAME } from '../lib/abbreviation-grammar.js';
+import { CONTENT_START_GROUP, NOT_AFTER_LONE_QUOTE } from '../lib/boundaries.js';
 import { G } from '../lib/glyphs.js';
+import { CURRENCY_PREFIX_SIGNS } from '../lib/measurement-units.js';
+import { F } from '../lib/rule-features.js';
+import { sessionMap } from '../lib/session-maps.js';
 import { collapsesAsRepeat } from './punctmark.js';
 
 // The zone list and URL_REGEX's scheme-less branch answer different questions and cannot share a
@@ -191,6 +195,9 @@ function isPartOfMultiSegmentId(terminator) {
 
 const WORD_CHAR_RE = /[\p{L}\p{N}]/u;
 
+// The particles `nobr.nbsp_particle` binds to the word before them, in either case.
+export const PARTICLE = '[Лл][Ии]|[Бб][Ыы]|[Бб]|[Жж][Ее]|[Жж]';
+
 // Whether closing this gap would glue two marks into a pair the punctuation group swallows. That
 // group runs four groups earlier, so the pair would survive this pass and be rewritten on the next
 // one, a mark short of what the author typed. It owns the table.
@@ -208,6 +215,45 @@ function glueingSwallowsAMark(source, at, marks) {
   return collapsesAsRepeat(mark, marks[0]);
 }
 
+const TRIM_MARKS = `,:.;?!${G.HELLIP}`;
+const TRIM_BEFORE_PUNCTUATION = new RegExp(
+  `(?<!\\.\\.)(?<=[^ \\t${G.NBSP}])${NOT_AFTER_LONE_QUOTE}(( |\\t|${G.NBSP})+)([${TRIM_MARKS}]+)(?=\\s|$|(?<=[${TRIM_MARKS}],))`,
+  'gu'
+);
+const GAP_BEFORE_COMMA_WORD = /(?<![ \t\u{00A0}])[ \t\u{00A0}]+,([а-яёa-z0-9«„])/giu;
+const TRIM_AT = new RegExp(TRIM_BEFORE_PUNCTUATION.source, 'uy');
+const COMMA_GAP_AT = new RegExp(GAP_BEFORE_COMMA_WORD.source, 'iuy');
+
+// A transparent tag ends immediately before this gap. Its ">" cannot combine with
+// a punctuation mark. The same two patterns that write the spacing decide if it goes.
+export function punctuationAfterInlineGap(text, at, active) {
+  let mark = at;
+  while (text[mark] === ' ' || text[mark] === '\t' || text[mark] === G.NBSP) {
+    mark++;
+  }
+  if (mark === at || !TRIM_MARKS.includes(text[mark] ?? '\0')) {
+    return at;
+  }
+  let source = text;
+  let start = at;
+  if (Array.isArray(text)) {
+    // The depth walk holds code points. Only the punctuation run and its follower matter
+    // past this known tag boundary, independently of the horizontal padding's width.
+    let end = mark + 1;
+    while (end < text.length && TRIM_MARKS.includes(text[end])) {
+      end++;
+    }
+    source = `> ${text.slice(mark, end + 1).join('')}`;
+    start = 1;
+  }
+  TRIM_AT.lastIndex = start;
+  COMMA_GAP_AT.lastIndex = start;
+  return (active('trim_before_punctuation') && TRIM_AT.test(source)) ||
+    (active('space_after_comma') && COMMA_GAP_AT.test(source))
+    ? mark
+    : at;
+}
+
 function shouldKeepGlued(beforeDot, afterDot, terminator, portFollows) {
   const lower = afterDot.toLowerCase();
 
@@ -219,12 +265,119 @@ function shouldKeepGlued(beforeDot, afterDot, terminator, portFollows) {
   );
 }
 
+const boundaryActivity = sessionMap();
+
+export function bindBoundaryActivity(ctx, activity) {
+  boundaryActivity.set(ctx, activity);
+}
+
+const WORD_MARK_RE =
+  /(?<![a-zа-яё0-9])([a-zа-яё0-9]+)([ \t\u{00A0}]*)([.:),…]|[!?]+)(?=[а-яёa-z])/giu;
+const AFTER_PERIOD_RE = /[а-яёa-z]+/iuy;
+const PLAIN_GAP_RE = /^[ \t]*$/u;
+const PUNCTUATION_START_RE = /[ \t\u{00A0}\n]/u;
+const PERIOD_START_RE = /[ \t\u{00A0}]/u;
+// A surname glued to its initials starts a word as well: `nobr.nowrap_initials` parts `Т.И.Дя :a`
+// from them four groups later, and the next pass would space its mark then.
+const SURNAME_RE = new RegExp(`^${SURNAME}$`, 'u');
+const INITIALS_BEFORE_RE = new RegExp(`(?<=(?:\\s|^|[.,;:?!])${DOTTED_INITIALS})`, 'uy');
+const afterGluedInitials = (text, offset, word) => {
+  INITIALS_BEFORE_RE.lastIndex = offset;
+  return SURNAME_RE.test(word) && INITIALS_BEFORE_RE.test(text);
+};
+
+// What one reading of a call's text wrote for each owner, so the reader that runs next on the same
+// text takes its output instead of reading the text again.
+const boundaryOutputs = sessionMap();
+
+// Both readers compute the same prospective boundaries. Only the requested owner writes its
+// marks, so virtual spacing never appears as another rule's output or trace.
+function spaceBoundaries(ctx, owner) {
+  const { text } = ctx;
+  const active = boundaryActivity.get(ctx)();
+  const known = boundaryOutputs.get(ctx);
+  if (
+    known !== undefined &&
+    known.text === text &&
+    known.periods === active.periods &&
+    known.punctuation === active.punctuation
+  ) {
+    return owner === 'period' ? known.periodOutput : known.punctuationOutput;
+  }
+  const periodParts = [];
+  const punctuationParts = [];
+  const state = { previous: -1 };
+  let cursor = 0;
+  WORD_MARK_RE.lastIndex = 0;
+  for (let m = WORD_MARK_RE.exec(text); m !== null; m = WORD_MARK_RE.exec(text)) {
+    const [full] = m;
+    const written = boundaryAt(text, active, m, state);
+    if (written !== full) {
+      const between = text.slice(cursor, m.index);
+      const period = m[3] === '.';
+      periodParts.push(between, period ? written : full);
+      punctuationParts.push(between, period ? full : written);
+      cursor = m.index + full.length;
+    }
+  }
+  const periodOutput = cursor === 0 ? text : periodParts.join('') + text.slice(cursor);
+  const punctuationOutput = cursor === 0 ? text : punctuationParts.join('') + text.slice(cursor);
+  boundaryOutputs.set(ctx, {
+    text,
+    periods: active.periods,
+    punctuation: active.punctuation,
+    periodOutput,
+    punctuationOutput
+  });
+  return owner === 'period' ? periodOutput : punctuationOutput;
+}
+
+// What a match of WORD_MARK_RE writes, `${word}${mark}${separator}`, or the match itself where it
+// stays; `state.previous` is where the last boundary written so far ends.
+function boundaryAt(text, active, m, state) {
+  const [full, word, gap, mark] = m;
+  const offset = m.index;
+  const period = mark === '.';
+  if (!(period ? active.periods : active.punctuation)) {
+    return full;
+  }
+  const boundary = period ? PERIOD_START_RE : PUNCTUATION_START_RE;
+  if (
+    offset !== 0 &&
+    offset !== state.previous &&
+    !boundary.test(text[offset - 1]) &&
+    !afterGluedInitials(text, offset, word)
+  ) {
+    return full;
+  }
+  if (gap !== G.NBSP && !PLAIN_GAP_RE.test(gap)) {
+    return full;
+  }
+  const afterMark = offset + full.length;
+  let separator = ' ';
+  if (period) {
+    AFTER_PERIOD_RE.lastIndex = afterMark;
+    const [zone] = AFTER_PERIOD_RE.exec(text);
+    if (zone.length < 5 && gap !== '') {
+      return full;
+    }
+    const next = text[afterMark + zone.length] ?? '';
+    const port = next === ':' && /[0-9]/u.test(text[afterMark + zone.length + 1] ?? '');
+    separator = shouldKeepGlued(word, zone, next, port) ? '' : ' ';
+  }
+  if (separator !== '') {
+    state.previous = afterMark;
+  }
+  return `${word}${mark}${separator}`;
+}
+
 export const spaceGroup = {
   title: 'Расстановка и удаление пробелов',
   classes: { nowrap: 'white-space:nowrap;' },
   rules: [
     {
       id: 'nbsp_two_letter',
+      requires: F.SPACE,
       description: 'Неразрывный пробел перед 2-символьной аббревиатурой',
       // Both boundaries are lookarounds: consumed, the shared space of an acronym run would strand
       // the middle one.
@@ -233,6 +386,9 @@ export const spaceGroup = {
     },
     {
       id: 'trim_before_punctuation',
+      requires: F.SPACE,
+      requiresAny:
+        F.COMMA | F.COLON | F.PERIOD | F.SEMICOLON | F.QUESTION | F.EXCLAMATION | F.ELLIPSIS,
       description: 'Удаление пробела перед знаками препинания',
       // `(?<!\.\.)` excludes only the `?..` and `!..` suspension marks and not periods in general, so
       // abbreviation trims still fire.
@@ -240,62 +396,75 @@ export const spaceGroup = {
       // runs from both matching in one pass, and taking the whitespace after the marks would swallow
       // the leading whitespace of the next candidate — either way two runs on one line settle a pass
       // apart. What may not be glued is decided by `glueingSwallowsAMark` from the text itself.
-      pattern: /(?<!\.\.)(?<=[^ \t\u{00A0}])(( |\t|\u{00A0})+)([,:.;?!…]+)(?=\s|$)/gu,
+      // Marks that end in a comma after another mark end the punctuation even glued to the next word,
+      // `а …,и`: `space_after_comma` parts them later in this group. A lone comma may be a decimal one.
+      pattern: TRIM_BEFORE_PUNCTUATION,
       replacement: (m) => (glueingSwallowsAMark(m.at(-1), m.at(-2), m[3]) ? m[0] : m[3])
     },
     {
       id: 'space_after_comma',
+      requires: F.COMMA,
       description: 'Пробел после запятой',
-      pattern: [/( |\t|\u{00A0}),([а-яёa-z0-9])/giu, /([^0-9]),([а-яёa-z0-9«„])/giu],
-      replacement: [', $2', '$1, $2']
+      // A gap is matched from its first character only: tried from every one, a long gap with no
+      // comma behind it is reread to its end each time.
+      pattern: [GAP_BEFORE_COMMA_WORD, /([^0-9]),([а-яёa-z0-9«„])/giu],
+      replacement: [', $1', '$1, $2']
     },
     {
       id: 'space_after_punctuation',
+      requiresAny: F.COLON | F.PAREN | F.COMMA | F.ELLIPSIS | F.EXCLAMATION | F.QUESTION,
+      // A mark other than a period glued to the letter after it, which this rule writes a space before.
+      requiresPattern: /[:),…!?][а-яёa-z]/iu,
       description: 'Пробел после знаков пунктуации, кроме точки',
-      pattern:
-        /( |\t|\u{00A0}|^|\n)([a-zа-яё0-9]+)( |\t|\u{00A0})?(:|\)|,|…|(?:!|\?)+)([а-яёa-z])/giu,
-      replacement: '$1$2$4 $5'
+      regexes: [WORD_MARK_RE],
+      handler: (ctx) => {
+        ctx.text = spaceBoundaries(ctx, 'punctuation');
+      }
     },
     {
       id: 'space_after_period',
+      requires: F.PERIOD,
+      requiresPattern: /\.[а-яёa-z]/iu,
       description: 'Пробел после точки',
-      // Both branches ask the same question, so they hand it to one callback: the gap the long
-      // branch tolerates is non-capturing, which puts the host, the zone and the follower in the
-      // same three slots.
-      pattern: [
-        /( |\t|\u{00A0}|^)([a-zа-яё0-9]+)(?: |\t|\u{00A0})?\.([а-яёa-z]{5,})($|[^a-zа-яё])/giu,
-        /( |\t|\u{00A0}|^)([a-zа-яё0-9]+)\.([а-яёa-z]{1,4})($|[^a-zа-яё])/giu
-      ],
-      replacement: (m) => {
-        const [full, lead, host, zone, next, offset, source] = m;
-        // `next` is the one character the pattern consumed after the zone; a port needs the digit
-        // behind it too, which only the source can answer.
-        const portFollows = next === ':' && /^\d/.test(source.slice(offset + full.length));
-        const sep = shouldKeepGlued(host, zone, next, portFollows) ? '' : ' ';
-
-        return `${lead}${host}.${sep}${zone}${next}`;
+      regexes: [WORD_MARK_RE, AFTER_PERIOD_RE],
+      handler: (ctx) => {
+        ctx.text = spaceBoundaries(ctx, 'period');
       }
     },
     {
       id: 'space_after_ellipsis',
+      requires: F.PERIOD,
+      requiresAny: F.QUESTION | F.EXCLAMATION,
       description: 'Пробел после троеточий с восклицанием/вопросом',
       pattern: /([?!]\.\.)([а-яёa-z])/giu,
       replacement: '$1 $2'
     },
     {
       id: 'collapse_spaces',
+      projectSpacedYears: 'gaps',
+      requires: F.SPACE,
       description: 'Удаление лишних пробельных символов и табуляций',
       pattern: /( |\t)+/g,
       replacement: ' '
     },
     {
       id: 'strip_quote_padding',
+      requires: F.SPACE | F.QUOTE,
       description: 'Удаление пробелов сразу после открывающей и перед закрывающей кавычкой',
-      pattern: [/([«„])( |\t|\u{00A0})+/gu, /( |\t|\u{00A0})+([»“])/gu],
+      // The gap before a closing quote is matched from its first character only, as in
+      // `space_after_comma`.
+      pattern: [
+        /([«„])( |\t|\u{00A0})+/gu,
+        new RegExp(
+          `(?<![ \\t${G.NBSP}])${NOT_AFTER_LONE_QUOTE}( |\\t|${G.NBSP})+([${G.RAQUO}${G.LDQUO}])`,
+          'gu'
+        )
+      ],
       replacement: ['$1', '$2']
     },
     {
       id: 'trim_before_percent',
+      requires: F.DIGIT | F.PERCENT,
       description: 'Удаление пробела перед %',
       // Intentional: strict typesetting wants 5 %, but modern Russian web practice glues 5%.
       pattern: /(?<!\d)(\d+)([\t ]+)%/g,
@@ -303,14 +472,22 @@ export const spaceGroup = {
     },
     {
       id: 'nbsp_before_quote',
+      requires: F.SPACE | F.QUOTE,
       description: 'Неразрывный пробел перед открывающей кавычкой',
       // The shared left boundary carries brackets and a newline, so `(в «Амбере»)` and a short word
-      // opening a second line lose the same breakable space a bare one does.
-      pattern: new RegExp(`${CONTENT_START_GROUP}([a-zа-яё]{1,2}) ([${G.LAQUO}${G.BDQUO}])`, 'gu'),
-      replacement: `$1$2${G.NBSP}$3`
+      // opening a second line lose the same breakable space a bare one does. The quote is only looked
+      // at: it is the left boundary of the short word inside it, `«а „б „в`. A particle after a space
+      // is no short word: `nobr.nbsp_particle` binds it to the word before and takes this space back.
+      // Nor is a unit bound to its number, `5 м «`: the units rules glue it later, and only then.
+      pattern: new RegExp(
+        `${CONTENT_START_GROUP}(?<!\\d${G.NBSP})([a-zа-яё]{1,2})(?<![ \\t${G.NBSP}](?:${PARTICLE})) (?=[${G.LAQUO}${G.BDQUO}])`,
+        'gu'
+      ),
+      replacement: `$1$2${G.NBSP}`
     },
     {
       id: 'nbsp_before_month',
+      requires: F.DIGIT | F.SPACE,
       description: 'Неразрывный пробел в датах перед месяцем',
       pattern:
         /(\d)(\s)+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)([^<]|$)/giu,
@@ -318,27 +495,37 @@ export const spaceGroup = {
     },
     {
       id: 'trim_line_end',
+      requires: F.SPACE,
       description: 'Удаление пробелов в конце текста',
-      pattern: / +$/g,
+      pattern: /(?<! ) +$/g,
       replacement: ''
     },
     {
       id: 'no_space_after_opening_ellipsis',
+      requires: F.ELLIPSIS,
       description: 'Отсутствие пробела после … после открывающей кавычки',
       pattern: /([«„(])( |\u{00A0})?…( |\u{00A0})?([a-zа-яё])/giu,
       replacement: `$1${G.HELLIP}$4`
     },
     {
       id: 'trim_before_parenthetical_ellipsis',
+      requires: F.ELLIPSIS | F.PAREN,
       description: 'Удаление пробела перед многоточием в конце скобок',
       pattern: /([a-zа-яё0-9])(?: |\t|\u{00A0})+…(\))/giu,
       replacement: `$1${G.HELLIP}$2`
     },
     {
       id: 'space_after_year',
+      requires: F.DIGIT,
+      requiresPattern: /\dгод/iu,
       description: 'Пробел после года',
-      pattern: /(^| |\u{00A0})([0-9]{3,4})(год([ауе]|ом)?)([^a-zа-яё]|$)/giu,
-      replacement: '$1$2 $3$5'
+      // A lookahead: the space after the word is the left boundary of the next year. The period of an
+      // abbreviation glued to the year is one too: `abbr.nbsp_location` binds `пр.917год` with a space.
+      pattern: new RegExp(
+        `(^|[ \\t${G.NBSP}${CURRENCY_PREFIX_SIGNS}]|(?<=\\p{L})\\.)([0-9]{3,4})(год([ауе]|ом)?)(?=[^a-zа-яё]|$)`,
+        'giu'
+      ),
+      replacement: '$1$2 $3'
     }
   ]
 };

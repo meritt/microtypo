@@ -327,7 +327,7 @@ function endOfNodeProperties(src, i, n) {
 
 // The tag among the node properties in `[from, to)`, or null where they carry none. A comment may
 // stand between two properties, and what it says is not one of them.
-function propertyTag(src, from, to) {
+function propertyTag(src, from, to, handles) {
   let tag = null;
   let p = from;
 
@@ -361,7 +361,26 @@ function propertyTag(src, from, to) {
     }
   }
 
-  return tag;
+  if (tag === null || tag === '!') {
+    return tag;
+  }
+  if (tag.startsWith('!<')) {
+    return tag;
+  }
+  const handleEnd = tag.indexOf('!', 1);
+  const handle = handleEnd === -1 ? '!' : tag.slice(0, handleEnd + 1);
+  const prefix = handles?.get(handle);
+  if (prefix === undefined) {
+    return tag;
+  }
+  try {
+    return `!<${decodeURIComponent(prefix + tag.slice(handle.length))}>`;
+  } catch (cause) {
+    throw new MicroTypoInputError('Invalid YAML tag URI escape', {
+      details: { offset: from },
+      cause
+    });
+  }
 }
 
 // A tag that gives a key another type than string names it by the value it resolves to — `!!int
@@ -370,6 +389,10 @@ function propertyTag(src, from, to) {
 // non-specific tag, which leaves a scalar a string. YAML 1.2.2 §6.9.1, §10.3.
 const UNNAMED = Symbol('unnamed key');
 const STRING_TAGS = new Set(['!', '!!str', '!<tag:yaml.org,2002:str>']);
+const DEFAULT_TAG_HANDLES = [
+  ['!', '!'],
+  ['!!', 'tag:yaml.org,2002:']
+];
 const CANONICAL_INT = /^(?:0|-?[1-9][0-9]{0,14})$/;
 const CANONICAL_BOOL = /^(?:true|false)$/;
 const SELF_NAMED = new Map([
@@ -379,7 +402,10 @@ const SELF_NAMED = new Map([
   ['!<tag:yaml.org,2002:bool>', CANONICAL_BOOL]
 ]);
 
-function typedKeyName(tag, text) {
+function typedKeyName(tag, text, empty = false) {
+  if (empty && tag === null) {
+    return 'null';
+  }
   return tag === null || STRING_TAGS.has(tag) || SELF_NAMED.get(tag)?.test(text) ? text : UNNAMED;
 }
 
@@ -431,8 +457,8 @@ function setFlowKey(frame, key, spans) {
   }
 }
 
-function nameFlowKey(frame, tag, text, spans) {
-  setFlowKey(frame, typedKeyName(tag, text), spans);
+function nameFlowKey(frame, tag, text, spans, empty = false) {
+  setFlowKey(frame, typedKeyName(tag, text, empty), spans);
 }
 
 function endFlowEntry(frame, spans) {
@@ -538,7 +564,7 @@ function nearestOf(src, from, chars, found) {
 
 // A quote opens a string only right after `[`, `{`, `,` or `:`, so a mid-token apostrophe — `[don't,
 // do]` — cannot start a runaway scan past the true close.
-function scanFlowCollection(src, start, n, base, spans, checkBudget, cursors) {
+function scanFlowCollection(src, start, n, base, spans, checkBudget, cursors, handles) {
   const stack = [];
   let j = start;
   let canOpenQuote = false;
@@ -595,7 +621,7 @@ function scanFlowCollection(src, start, n, base, spans, checkBudget, cursors) {
     if ((c === '&' || c === '!') && canOpenQuote) {
       const end = endOfNodeProperties(src, j, n);
 
-      tag = propertyTag(src, j, end);
+      tag = propertyTag(src, j, end, handles);
       j = end;
       tagged = true;
       continue;
@@ -726,7 +752,7 @@ function scanFlowCollection(src, start, n, base, spans, checkBudget, cursors) {
         // An entry whose key is written as nothing still has one, and the mapping is past it; a
         // property may still give it a type. Only an entry with no key yet says so: one whose key a
         // scalar reader already recorded would have that name overwritten with the empty one.
-        nameFlowKey(frame, tagged ? tag : null, '', spans);
+        nameFlowKey(frame, tagged ? tag : null, '', spans, true);
       }
 
       if (frame) {
@@ -828,8 +854,8 @@ function scanFlowCollection(src, start, n, base, spans, checkBudget, cursors) {
 // Structure is consumed whole — a flow collection is not line-structured, so walking its interior as
 // YAML lines rejects a valid multi-line collection on the comma after an element and rescans the
 // collection once per line it spans. Its quoted scalars are still values and still get typeset.
-function flowCollectionEnd(src, pos, n, chain, spans, checkBudget, cursors) {
-  const end = scanFlowCollection(src, pos, n, chain, spans, checkBudget, cursors);
+function flowCollectionEnd(src, pos, n, chain, spans, checkBudget, cursors, handles) {
+  const end = scanFlowCollection(src, pos, n, chain, spans, checkBudget, cursors, handles);
 
   if (end === -1) {
     throw new MicroTypoInputError(`Unclosed YAML flow collection at offset ${pos}`, {
@@ -860,6 +886,8 @@ export function scanYaml(source, checkBudget) {
   const src = lineView(source);
   const spans = [];
   const n = src.length;
+  let handles = new Map(DEFAULT_TAG_HANDLES);
+  let directives = null;
   let lines = 0;
   const stack = [{ indent: 0, chain: null, seqIndex: 0 }];
   // Seeded by the first flow collection and shared by every one after it: block-only YAML reaches no
@@ -1000,8 +1028,8 @@ export function scanYaml(source, checkBudget) {
   }
 
   // The name of a key whose node starts at `nodeStart`, past the properties from `pos`.
-  const keyName = (pos, nodeStart, text) =>
-    nodeStart === pos ? text : typedKeyName(propertyTag(src, pos, nodeStart), text);
+  const keyName = (pos, nodeStart, text, empty = false) =>
+    typedKeyName(propertyTag(src, pos, nodeStart, handles), text, empty);
 
   // A key with no name keeps the node under it, which stops at the key's own column.
   function keyChain(chain, name, keyIndent) {
@@ -1165,9 +1193,27 @@ export function scanYaml(source, checkBudget) {
     // read, or an unterminated one behind an anchor would be accepted where the same collection
     // without it is rejected. Its spans are dropped rather than collected.
     if (ch === '[' || ch === '{') {
-      skipTo = flowCollectionEnd(src, pos, n, chain, spans, checkBudget, delimiterCursors());
+      skipTo = flowCollectionEnd(
+        src,
+        pos,
+        n,
+        chain,
+        spans,
+        checkBudget,
+        delimiterCursors(),
+        handles
+      );
     } else if (src[valueStart] === '[' || src[valueStart] === '{') {
-      skipTo = flowCollectionEnd(src, valueStart, n, null, [], checkBudget, delimiterCursors());
+      skipTo = flowCollectionEnd(
+        src,
+        valueStart,
+        n,
+        null,
+        [],
+        checkBudget,
+        delimiterCursors(),
+        handles
+      );
     }
 
     checkBlockScalar(valueStart, lineEnd, indent, chain);
@@ -1206,7 +1252,7 @@ export function scanYaml(source, checkBudget) {
       const kp = afterNodeProperty(keyStart, lineEnd);
 
       if (kp < lineEnd && (src[kp] === '[' || src[kp] === '{')) {
-        skipTo = flowCollectionEnd(src, kp, n, null, [], checkBudget, delimiterCursors());
+        skipTo = flowCollectionEnd(src, kp, n, null, [], checkBudget, delimiterCursors(), handles);
       }
 
       // `? title` names its entry exactly as `title:` does: the `?` says where the key ends, not
@@ -1217,13 +1263,13 @@ export function scanYaml(source, checkBudget) {
 
       explicitKeyEnd = named.end;
       explicitKeyBelow = kp >= lineEnd;
-      explicitKeyTag = explicitKeyBelow ? propertyTag(src, keyStart, lineEnd) : null;
+      explicitKeyTag = explicitKeyBelow ? propertyTag(src, keyStart, lineEnd, handles) : null;
 
       // A `?` line with no node is an empty key until its run shows one.
       if (named.text !== null) {
         explicitKey = keyName(keyStart, kp, named.text);
       } else {
-        explicitKey = explicitKeyBelow ? typedKeyName(explicitKeyTag, '') : UNNAMED;
+        explicitKey = explicitKeyBelow ? typedKeyName(explicitKeyTag, '', true) : UNNAMED;
       }
 
       // An explicit key runs over every following, more-indented line, all of it key, so it is
@@ -1303,7 +1349,8 @@ export function scanYaml(source, checkBudget) {
         opaque ? null : chain,
         opaque ? [] : spans,
         checkBudget,
-        delimiterCursors()
+        delimiterCursors(),
+        handles
       );
       pendingChain = chain;
 
@@ -1325,7 +1372,9 @@ export function scanYaml(source, checkBudget) {
     const written = plainKeyText(src, nodeStart, colon);
     const fullChain = keyChain(
       chain,
-      written === '' && pendingKey !== null ? pendingKey : keyName(pos, nodeStart, written),
+      written === '' && pendingKey !== null
+        ? pendingKey
+        : keyName(pos, nodeStart, written, written === ''),
       keyIndent
     );
 
@@ -1341,7 +1390,29 @@ export function scanYaml(source, checkBudget) {
   // belongs, a quoted scalar that closed further down — and only `lineStart` can measure the
   // indentation the container stack is keyed by.
   function processLine(p, lineEnd, indent, lineStart) {
+    if (p === lineStart && src.startsWith('%TAG', p) && separates(src, p + 4, lineEnd)) {
+      const directive = /^%TAG[ \t]+(![0-9A-Za-z-]*!|!)[ \t]+([^ \t]+)[ \t]*(?:#.*)?$/.exec(
+        src.slice(p, lineEnd)
+      );
+      if (directive === null) {
+        throw new MicroTypoInputError('Malformed YAML TAG directive', { details: { offset: p } });
+      }
+      directives ??= new Map();
+      const [, handle, prefix] = directive;
+      if (directives.has(handle)) {
+        throw new MicroTypoInputError('Duplicate YAML TAG directive handle', {
+          details: { offset: p, handle }
+        });
+      }
+      directives.set(handle, prefix);
+      return;
+    }
     if ((src.startsWith('---', p) || src.startsWith('...', p)) && separates(src, p + 3, lineEnd)) {
+      handles = new Map(DEFAULT_TAG_HANDLES);
+      for (const [handle, prefix] of directives ?? []) {
+        handles.set(handle, prefix);
+      }
+      directives = null;
       stack.length = 1;
       stack[0] = { indent: 0, chain: null, seqIndex: 0 };
       pendingChain = null;
@@ -1532,7 +1603,7 @@ export function scanYaml(source, checkBudget) {
         if (!blank && explicitKeyBelow && src[p] !== '#') {
           const node = afterNodeProperty(p, end);
 
-          explicitKeyTag = propertyTag(src, p, node) ?? explicitKeyTag;
+          explicitKeyTag = propertyTag(src, p, node, handles) ?? explicitKeyTag;
 
           if (node < end) {
             const named = simpleKeyText(node, end, runIndent);
@@ -1541,7 +1612,7 @@ export function scanYaml(source, checkBudget) {
             explicitKey = named.text === null ? UNNAMED : typedKeyName(explicitKeyTag, named.text);
             explicitKeyEnd = named.end;
           } else {
-            explicitKey = typedKeyName(explicitKeyTag, '');
+            explicitKey = typedKeyName(explicitKeyTag, '', true);
           }
         }
 

@@ -1,11 +1,15 @@
+import { lineTicker, proseParagraphs } from '../input/markdown.js';
 import {
   BLOCK_TAG_NAMES,
   IMPLIED_END_TAGS,
   VOID_BLOCK_TAG_NAMES,
-  VOID_TAG_NAMES
+  VOID_TAGS
 } from '../lib/block-tags.js';
 import { G } from '../lib/glyphs.js';
-import { count } from '../lib/strings.js';
+import { PARAGRAPH_SPLIT_RE, PARAGRAPH_INDENT_SPLIT_RE } from '../lib/paragraph-boundaries.js';
+import { F } from '../lib/rule-features.js';
+import { sessionMap } from '../lib/session-maps.js';
+import { count, lineView } from '../lib/strings.js';
 import {
   PARAGRAPH_OPEN,
   PARAGRAPH_CLOSE,
@@ -15,18 +19,23 @@ import {
   RESERVED_PUA_CLASS,
   TAG_PLACEHOLDER_SOURCE,
   TAIL_KINDS,
-  TRANSPARENT_TAG_KINDS
+  TRANSPARENT_TAG_KINDS,
+  tagTokens
 } from '../protect/placeholders.js';
+import { URL_CORE_SOURCE } from '../protect/sequences.js';
 
 // A vault id is minted per `process()`, so every regex built from one is built per call. Keeping the
 // shapes in these two builders is what lets the handler rules below declare exactly what they run to
 // the static ReDoS check: the declaration calls them with a sample placeholder rather than restating
 // the patterns, so a shape cannot change in one place and stay unchecked in the other. The
 // lookbehind is the one `PARAGRAPH_SPLIT_RE` explains.
-const blockBoundaryRes = (alternation) => [
-  new RegExp(`(?<![ \\t])[ \\t]*[\\r\\n][\\r\\n \\t]*(?=<\\/?(?:${alternation})>)`, 'g'),
-  new RegExp(`(<\\/?(?:${alternation})>)[ \\t]*[\\r\\n][\\r\\n \\t]*`, 'g')
-];
+const blockBoundaryRes = (alternation) => {
+  const boundary = `(?:${alternation === '' ? '' : `<\\/?(?:${alternation})>|`}${RegExp.escape(PARAGRAPH_OPEN)}|${RegExp.escape(PARAGRAPH_CLOSE)})`;
+  return [
+    new RegExp(`(?<![ \\t])[ \\t]*[\\r\\n][\\r\\n \\t]*(?=${boundary})`, 'g'),
+    new RegExp(`(${boundary})[ \\t]*[\\r\\n][\\r\\n \\t]*`, 'g')
+  ];
+};
 
 const afterAuthorBreakRe = (alternation) => new RegExp(`(?<!<(?:${alternation})>)\\n`, 'g');
 
@@ -34,10 +43,8 @@ const SAMPLE_PLACEHOLDER = `${OPEN}T1${CLOSE}`;
 
 const ANY_TAG_LIFT_RE = new RegExp(TAG_PLACEHOLDER_SOURCE, 'g');
 
-// A line's indent reaches this group whole, so a run of spaces can be long here. A match starting
-// inside one also starts at its first character, which is found first, and the lookbehind spares
-// every later start a rescan of the rest of the run.
-const PARAGRAPH_SPLIT_RE = /(?<![ \t])([ \t]+)?(\n)+([ \t]*)(\n)+/g;
+const URL_CORE_RE = new RegExp(`^${URL_CORE_SOURCE}`);
+const URL_TRAILING_MARKS = new Set(['.', G.HELLIP, G.RAQUO, G.LDQUO]);
 
 const EMPTY_PARAGRAPH_RE = new RegExp(
   `${PARAGRAPH_OPEN}(?:[^${PARAGRAPH_OPEN[0]}${PARAGRAPH_CLOSE[0]}]*?)?${PARAGRAPH_CLOSE}`,
@@ -69,13 +76,7 @@ function liftParagraphs(text, ctx) {
 }
 
 function tagPlaceholders(ctx, nameOrRegex) {
-  const { tags } = ctx;
-
-  if (!tags) {
-    return [];
-  }
-
-  return tags.findByTagName(nameOrRegex).map(({ prefix, id }) => `${OPEN}${prefix}${id}${CLOSE}`);
+  return ctx.tags ? tagTokens(ctx.tags, nameOrRegex) : [];
 }
 
 // The document's own elements stand where a block would: no paragraph goes around one.
@@ -85,6 +86,7 @@ const VOID_BLOCKS = new Set(VOID_BLOCK_TAG_NAMES);
 
 // Every tag placeholder and every blank-line run, in one pass over the chunk.
 const BLOCK_SCAN_RE = new RegExp(`${TAG_PLACEHOLDER_SOURCE}|${PARAGRAPH_SPLIT_RE.source}`, 'g');
+const BLANK_LINE_RE = new RegExp(PARAGRAPH_SPLIT_RE.source);
 
 const PROSE = 0;
 const RUN = 1;
@@ -97,9 +99,21 @@ const unwrapParagraph = (paragraph) =>
 // may still hold. Every other placeholder stands for real content — a fenced block, a template
 // expression — and a paragraph holding one is not empty.
 function dropEmptyParagraphs(text, gap) {
-  const isEmpty = (paragraph) => !/\S/.test(unwrapParagraph(paragraph).replaceAll(gap, ''));
+  let start = 0;
+  const kept = [];
+  for (const match of text.matchAll(EMPTY_PARAGRAPH_RE)) {
+    if (/\S/.test(unwrapParagraph(match[0]).replaceAll(gap, ''))) {
+      continue;
+    }
 
-  return text.replace(EMPTY_PARAGRAPH_RE, (m) => (isEmpty(m) ? '' : m));
+    kept.push(text.slice(start, match.index));
+    start = match.index + match[0].length;
+    // Removing an empty paragraph between two others leaves one paragraph boundary.
+    if (text.endsWith(gap, match.index) && text.startsWith(gap, start)) {
+      start += gap.length;
+    }
+  }
+  return kept.length ? kept.join('') + text.slice(start) : text;
 }
 
 // The author elements open on `holder`, innermost last. An end tag closes the nearest open element
@@ -222,15 +236,39 @@ function topLevel(text, { elements, ids }, onTop) {
 
 const asWritten = (segment) => segment.some((item) => item.wrapped);
 
+// Whether a segment faces a blank line beside it with a block: one shaped here does, with a block or
+// a paragraph of ours; one left as written does where `item`, its item next to the line past spaces
+// and tabs, is a block element.
+const facesBlock = (segment, item) => !asWritten(segment) || item?.kind === ELEMENT;
+
+// Whether the run of spaces, tabs and line breaks from `at` on, in the direction `step`, holds a
+// line break: what `breakline` reads as white space touching a block tag.
+function lineBreakAt(s, at, step) {
+  for (let i = at; i >= 0 && i < s.length; i += step) {
+    if (s[i] === '\n' || s[i] === '\r') {
+      return true;
+    }
+
+    if (s[i] !== ' ' && s[i] !== '\t') {
+      return false;
+    }
+  }
+
+  return false;
+}
+
 // A head ending inside an inline element shares it with the author paragraph beside it, so its last
 // paragraph, the one that element opens in, stays as written.
+//
+// The indent of a paragraph's first line goes with the blank lines in front of it: on the next pass
+// it would stand between two block tags, where the separator is a blank line and nothing else.
 function doParagraphs(text, ctx, elements, edge) {
   const gap = ctx.iblock('\n\n');
   const split = (p1) => `${p1 ?? ''}${PARAGRAPH_CLOSE}${gap}${PARAGRAPH_OPEN}`;
   let result;
 
   if (elements.size === 0) {
-    result = text.replace(PARAGRAPH_SPLIT_RE, (_, p1) => split(p1));
+    result = text.replace(PARAGRAPH_INDENT_SPLIT_RE, (_, p1) => split(p1));
   } else {
     // The tags are read up to each blank line as the split reaches it: one alternation of both
     // shapes scans several times slower than the two apart.
@@ -250,7 +288,7 @@ function doParagraphs(text, ctx, elements, edge) {
       }
     };
 
-    result = text.replace(PARAGRAPH_SPLIT_RE, (m, p1, _n, _s, _l, at) => {
+    result = text.replace(PARAGRAPH_INDENT_SPLIT_RE, (m, p1, _n, _s, _l, _indent, at) => {
       readTo(at);
 
       return insideElement(holder) ? m : split(p1);
@@ -282,8 +320,6 @@ function doParagraphs(text, ctx, elements, edge) {
     inside: false
   };
 }
-
-const VOID_TAGS = new Set(VOID_TAG_NAMES);
 
 // A start tag of either name makes a foreign element wherever it stands, and a self-closing flag
 // empties a foreign element. One of another name self-closing inside an open `<svg>` or `<math>`
@@ -332,8 +368,16 @@ function tagNames(ctx) {
 }
 
 // `paragraphs` mints inline blocks only, so the tags `breakline` reads right after it are the ones
-// `paragraphs` read.
-const namesRead = new WeakMap();
+// `paragraphs` read, and the lines are the ones it laid a Markdown document's paragraphs over.
+const namesRead = sessionMap();
+const layoutsRead = sessionMap();
+
+// In a Markdown document a blank line and a line break are not where paragraphs and lines are: a
+// heading, a list or a fence is no paragraph, and a `<p>` or a `<br>` written into one takes it
+// apart. The engine registers, for each such document, whether it may open with a header and how to
+// get the document's own bytes back from a line of the text the rules see, for the reader to tell its
+// paragraphs from everything else.
+export const markdownSources = sessionMap();
 
 // White space at the edge of a paragraphed level. A line break there survives, and `breakline` turns
 // it into the blank line beside a block; spaces alone go, as they go from the side of a chunk that
@@ -379,7 +423,7 @@ const splitEdges = (s) => {
 // on in, `tail` may start inside the elements `outer` holds open. `sep` goes between the chunk and
 // the paragraph.
 function paragraphChunk(raw, ctx, { blocks: names, elements }, edge, outer = {}) {
-  const text = raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim();
+  let text = raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim();
 
   if (text === '') {
     return { text: '', sep: '' };
@@ -391,14 +435,24 @@ function paragraphChunk(raw, ctx, { blocks: names, elements }, edge, outer = {})
     edge === 'head'
       ? raw.slice(raw.trimEnd().length)
       : raw.slice(0, raw.length - raw.trimStart().length);
+  // A blank line there parts the chunk from the author paragraph as it parts two paragraphs of the
+  // chunk; anything less becomes the line break `breakline` widens.
+  const normalizedFacing = facing.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+  const blank = BLANK_LINE_RE.test(normalizedFacing);
+  const beside = () => (blank ? ctx.iblock('\n\n') : '\n');
+  const startsInside = insideElement(outer);
+  if (edge === 'tail' && blank && !startsInside) {
+    // An ASCII indent ends with the blank line. A typographic space at the new line's
+    // first word is still the author's, including when that line is a bare block segment.
+    const indent = normalizedFacing.slice(normalizedFacing.lastIndexOf('\n') + 1);
+    text = indent.replace(/^[ \t]+/u, '') + text;
+  }
 
   const flat = () => {
     const paragraphs = doParagraphs(text, ctx, elements, edge);
 
-    return { text: paragraphs.text, sep: paragraphs.inside ? facing : '\n' };
+    return { text: paragraphs.text, sep: paragraphs.inside ? facing : beside() };
   };
-
-  const startsInside = insideElement(outer);
 
   if (names.size === 0 && !startsInside) {
     return flat();
@@ -410,17 +464,24 @@ function paragraphChunk(raw, ctx, { blocks: names, elements }, edge, outer = {})
   const stack = [{ items: [], keep: startsInside }];
   let cursor = 0;
   let shaped = false;
-  let sep = startsInside ? facing : '\n';
+  let sep = startsInside ? facing : beside();
+  let strayBreak = false;
 
   const top = () => stack.at(-1);
 
   const prose = (end) => {
     if (end > cursor) {
-      top().items.push({ kind: PROSE, i: out.push(text.slice(cursor, end)) - 1 });
+      top().items.push({
+        kind: PROSE,
+        i: out.push(text.slice(cursor, end)) - 1,
+        breaks: strayBreak
+      });
+      strayBreak = false;
     }
   };
 
   const solid = (item) => item.kind === ELEMENT || (item.kind === PROSE && /\S/.test(out[item.i]));
+  const spaces = (item) => item.kind === PROSE && /^[ \t]*$/u.test(out[item.i]);
 
   // Whether the stretch ends in a block end tag, the author's own or a stray one: what the unwrap
   // read as the end of a block.
@@ -460,7 +521,19 @@ function paragraphChunk(raw, ctx, { blocks: names, elements }, edge, outer = {})
 
     const from = segment.findIndex(solid);
     const to = segment.findLastIndex(solid);
-    const bare = segment[from].opens && endsClosed(segment[to]);
+    // Text with a line break between it and a block tag, the author's or a stray one, keeps the
+    // run from staying bare: `breakline` widens that break into the blank line the next pass splits
+    // the run at, and the text on its own beside a block becomes a paragraph there.
+    const breaks = (item, k) =>
+      item.kind === PROSE &&
+      solid(item) &&
+      (item.breaks ||
+        (segment[k - 1]?.kind === ELEMENT && lineBreakAt(out[item.i], 0, 1)) ||
+        (segment[k + 1]?.kind === ELEMENT && lineBreakAt(out[item.i], out[item.i].length - 1, -1)));
+    const bare =
+      segment[from].opens &&
+      endsClosed(segment[to]) &&
+      !segment.slice(from, to + 1).some((item, k) => breaks(item, from + k));
 
     segment.forEach((item, k) => {
       if (item.kind === ELEMENT) {
@@ -470,6 +543,10 @@ function paragraphChunk(raw, ctx, { blocks: names, elements }, edge, outer = {})
       // White space at a segment's edge goes, as the unwrap took it out of the `<p>` around a block.
       if (k < from || k > to) {
         out[item.i] = '';
+      } else if (!solid(item) && /[\r\n]/u.test(out[item.i])) {
+        // Empty prose between blocks is already the separator a later blank-line split would
+        // produce, including a whitespace-only line containing a typographic space.
+        out[item.i] = gap;
       } else if (bare) {
         if (k === to) {
           out[item.i] = out[item.i].trimEnd();
@@ -510,10 +587,28 @@ function paragraphChunk(raw, ctx, { blocks: names, elements }, edge, outer = {})
       }
     }
 
-    // Beside a segment left as written a blank line parts no paragraph, and `breakline` would make
-    // it a `<br>` on the next pass.
+    // Between two segments left as written a blank line parts no paragraph, and `breakline` would
+    // make it a `<br>` on the next pass. Beside a block it widens it back into a blank line.
     runs.forEach((run, k) => {
-      out[run.i] = asWritten(segments[k]) || asWritten(segments[k + 1]) ? '' : gap;
+      const before = segments[k];
+      const after = segments[k + 1];
+      const block =
+        facesBlock(
+          before,
+          before.findLast((item) => !spaces(item))
+        ) ||
+        facesBlock(
+          after,
+          after.find((item) => !spaces(item))
+        );
+
+      out[run.i] = block ? gap : '';
+      if (block && asWritten(after) && after[0]?.kind === PROSE) {
+        // The indent belongs to this top-level blank line even when a block inside an inline
+        // element keeps the following segment bare. Indentation inside that element is its own.
+        const { i } = after[0];
+        out[i] = out[i].replace(/^[ \t]+/u, '');
+      }
     });
 
     // Past a blank line the white space that opens or ends a paragraph stays inside it, as it does
@@ -587,6 +682,12 @@ function paragraphChunk(raw, ctx, { blocks: names, elements }, edge, outer = {})
     if (slash && !open.get(name)) {
       if (trackElement(outer, name, true)) {
         restart(m.index, token);
+      } else if (
+        stack.length === 1 &&
+        !insideElement(top()) &&
+        (lineBreakAt(text, m.index - 1, -1) || lineBreakAt(text, m.index + token.length, 1))
+      ) {
+        strayBreak = true;
       }
 
       continue;
@@ -688,8 +789,19 @@ const aroundTail = (text, layOut) => {
 
 function buildParagraphs(ctx) {
   const names = tagNames(ctx);
+  const source = markdownSources.get(ctx);
 
   namesRead.set(ctx, names);
+
+  if (source !== undefined) {
+    const layout = markdownLayout(ctx.text, ctx, source);
+
+    layoutsRead.set(ctx, layout);
+    ctx.text = markdownParagraphs(ctx.text, layout, source.restore, ctx.checkBudget);
+
+    return;
+  }
+
   ctx.text = aroundTail(ctx.text, (text, runsOn) => layOutParagraphs(text, ctx, names, runsOn));
 }
 
@@ -725,8 +837,19 @@ function layOutParagraphs(text, ctx, names, runsOn) {
 
 function buildBreaklines(ctx) {
   const names = namesRead.get(ctx) ?? tagNames(ctx);
+  const source = markdownSources.get(ctx);
 
   namesRead.delete(ctx);
+
+  if (source !== undefined) {
+    const layout = layoutsRead.get(ctx) ?? markdownLayout(ctx.text, ctx, source);
+
+    layoutsRead.delete(ctx);
+    ctx.text = markdownBreaklines(ctx.text, layout, names, ctx.checkBudget);
+
+    return;
+  }
+
   ctx.text = aroundTail(ctx.text, (text) => breaklines(text, ctx, names));
 }
 
@@ -737,7 +860,10 @@ function breaklines(text, ctx, names) {
   // at the top level both stand there. The opening form covers void block tags too, which have no
   // closing placeholder of their own.
   const { blocks, breaks } = names;
-  const boundaries = blocks.size > 0 ? blockBoundaryRes([...blocks.keys()].join('|')) : null;
+  const boundaries =
+    blocks.size > 0 || text.includes(PARAGRAPH_OPEN) || text.includes(PARAGRAPH_CLOSE)
+      ? blockBoundaryRes([...blocks.keys()].join('|'))
+      : null;
   let lineBreak = null;
 
   // An author <br> already breaks its line, so only its adjacent newline is suppressed.
@@ -749,6 +875,9 @@ function breaklines(text, ctx, names) {
     let s = part.replace(
       PARAGRAPH_GAP_RE,
       (_, c, ws, o) => `${c}${ctx.iblock(/[\r\n]/.test(ws) ? '\n\n' : ws)}${o}`
+    );
+    s = s.replace(PARAGRAPH_SPLIT_RE, (gap, _p, _n, _s, _l, at) =>
+      s.startsWith(PARAGRAPH_OPEN, at + gap.length) ? ctx.iblock('\n\n') : gap
     );
 
     if (boundaries !== null) {
@@ -774,32 +903,284 @@ function breaklines(text, ctx, names) {
   return parts.join('');
 }
 
+// Restoring a placeholder never reads the line breaks around it, so the lines of `text` are restored
+// in one pass with each break stood in for by a noncharacter, and split on it after.
+const LINE_MARK = '\u{FFFF}';
+
+// The reader's top-level paragraphs as lines of `text`: per line the paragraph it belongs to or -1,
+// per line whether it ends in a hard break, per paragraph whether a `<p>` may go around it. A line of
+// `text` holding a protected region that spans lines of the document is a paragraph's only if all of
+// them are, and a paragraph that shares a line with anything else is left without a `<p>`.
+function markdownLayout(text, ctx, { header, mdx, restore }) {
+  const lines = text.split('\n');
+  let pieces = restore(text.replaceAll('\n', LINE_MARK)).split(LINE_MARK);
+
+  // The mark is only as good as its absence from the document and from what restores into it.
+  if (pieces.length !== lines.length) {
+    pieces = lines.map(restore);
+  }
+
+  const document = lineView(pieces.join('\n'));
+  const prose = proseParagraphs(document, header, ctx.checkBudget, mdx);
+  const line = new Int32Array(pieces.length).fill(-1);
+  const hard = new Uint8Array(pieces.length);
+  const wrap = [...prose.closed];
+  const tick = lineTicker(ctx.checkBudget, 'md-layout');
+  let r = 0;
+  let at = 0;
+
+  pieces.forEach((piece, t) => {
+    tick();
+
+    const end = at + piece.length;
+    let last = r;
+
+    for (
+      let k = document.indexOf('\n', at);
+      k !== -1 && k < end;
+      k = document.indexOf('\n', k + 1)
+    ) {
+      last += 1;
+    }
+
+    const p = prose.paragraph[r];
+    let own = p !== -1;
+
+    for (let q = r + 1; own && q <= last; q++) {
+      own = prose.paragraph[q] === p;
+    }
+
+    if (own) {
+      line[t] = p;
+      hard[t] = prose.hard[last];
+    } else {
+      for (let q = r; q <= last; q++) {
+        if (prose.paragraph[q] !== -1) {
+          wrap[prose.paragraph[q]] = false;
+        }
+      }
+    }
+
+    r = last + 1;
+    at = end + 1;
+  });
+
+  return { line, hard, wrap };
+}
+
+// Where `text.paragraphs` will part this fragment, for the quote rules, which run before it: the
+// offsets at which a paragraph it wraps begins and ends. Its markup parts the quotes of a paragraph
+// from the heading or the block line beside it one pass later, and these part them in the pass that
+// writes it. The layout is read once for a fragment and holds while the text keeps its lines: no
+// step between the quote rules turns a line into another block.
+export function paragraphEdgeReader(ctx) {
+  const source = markdownSources.get(ctx);
+  let opens = null;
+  let closes = null;
+
+  return (text) => {
+    const starts = [0];
+
+    for (let at = text.indexOf('\n'); at !== -1; at = text.indexOf('\n', at + 1)) {
+      starts.push(at + 1);
+    }
+
+    if (opens === null || opens.length !== starts.length) {
+      const { line, wrap } = markdownLayout(text, ctx, source);
+
+      opens = new Uint8Array(starts.length);
+      closes = new Uint8Array(starts.length);
+
+      for (let t = 0; t < starts.length; t++) {
+        const p = line[t];
+
+        if (p !== -1 && wrap[p]) {
+          opens[t] = line[t - 1] === p ? 0 : 1;
+          closes[t] = line[t + 1] === p ? 0 : 1;
+        }
+      }
+    }
+
+    const edges = [];
+
+    for (let t = 0; t < starts.length; t++) {
+      if (opens[t] === 1 && t > 0) {
+        edges.push(starts[t]);
+      }
+      if (closes[t] === 1 && t + 1 < starts.length) {
+        edges.push(starts[t + 1] - 1);
+      }
+    }
+
+    return edges;
+  };
+}
+
+const BLANK_RE = /^[ \t]*$/;
+
+const isBlank = (ch) => ch === ' ' || ch === '\t';
+
+// Where a line's content begins and ends inside the white space at its edges: spaces, tabs and the
+// placeholders of protected white space, an indent or the spaces of a hard break. Markup at a
+// paragraph's edge goes inside them, so the next pass finds them where they were.
+function contentBounds(line, restore, tick) {
+  let start = 0;
+  let end = line.length;
+
+  while (start < end) {
+    tick();
+
+    const close = line[start] === OPEN ? line.indexOf(CLOSE, start) + 1 : 0;
+
+    if (isBlank(line[start])) {
+      start += 1;
+    } else if (close > 0 && BLANK_RE.test(restore(line.slice(start, close)))) {
+      start = close;
+    } else {
+      break;
+    }
+  }
+
+  // The opener is looked for from `end - 1`: at `end` stands the one of the placeholder skipped last.
+  while (end > start) {
+    tick();
+
+    const open = line[end - 1] === CLOSE ? line.lastIndexOf(OPEN, end - 1) : -1;
+
+    if (isBlank(line[end - 1])) {
+      end -= 1;
+    } else if (open >= start && BLANK_RE.test(restore(line.slice(open, end)))) {
+      end = open;
+    } else {
+      break;
+    }
+  }
+
+  return [start, end];
+}
+
+const isBlankLine = (line, restore, tick) => {
+  const [start, end] = contentBounds(line, restore, tick);
+
+  return start === end;
+};
+
+function markdownParagraphs(text, { line, wrap }, restore, checkBudget) {
+  const lines = text.split('\n');
+  const tick = lineTicker(checkBudget, 'md-paragraphs');
+  let last = lines.length - 1;
+
+  while (last > 0 && isBlankLine(lines[last], restore, tick)) {
+    last -= 1;
+  }
+
+  return lines
+    .map((s, t) => {
+      tick();
+
+      const p = line[t];
+
+      if (p === -1 || !wrap[p]) {
+        return s;
+      }
+
+      const opens = line[t - 1] !== p;
+      const closes = line[t + 1] !== p;
+
+      if (!opens && !closes) {
+        return s;
+      }
+
+      const [start, end] = contentBounds(s, restore, tick);
+      const from = opens ? start : 0;
+      const to = closes ? end : s.length;
+      // Behind the close of the document's last paragraph white space only ends the document, which
+      // sheds it: kept, the spaces of a hard break come out in front of nothing, and the next pass
+      // trims them.
+      const tail = closes && t === last ? '' : s.slice(to);
+
+      return `${s.slice(0, from)}${opens ? PARAGRAPH_OPEN : ''}${s.slice(from, to)}${closes ? PARAGRAPH_CLOSE : ''}${tail}`;
+    })
+    .join('\n');
+}
+
+// A `<br>` at each line break inside a paragraph, but not behind a line that a hard break or an
+// author's `<br>` already ends, nor inside an author element, whose line breaks are its markup's.
+function markdownBreaklines(text, { line, hard }, names, checkBudget) {
+  const breaks = new Set(names.breaks.map((ph) => `<${ph}>`));
+  const tick = lineTicker(checkBudget, 'md-breaklines');
+  const top = [];
+  let at = 0;
+  let s = 0;
+
+  topLevel(text, names, (from, to) => top.push([from, to]));
+
+  return text
+    .split('\n')
+    .map((piece, t) => {
+      tick();
+
+      const nl = at + piece.length;
+
+      at = nl + 1;
+
+      if (line[t] === -1 || line[t + 1] !== line[t] || hard[t] === 1) {
+        return piece;
+      }
+
+      while (s < top.length && top[s][1] <= nl) {
+        s += 1;
+      }
+
+      const end = piece.trimEnd();
+      const tag = end.endsWith(`${CLOSE}>`) ? end.slice(end.lastIndexOf(`<${OPEN}`)) : '';
+
+      return s === top.length || top[s][0] > nl || breaks.has(tag) ? piece : `${piece}${BREAKLINE}`;
+    })
+    .join('\n');
+}
+
 export const textGroup = {
   title: 'Текст и абзацы',
   classes: { nowrap: 'white-space:nowrap;' },
   rules: [
     {
       id: 'autolink',
+      requires: F.COLON | F.SLASH,
       description: 'Выделение ссылок из текста',
       htmlOnly: true,
       // The body excludes `"'<>` so a URL cannot break out of the href attribute, and the reserved
       // delimiters so it cannot swallow a placeholder. The closing boundary is a lookahead: consuming
-      // it would eat the separator the next address needs as its own opening boundary.
+      // it would eat the separator the next address needs as its own opening boundary. An address
+      // opens after a bracket or an opening quote too, and the closing one is trimmed off its end;
+      // not after `](`, the destination of a link that did not parse.
       pattern: new RegExp(
-        String.raw`(\s|^)(http|ftp|mailto|https)(:\/\/)([^\s,!<>"'${RESERVED_PUA_CLASS}]{4,})(?=\s|\.|,|!|\?|<|$)`,
+        String.raw`(\s|^|[${G.LAQUO}${G.BDQUO}]|(?<!\])\()(http|ftp|mailto|https)(:\/\/)([^\s,!<>"'${RESERVED_PUA_CLASS}]{4,})(?=\s|\.|,|!|\?|<|$)`,
         'giu'
       ),
+      // A protected address ends where the sequence layer ended it: what follows its placeholder is
+      // text, whatever characters the body pattern lets through.
       replacement: (m, ctx) => {
         const [, p1, p2, p3, p4Raw] = m;
-        let body = p4Raw;
-        let tail = '';
-        while (
-          body.length > 4 &&
-          (body.endsWith('.') || (body.endsWith(')') && count(body, '(') < count(body, ')')))
-        ) {
-          tail = body.slice(-1) + tail;
-          body = body.slice(0, -1);
+        const core = URL_CORE_RE.exec(p4Raw)?.[0];
+        const whole = core ?? p4Raw;
+        const opens = count(whole, '(');
+        let closes = count(whole, ')');
+        let end = whole.length;
+
+        while (end > 4) {
+          const last = whole[end - 1];
+
+          if (last === ')' && opens < closes) {
+            closes -= 1;
+          } else if (!URL_TRAILING_MARKS.has(last)) {
+            break;
+          }
+          end -= 1;
         }
+
+        const body = whole.slice(0, end);
+        const tail = whole.slice(end) + p4Raw.slice(whole.length);
         const href = `${p2}${p3}${body}`;
 
         return `${p1}${ctx.tag(body, 'a', { href })}${tail}`;
@@ -807,6 +1188,7 @@ export const textGroup = {
     },
     {
       id: 'email',
+      requires: F.AT | F.PERIOD,
       description: 'Выделение эл. почты из текста',
       htmlOnly: true,
       // Closing boundary is a lookahead for the same reason as autolink: two addresses parted by one
@@ -822,6 +1204,7 @@ export const textGroup = {
     },
     {
       id: 'deduplicate_words',
+      requires: F.SPACE,
       description: 'Удаление повторяющихся слов',
       enabled: false,
       // Writes no markup, but runs with the rest of its group, which plain-text output goes without.
@@ -844,7 +1227,7 @@ export const textGroup = {
       description: 'Простановка параграфов',
       htmlOnly: true,
       // `ANY_TAG_LIFT_RE` also runs in `preParse`, which the static ReDoS check does not read.
-      regexes: [PARAGRAPH_SPLIT_RE, EMPTY_PARAGRAPH_RE, BLOCK_SCAN_RE, ANY_TAG_LIFT_RE],
+      regexes: [PARAGRAPH_INDENT_SPLIT_RE, EMPTY_PARAGRAPH_RE, BLOCK_SCAN_RE, ANY_TAG_LIFT_RE],
       handler: buildParagraphs
     },
     {

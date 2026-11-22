@@ -1,7 +1,12 @@
+minimumReleaseAge: 1440
 minimumReleaseAgeStrict: true
+minimumReleaseAgeIgnoreMissingTime: false
 minimumReleaseAgeExclude:
   - oxfmt
   - oxlint
   - '@oxfmt/*'
   - '@oxlint/*'
+minimumReleaseAgeExcludePrune: true
+blockExoticSubdeps: true
 trustPolicy: no-downgrade
+trustPolicyExcludePrune: true

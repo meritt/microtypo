@@ -1,5 +1,5 @@
-// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node from
-// `.nvmrc`, one file at a time, and no other test run, coverage or build beside it. Ratio
+// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node pinned in
+// `package.json`, one file at a time, and no other test run, coverage or build beside it. Ratio
 // checks hold on any machine; absolute limits were set on an Intel i9-10910 under macOS and are
 // smoke limits elsewhere.
 
@@ -9,7 +9,9 @@ import { test } from 'node:test';
 import {
   codeSpanReader,
   commentReader,
+  linkSyntaxCuts,
   opaqueInline,
+  proseParagraphs,
   scanCodeSpans,
   scanFences,
   scanIndentedCode,
@@ -19,6 +21,7 @@ import {
 } from '../../src/input/markdown.js';
 import { templateReader } from '../../src/input/template.js';
 import { SafeBlocks } from '../../src/protect/blocks.js';
+import { SafeSequences } from '../../src/protect/sequences.js';
 
 // Best of three at each size, and a fourfold step: one timed pass at a few milliseconds picks up GC
 // and scheduling noise large enough to swamp the ratio. Linear growth lands near 4x, quadratic near
@@ -113,6 +116,34 @@ test('scanLinkDestinations (many unclosed "](" starts, one ) far beyond the cap)
   );
 });
 
+// The link scanners as the engine runs them on Markdown: the cuts the sequence layer must not run
+// across, the layer, then destinations, labels and the addresses in link texts. A link's text or
+// label costs its own length, not the rest of the document.
+function scanLinks(src) {
+  return scanLinkDestinations(new SafeSequences().protect(src, linkSyntaxCuts(src)));
+}
+
+const LINK_SHAPES = [
+  ['inline links', (n) => '[a](b) '.repeat(n / 7)],
+  ['full references', (n) => '[a][b] '.repeat(n / 7)],
+  ['bare "][" pairs', (n) => ']['.repeat(n / 2)],
+  ['references in prose', (n) => 'слово [текст][ref] и ещё слово, '.repeat(n / 32)],
+  ['chained labels', (n) => '][a'.repeat(n / 3)],
+  ['escaped "]" before "["', (n) => '\\]['.repeat(n / 3)],
+  ['labels that never close', (n) => '[a]['.repeat(n / 4)],
+  ['inline links and references back to back', (n) => '[a](b)[c][d]'.repeat(n / 12)],
+  ['one label open to the end', (n) => `[x][${'a'.repeat(n)}`],
+  ['many "][" before one far "]"', (n) => `${']['.repeat(n / 4)}${'a'.repeat(n / 2)}]`],
+  ['nested texts with empty labels', (n) => `${'['.repeat(n / 4)}${'][]'.repeat(n / 4)}`],
+  ['addresses as link texts', (n) => '[http://a.example/x][r] '.repeat(n / 24)]
+];
+
+for (const [name, build] of LINK_SHAPES) {
+  test(`link scanners (${name}) scale ~linearly`, () => {
+    assertLinear(`link scanners, ${name}`, scanLinks, build);
+  });
+}
+
 test('scanCodeSpans (many closed spans) scales ~linearly', () => {
   assertLinear('scanCodeSpans', scanCodeSpans, (n) => '`код` '.repeat(n));
 });
@@ -185,6 +216,24 @@ test('a lazy continuation under a deep container chain scales ~linearly', () => 
     'scanIndentedCode',
     scanIndentedCode,
     (n) => `${'> '.repeat(n / 9)}Корвин\n${'Рэндом\n'.repeat(n / 9)}`
+  );
+});
+
+// Each paragraph line looks one line ahead for a table's delimiter row, and a setext underline
+// takes back the lines above it once: no line is read more than twice.
+test('proseParagraphs (paragraph lines over near-miss delimiter rows) scales ~linearly', () => {
+  assertLinear(
+    'proseParagraphs',
+    (src) => proseParagraphs(src, true),
+    (n) => 'Корвин | Эрик\n| - | x\n'.repeat(n / 20)
+  );
+});
+
+test('proseParagraphs (long paragraphs under setext underlines) scales ~linearly', () => {
+  assertLinear(
+    'proseParagraphs',
+    (src) => proseParagraphs(src, true),
+    (n) => `${'Корвин\n'.repeat(n / 70)}===\n\n`.repeat(10)
   );
 });
 

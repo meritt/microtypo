@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { microtypo } from '../../src/index.js';
+import { microtypo, MicroTypo } from '../../src/index.js';
 
+const NBSP = '\u{00A0}';
 const NOP = { html: true, render: { paragraphs: false } };
 
 describe('symbol glyphs fire', () => {
@@ -27,16 +28,104 @@ describe('symbol.copyright — glued to a following letter or digit (REAL-2)', (
   test('converts (c) glued to a following letter or digit', () => {
     assert.equal(microtypo('(c)Амбер', NOP), '©Амбер');
     assert.equal(microtypo('(с)Оберон', NOP), '©Оберон'); // Cyrillic с
-    assert.equal(microtypo('(c)9', NOP), '©9'); // glued to a digit
+    assert.equal(microtypo('(c)2024', NOP), '©2024');
+    assert.equal(microtypo('(c)9', NOP), '(c)9');
   });
 });
 
 describe('symbol.copyright — protected block spacing (EF1)', () => {
   test('keeps regular spaces around a protected block', () => {
+    assert.equal(microtypo('Козырь © <pre>(c)</pre> © ©', NOP), 'Козырь © <pre>(c)</pre> © ©');
+  });
+});
+
+describe('symbol.copyright — only the copyright mark', () => {
+  test('(c) before a year or a capitalised word, or after Copyright, becomes ©', () => {
+    for (const [src, want] of [
+      ['Amber (c) 2024', `Amber ©${NBSP}2024`],
+      ['(c) 2024 Амбер', `©${NBSP}2024${NBSP}Амбер`],
+      ['(c) Амбер', `©${NBSP}Амбер`],
+      ['Copyright (c) Амбер', `Copyright ©${NBSP}Амбер`],
+      ['copyright (c) amber', `copyright ©${NBSP}amber`],
+      ['(c) <s>Амбер</s>', `©${NBSP}<s>Амбер</s>`]
+    ]) {
+      const once = microtypo(src);
+
+      assert.equal(once, want);
+      assert.equal(microtypo(once), once);
+    }
+  });
+
+  test('(c) glued to a word, without a year or a name, or in an enumeration stays as typed', () => {
+    for (const src of [
+      'f(c)',
+      'x(c) + y',
+      'вариант (c)',
+      '(a), (b), (c).',
+      '(а) первый, (б) второй, (c) Третий',
+      '(a) первый\n(b) второй\n(c) Третий'
+    ]) {
+      assert.equal(microtypo(src), src);
+    }
+    assert.equal(microtypo('см. п. (a) и (c)'), `см.${NBSP}п. (a) и (c)`);
+  });
+
+  test('a run of spaces before the year is one gap', () => {
+    assert.equal(microtypo('(C)  1999'), `©${NBSP}1999`);
+  });
+
+  test('(c) glued to a Russian word stays glued and as typed', () => {
+    for (const src of ['ь(c) 2009', 'слово(c) Амбер', '<b>f</b>(c) Амбер']) {
+      assert.equal(microtypo(src), src);
+    }
+  });
+
+  test('(c) glued to a word stays as typed once the word is wrapped', () => {
+    const src = 'М.А.Да IP(C) Б';
+    const once = microtypo(src, { html: true, input: 'html' });
+
+    assert.ok(once.includes('IP</span>(C) Б'));
+    assert.equal(microtypo(once, { html: true, input: 'html' }), once);
+  });
+
+  test('an enumeration in another paragraph does not hold the mark back', () => {
+    assert.equal(microtypo('(a) первый\n\n(c) Амбер'), `(a) первый\n\n©${NBSP}Амбер`);
     assert.equal(
-      microtypo('Козырь (c) <pre>(c)</pre> (c) (c)', NOP),
-      'Козырь © <pre>(c)</pre> © ©'
+      microtypo('<p>(a) первый</p><p>(c) Амбер</p>', { input: 'html' }),
+      `<p>(a) первый</p><p>©${NBSP}Амбер</p>`
     );
+  });
+});
+
+describe('symbol.registered — only after a name', () => {
+  test('(r) after a word of two letters or more with a capital becomes ®', () => {
+    assert.equal(microtypo('Windows(R)'), 'Windows®');
+    assert.equal(microtypo('Windows (R)'), 'Windows ®');
+    assert.equal(microtypo('iPhone(R)'), 'iPhone®');
+    assert.equal(microtypo('<b>Windows</b>(R)'), '<b>Windows</b>®');
+    assert.equal(microtypo('Но  (R)'), 'Но ®');
+  });
+
+  test('a name glued to a number reads as a name on every run', () => {
+    for (const [src, want] of [
+      ['0DPI (r)', `0${NBSP}DPI ®`],
+      ['6Гц(r)', '6Гц®']
+    ]) {
+      const once = microtypo(src);
+
+      assert.equal(once, want);
+      assert.equal(microtypo(once), once);
+    }
+  });
+
+  test('(r) after a lowercase word, a single letter or nothing stays as typed', () => {
+    for (const src of ['f(r)', 'sin(r)', 'радиус (r)', 'пункт (r)', 'пункты (a) и (r) договора']) {
+      assert.equal(microtypo(src), src);
+    }
+  });
+
+  test('(tm) is not restricted', () => {
+    assert.equal(microtypo('Слово(tm)'), 'Слово™');
   });
 });
 
@@ -151,10 +240,35 @@ describe('symbol.copyright — © survives normalization', () => {
 });
 
 describe('symbol.registered — adjacency', () => {
-  test('converts both marks in an adjacent pair', () => {
-    const out = microtypo('Печати (r)(r) на Козырях', NOP);
-    assert.ok(!out.includes('(r)'), `residual mark: ${out}`);
-    assert.equal(out.match(/®/g)?.length, 2, `both marks: ${out}`);
+  test('converts the mark after the name, and the one after it is not after a name', () => {
+    assert.equal(microtypo('Печати (r)(r) на Козырях', NOP), `Печати ®(r) на${NBSP}Козырях`);
+  });
+});
+
+describe('two-way arrows and comparisons convert whole or stay as typed', () => {
+  test('<->, <=> and => convert whole, <== and <--> stay as typed', () => {
+    for (const [src, want] of [
+      ['a <-> b', 'a ↔ b'],
+      ['a <=> b', 'a ⇔ b'],
+      ['a => b', 'a ⇒ b'],
+      ['a <== b', 'a <== b'],
+      ['a <--> b', 'a <--> b']
+    ]) {
+      assert.equal(microtypo(src), want);
+    }
+  });
+
+  test('with the extended arrows off, they are not half-converted', () => {
+    for (const src of ['a <-> b', 'a <=> b', 'a <== b', 'a => b', 'a <--> b']) {
+      assert.equal(microtypo(src, { rules: { 'symbol.arrows_extended': false } }), src);
+    }
+  });
+
+  test('one-way arrows and comparisons still convert', () => {
+    assert.equal(microtypo('a -> b'), 'a → b');
+    assert.equal(microtypo('a <- b'), 'a ← b');
+    assert.equal(microtypo('a <= b'), 'a ≤ b');
+    assert.equal(microtypo('a >= b'), 'a ≥ b');
   });
 });
 
@@ -196,5 +310,30 @@ describe('fahrenheit toggle', () => {
         'Дворкин &lsquo;Амбер&rsquo; вечен'
       );
     });
+  });
+});
+
+describe('copyright before a neutral quote', () => {
+  test('does not create quote content from a punctuation-only tail', () => {
+    const typo = new MicroTypo({ entities: true, input: 'html', rules: { 'quote.open': false } });
+    const output = typo.process('&copy; &quot;.');
+    assert.equal(output, '&copy; ".');
+    assert.equal(typo.process(output), output);
+  });
+
+  test('still binds quoted names and years and respects authored no-break space', () => {
+    for (const [open, input, expected] of [
+      [true, '© "Амбер"', '©\u{00A0}«Амбер»'],
+      [true, '© "2026"', '©\u{00A0}«2026»'],
+      [false, '© "Амбер"', '©\u{00A0}"Амбер"'],
+      [false, '© "2026"', '©\u{00A0}"2026″'],
+      [false, '© "', '©\u{00A0}"'],
+      [false, '©\u{00A0}".', '©\u{00A0}«.']
+    ]) {
+      const typo = new MicroTypo({ rules: { 'quote.open': open } });
+      const output = typo.process(input);
+      assert.equal(output, expected);
+      assert.equal(typo.process(output), output);
+    }
   });
 });

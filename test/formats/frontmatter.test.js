@@ -16,7 +16,7 @@ describe('frontmatter input: YAML/TOML header + Markdown body', () => {
 
     assert.equal(
       out,
-      `---\ntitle: "Хроники Амбера${NBSP}— лучшие"\n---\nКорвин помнит Амбер${NBSP}— всегда.`
+      `---\ntitle: "Хроники Амбера${NBSP}— лучшие"\n---\n\nКорвин помнит Амбер${NBSP}— всегда.`
     );
   });
 
@@ -24,7 +24,7 @@ describe('frontmatter input: YAML/TOML header + Markdown body', () => {
     const input = '+++\ntitle = "Corwin - Amber"\n+++\n\nКорвин "в Амбере"';
     const out = microtypo(input, { input: { format: 'frontmatter' } });
 
-    assert.equal(out, `+++\ntitle = "Corwin${NBSP}— Amber"\n+++\nКорвин «в${NBSP}Амбере»`);
+    assert.equal(out, `+++\ntitle = "Corwin${NBSP}— Amber"\n+++\n\nКорвин «в${NBSP}Амбере»`);
   });
 
   test('a header bare scalar is typeset like any other prose value', () => {
@@ -91,7 +91,7 @@ describe('frontmatter input: YAML/TOML header + Markdown body', () => {
     const input = '---\r\ntitle: "Корвин - Эрик"\r\n---\r\n\r\nРэндом - Блейз';
     const out = microtypo(input, { input: { format: 'frontmatter' } });
 
-    assert.equal(out, `---\r\ntitle: "Корвин${NBSP}— Эрик"\r\n---\r\nРэндом${NBSP}— Блейз`);
+    assert.equal(out, `---\r\ntitle: "Корвин${NBSP}— Эрик"\r\n---\r\n\r\nРэндом${NBSP}— Блейз`);
   });
 
   test('a leading UTF-8 BOM is detected and preserved verbatim in the output', () => {
@@ -143,6 +143,75 @@ describe('frontmatter input: YAML/TOML header + Markdown body', () => {
       microtypo(input, { input: { format: 'frontmatter', fields: ['title'] } }),
       `---\n&a title: "Корвин${NBSP}— принц"\n!!str slug: "Арден - лес"\n---\nТекст`
     );
+  });
+});
+
+const on = (render) => ({ html: true, entities: false, input: { format: 'frontmatter' }, render });
+
+// A header value is data, never a document, so `<p>` and `<br>` asked for explicitly lay out only
+// the body's top-level prose paragraphs.
+describe('frontmatter with paragraphs and breakline on', () => {
+  const OFF = { html: true, entities: false, input: { format: 'frontmatter' } };
+  const PROSE = 'Корвин - принц\nРэндом - брат';
+  const LAID_OUT = [
+    [on({ paragraphs: true }), `<p>Корвин${NBSP}— принц\nРэндом${NBSP}— брат</p>`],
+    [on({ breakline: true }), `Корвин${NBSP}— принц<br>\nРэндом${NBSP}— брат`],
+    [
+      on({ paragraphs: true, breakline: true }),
+      `<p>Корвин${NBSP}— принц<br>\nРэндом${NBSP}— брат</p>`
+    ]
+  ];
+  const BODY = `# Заголовок - тут\n\n${PROSE}\n\n\`\`\`\nкод - "x"\nещё\n\`\`\`\n\n- раз - два\n- три\n\n| a - b | c |\n| - | - |\n| 1 | 2 |\n\n${PROSE}`;
+
+  for (const [name, header] of [
+    ['YAML', '---\ntitle: "А - б"\nlist: |\n  строка - раз\n  строка - два\n\n  абзац - три\n---'],
+    ['TOML', '+++\ntitle = "А - б"\nbody = """строка - раз\nстрока - два\n\nабзац"""\n+++']
+  ]) {
+    test(`a ${name} header and the body's blocks come out as with them off`, () => {
+      const src = `${header}\n\n${BODY}`;
+      const typeset = microtypo(src, OFF);
+
+      assert.doesNotMatch(typeset, /<p>|<br>/);
+
+      for (const [options, laidOut] of LAID_OUT) {
+        const out = microtypo(src, options);
+
+        assert.equal(
+          out,
+          typeset.replaceAll(`Корвин${NBSP}— принц\nРэндом${NBSP}— брат`, laidOut),
+          JSON.stringify(options.render)
+        );
+        assert.equal(microtypo(out, options), out);
+      }
+    });
+  }
+
+  test('a template in front of the spaces of a hard break ends the body paragraph', () => {
+    for (const render of [{ paragraphs: true }, { paragraphs: true, breakline: true }]) {
+      const options = { ...on(render), input: { format: 'frontmatter', template: 'liquid' } };
+
+      for (const [src, out] of [
+        ['---\na: 1\n---\n{%%}  \n', '---\na: 1\n---\n<p>{%%}</p>\n'],
+        ['---\na: 1\n---\n{% if x %}\n', '---\na: 1\n---\n<p>{% if x %}</p>\n'],
+        ['---\na: 1\n---\n{% if x %}  \nтекст', '---\na: 1\n---\n<p>{% if x %}  \nтекст</p>']
+      ]) {
+        assert.equal(microtypo(src, options), out, JSON.stringify(render));
+        assert.equal(microtypo(out, options), out);
+      }
+    }
+  });
+
+  test('markup in a header value leaves the line breaks of the body as they are without it', () => {
+    const options = { html: true, input: { format: 'frontmatter' }, render: { breakline: true } };
+    for (const [src, out] of [
+      ['---\nо"<a>\n---\n&laquo;"\nа""', '---\nо"<a>\n---\n«„<br>\nа“»'],
+      ['---\nо"<b>\n---\n«„<br>\nа“»', '---\nо"<b>\n---\n«„<br>\nа“»'],
+      ["+++\nt='''<n>“ “'''\n+++\n&quot;<br>&quot;,", "+++\nt='''<n>«»'''\n+++\n«<br>»,"],
+      ["+++\nt='''<n>«»'''\n+++\n«<br>»,", "+++\nt='''<n>«»'''\n+++\n«<br>»,"]
+    ]) {
+      assert.equal(microtypo(src, options), out, src);
+      assert.equal(microtypo(out, options), out, src);
+    }
   });
 });
 

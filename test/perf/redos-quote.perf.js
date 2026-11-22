@@ -1,5 +1,5 @@
-// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node from
-// `.nvmrc`, one file at a time, and no other test run, coverage or build beside it. Ratio
+// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node pinned in
+// `package.json`, one file at a time, and no other test run, coverage or build beside it. Ratio
 // checks hold on any machine; absolute limits were set on an Intel i9-10910 under macOS and are
 // smoke limits elsewhere.
 
@@ -26,6 +26,31 @@ function best(run, k) {
 }
 
 const nested = (k) => processQuotes('«'.repeat(k) + '»'.repeat(k));
+
+for (const [name, build] of [
+  ['one balanced quotation', (n) => `«${'а😀'.repeat(n)}»`],
+  ['an unclosed quotation', (n) => `«${'а😀'.repeat(n)}`]
+]) {
+  const time = (n) => {
+    const text = build(n);
+    let fastest = Infinity;
+    for (let sample = 0; sample < 5; sample++) {
+      const started = performance.now();
+      for (let repeat = 0; repeat < 10; repeat++) {
+        assert.equal(processQuotes(text), text);
+      }
+      fastest = Math.min(fastest, performance.now() - started);
+    }
+    return fastest;
+  };
+  test(`${name} over long content grows linearly`, (t) => {
+    time(1000);
+    const [one, two, four] = [time(10000), time(20000), time(40000)];
+    const detail = `${name}: N ${one.toFixed(3)}ms, 2N ${two.toFixed(3)}ms, 4N ${four.toFixed(3)}ms (${(four / one).toFixed(2)}x)`;
+    t.diagnostic(detail);
+    assert.ok(four / one < 8, detail);
+  });
+}
 
 // The quote state machine has to stay near-linear, and is isolated from the pipeline to keep the
 // signal: a 4x input grows about 4x if linear and about 16x if quadratic.
@@ -114,4 +139,17 @@ test('nested inch-fallback stays fast at default maxInputLength', () => {
   typo.process(text);
   const ms = performance.now() - start;
   assert.ok(ms < 600, `nested inch-fallback payload took ${ms.toFixed(0)}ms (expected < 600ms)`);
+});
+
+// Every closer here stands where an opener stands, with a straight quote glued behind it: the walk
+// turns it and asks what the opening rule writes for that quote. Asked on a copy of the paragraph
+// made for each closer, that is a reading of the paragraph per closer.
+test('closers turned into openers with a straight quote behind them scale ~linearly', () => {
+  const typo = new MicroTypo({ maxInputLength: 5_000_000, maxProcessingMs: 0 });
+  const ratio = growth((k) => typo.process(' »"а»»'.repeat(k)), 4_000, 1);
+
+  assert.ok(
+    ratio < 8,
+    `quadratic turn of a wrong-way closer: 4x the input scaled ${ratio.toFixed(1)}x (expected < 8)`
+  );
 });

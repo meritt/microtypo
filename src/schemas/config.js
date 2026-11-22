@@ -1,21 +1,22 @@
 import {
   BUNDLE_NAMES,
-  KNOWN_GROUPS,
+  isOn,
   SETTING_SELECTORS,
   canonicalGroupName,
   wildcardToRegex
 } from '../core/options.js';
 import { MicroTypoConfigError } from '../errors/index.js';
 import { DEFAULT_GROUPS } from '../rules/registry.js';
+import { validateDataGroups } from './data-rules.js';
 
 const RULE_IDS = new Map(DEFAULT_GROUPS.map(([name, def]) => [name, def.rules.map((r) => r.id)]));
 
-function selectorMatchesRule(group, selector) {
+function selectorMatchesRule(group, selector, catalogue) {
   if (selector === '*') {
     return true;
   }
 
-  const ids = RULE_IDS.get(group) ?? [];
+  const ids = catalogue.get(group) ?? [];
   const re = wildcardToRegex(selector);
 
   return ids.some((id) => re.test(id));
@@ -29,7 +30,8 @@ const TOP_LEVEL_KEYS = new Set([
   'presets',
   'html',
   'rules',
-  'render'
+  'render',
+  'ruleGroups'
 ]);
 
 const RENDER_KEYS = new Set(['paragraphs', 'autolink', 'breakline', 'nowrap', 'hanging', 'prefix']);
@@ -43,7 +45,9 @@ const MAX_INPUT_LENGTH = 5_000_000;
 const INPUT_FORMATS = new Set([
   'text',
   'html',
+  'plain',
   'markdown',
+  'mdx',
   'json',
   'xml',
   'toml',
@@ -60,7 +64,20 @@ const INPUT_TEMPLATES = new Set([
   'liquid',
   'erb'
 ]);
-const INPUT_KEYS = new Set(['format', 'fields', 'exclude', 'template']);
+const INPUT_PLACEHOLDERS = new Set(['off', 'icu', 'printf', 'interpolation', 'all']);
+const INPUT_PRAGMAS = new Set(['off', 'microtypo']);
+const INPUT_KEYS = new Set([
+  'format',
+  'fields',
+  'exclude',
+  'template',
+  'placeholders',
+  'pragmas',
+  'math',
+  'attributes'
+]);
+const TEXT_ATTRIBUTES = new Set(['alt', 'title', 'aria-label', 'placeholder', 'content']);
+const ALL_ATTRIBUTES = Object.freeze([...TEXT_ATTRIBUTES]);
 const INPUT_FORMAT_MESSAGE = `expected one of ${[...INPUT_FORMATS].join('|')}`;
 
 function isBooleanish(value) {
@@ -73,9 +90,20 @@ function isStringArray(value) {
   return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
 
+function plainInput(format) {
+  return {
+    format,
+    template: 'off',
+    placeholders: 'all',
+    pragmas: 'microtypo',
+    math: true,
+    attributes: ALL_ATTRIBUTES
+  };
+}
+
 function normaliseInput(input, issues) {
   if (input === undefined) {
-    return { format: 'text', template: 'off' };
+    return plainInput('text');
   }
 
   if (typeof input === 'string') {
@@ -83,13 +111,13 @@ function normaliseInput(input, issues) {
       issues.push(`input: ${INPUT_FORMAT_MESSAGE}`);
     }
 
-    return { format: input, template: 'off' };
+    return plainInput(input);
   }
 
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     issues.push('input: expected a string or an object');
 
-    return { format: 'text', template: 'off' };
+    return plainInput('text');
   }
 
   for (const key of Object.keys(input)) {
@@ -108,7 +136,34 @@ function normaliseInput(input, issues) {
     issues.push(`input.template: expected one of ${[...INPUT_TEMPLATES].join('|')}`);
   }
 
-  const normalised = { format, template };
+  const placeholders = input.placeholders ?? 'all';
+  if (!INPUT_PLACEHOLDERS.has(placeholders)) {
+    issues.push(`input.placeholders: expected one of ${[...INPUT_PLACEHOLDERS].join('|')}`);
+  }
+  const pragmas = input.pragmas ?? 'microtypo';
+  if (!INPUT_PRAGMAS.has(pragmas)) {
+    issues.push(`input.pragmas: expected one of ${[...INPUT_PRAGMAS].join('|')}`);
+  }
+
+  if (input.math !== undefined && !isBooleanish(input.math)) {
+    issues.push('input.math: expected a boolean');
+  }
+  const math = isOn(input.math ?? true);
+  const rawAttributes = input.attributes === undefined ? ALL_ATTRIBUTES : input.attributes;
+  const attributes = Array.isArray(rawAttributes)
+    ? Object.freeze([...rawAttributes])
+    : rawAttributes;
+  if (!Array.isArray(attributes) || !attributes.every((name) => TEXT_ATTRIBUTES.has(name))) {
+    issues.push('input.attributes: expected an array of alt|title|aria-label|placeholder|content');
+  }
+  const normalised = {
+    format,
+    template,
+    placeholders,
+    pragmas,
+    math,
+    attributes: Array.isArray(attributes) ? attributes : ALL_ATTRIBUTES
+  };
 
   if (input.fields !== undefined) {
     if (isStringArray(input.fields)) {
@@ -130,7 +185,7 @@ function normaliseInput(input, issues) {
   return normalised;
 }
 
-export function validateConfig(config) {
+export function validateConfig(config, registered = RULE_IDS) {
   if (
     config !== undefined &&
     config !== null &&
@@ -144,6 +199,19 @@ export function validateConfig(config) {
 
   const cfg = config ?? {};
   const issues = [];
+
+  if (cfg.ruleGroups !== undefined) {
+    validateDataGroups(cfg.ruleGroups, issues);
+  }
+  const catalogue = new Map(registered);
+  for (const group of Array.isArray(cfg.ruleGroups) ? cfg.ruleGroups : []) {
+    if (group?.name && Array.isArray(group.rules)) {
+      catalogue.set(
+        canonicalGroupName(group.name),
+        group.rules.map((rule) => rule?.id).filter((id) => typeof id === 'string')
+      );
+    }
+  }
 
   for (const key of Object.keys(cfg)) {
     if (!TOP_LEVEL_KEYS.has(key)) {
@@ -236,7 +304,7 @@ export function validateConfig(config) {
 
         const dot = key.indexOf('.');
         if (dot === -1) {
-          if (!KNOWN_GROUPS.has(canonicalGroupName(key))) {
+          if (!catalogue.has(canonicalGroupName(key))) {
             issues.push(`rules: unknown key "${key}"`);
           }
           continue;
@@ -244,7 +312,7 @@ export function validateConfig(config) {
 
         const groupRaw = key.slice(0, dot);
         const group = canonicalGroupName(groupRaw);
-        if (!KNOWN_GROUPS.has(group)) {
+        if (!catalogue.has(group)) {
           issues.push(`rules: unknown group "${groupRaw}"`);
           continue;
         }
@@ -254,7 +322,7 @@ export function validateConfig(config) {
           continue;
         }
 
-        if (!selectorMatchesRule(group, key.slice(dot + 1))) {
+        if (!selectorMatchesRule(group, key.slice(dot + 1), catalogue)) {
           issues.push(`rules: "${key}" does not match any rule id in group "${groupRaw}"`);
         }
       }

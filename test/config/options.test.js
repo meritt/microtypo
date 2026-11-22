@@ -375,8 +375,12 @@ describe('isOn / isOff', () => {
 });
 
 describe('bundle aliases (end-to-end)', () => {
+  // `nbsp_after_number` binds a number to any word after it, a unit included.
   test('units bundle:false leaves plain space', () => {
-    const out = microtypo('Грейсвандир весит 5 кг', { ...NOP, rules: { units: false } });
+    const out = microtypo('Грейсвандир весит 5 кг', {
+      ...NOP,
+      rules: { units: false, 'nobr.nbsp_after_number': false }
+    });
     assert.ok(out.includes('5 кг'));
     assert.ok(!out.includes(`5${NBSP}кг`));
   });
@@ -543,4 +547,28 @@ describe('presets on/off', () => {
     assert.equal(microtypo('Право (c) Дворкина', NOP), expected);
     assert.equal(microtypo('Право &copy; Дворкина', NOP), expected);
   });
+});
+
+test('prospective spacing observes selector changes made before its group and on reuse', () => {
+  const typo = new MicroTypo();
+  let punctuation = false;
+  typo.registerRuleGroup(
+    {
+      rules: [
+        {
+          id: 'selection',
+          handler: (ctx) => {
+            typo.applyOptions({ rules: { 'space.space_after_punctuation': punctuation } });
+            return ctx.text;
+          }
+        }
+      ]
+    },
+    { name: 'selection', position: 'before:space' }
+  );
+  assert.equal(typo.process('x:y.слово'), 'x:y.слово');
+  punctuation = true;
+  assert.equal(typo.process('x:y.слово'), 'x: y. слово');
+  punctuation = false;
+  assert.equal(typo.process('x:y.слово'), 'x:y.слово');
 });

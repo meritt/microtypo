@@ -3,16 +3,7 @@ import { describe, test } from 'node:test';
 
 import { MicroTypoInputError } from '../../src/errors/index.js';
 import { microtypo } from '../../src/index.js';
-import { doctypeEnd, scanXmlSpacePreserve, validateXml } from '../../src/input/xml.js';
-
-const preserveScanNanos = (k) => {
-  const src = `${'<a'.repeat(k)} xml:space`;
-  const at = process.hrtime.bigint();
-
-  scanXmlSpacePreserve(src);
-
-  return Number(process.hrtime.bigint() - at);
-};
+import { doctypeEnd, validateXml } from '../../src/input/xml.js';
 
 const NBSP = '\u{00A0}';
 
@@ -41,6 +32,17 @@ function assertUnterminatedXmlConstruct(src, construct) {
 }
 
 describe('XML input: text nodes typeset, structure verbatim', () => {
+  test('quoted XML constructs keep their own bounds before and inside a protected formula', () => {
+    const math = '<math>if (a &lt;= b &amp;&amp; c != d) <![CDATA[</math>]]> { f(x) }</math>';
+    for (const prefix of ['<![CDATA["]]>', '<?note "?>', '<!-- " -->', 'заметка']) {
+      const start = `<doc><note>${prefix}</note>${math}<title data-value="x != y">`;
+      const source = `${start}"</title><p>a != b...</p></doc>`;
+      const expected = `${start}"</title><p>a ≠ b…</p></doc>`;
+      assert.equal(microtypo(source, { input: 'xml' }), expected);
+      assert.equal(microtypo(expected, { input: 'xml' }), expected);
+    }
+  });
+
   test('RSS: title/description text nodes typeset, all tags byte-verbatim', () => {
     const src =
       '<rss><channel><title>Дневник Корвина - лучший</title>' +
@@ -242,17 +244,6 @@ describe('XML input: text nodes typeset, structure verbatim', () => {
 
       assert.equal(out.includes(`Корвин${NBSP}— принц`), typeset, src);
     }
-  });
-
-  // A `<` that opens no tag is where the next one may start, so the walk resumes there rather than
-  // one character on.
-  test('a malformed run does not re-read the suffix from every opener', () => {
-    preserveScanNanos(2000);
-
-    const small = preserveScanNanos(1000);
-    const large = preserveScanNanos(4000);
-
-    assert.ok(large < small * 8, `quadratic: ${small}ns at k=1000, ${large}ns at k=4000`);
   });
 
   test('an unrecognized "<b <c>" opener inside the preserve scan does not misfire', () => {
@@ -468,4 +459,49 @@ describe('doctypeEnd: comment/PI bracket-awareness in the internal subset', () =
       `<_книга xml:lang="ru" номер="1">Корвин${NBSP}— принц</_книга>`
     );
   });
+});
+
+test('a numeric no-break space can introduce a padded empty quotation in XML', () => {
+  for (const gap of [NBSP, '&#160;', '&#00160;', '&#x00a0;', '&#xA0;']) {
+    for (const entities of [false, true]) {
+      const config = { input: 'xml', entities };
+      const input = `<p>Значение:${gap}" ", затем следует номер.</p>`;
+      const space = entities && gap === NBSP ? '&#160;' : gap;
+      const pair = entities ? '&#171;&#187;' : '«»';
+      const expected = `<p>Значение:${space}${pair}, затем следует номер.</p>`;
+      assert.equal(microtypo(input, config), expected, input);
+      assert.equal(microtypo(expected, config), expected);
+    }
+  }
+});
+
+test('a padded XML quote reads the meaning of the preceding reference', () => {
+  const config = { input: 'xml', rules: { 'quote.close': false, 'quote.nested': false } };
+  for (const [lead, quoted] of [
+    ['&#x00A0;', '«»'],
+    [';', '" «'],
+    ['&nbsp;', '" «'],
+    ['&opaque;', '" «']
+  ]) {
+    const source = `<p>Поле${lead}"\t", затем текст.</p>`;
+    assert.equal(microtypo(source, config), `<p>Поле${lead}${quoted}, затем текст.</p>`);
+  }
+  const markup = `<doc value='&#x00A0;" ",'><code>&#160;" ",</code></doc>`;
+  assert.equal(microtypo(markup, { input: 'xml' }), markup);
+});
+
+test('an XML element named like an HTML block is quoted whole, as any other element', () => {
+  for (const name of ['p', 'div', 'item']) {
+    for (const [input, expected] of [
+      [
+        `<doc>Ответ "<${name}>да</${name}>" и.</doc>`,
+        `<doc>Ответ «<${name}>да</${name}>» и.</doc>`
+      ],
+      [`<doc>Ответ "<${name}>да</${name}>".</doc>`, `<doc>Ответ «<${name}>да</${name}>».</doc>`],
+      [`<doc>"<${name}>да</${name}>"</doc>`, `<doc>«<${name}>да</${name}>»</doc>`]
+    ]) {
+      assert.equal(microtypo(input, { input: 'xml' }), expected, input);
+      assert.equal(microtypo(expected, { input: 'xml' }), expected);
+    }
+  }
 });

@@ -1,3 +1,5 @@
+import { F } from '../lib/rule-features.js';
+
 export const optAlignGroup = {
   title: 'Оптическое выравнивание',
   classes: {
@@ -13,6 +15,7 @@ export const optAlignGroup = {
   rules: [
     {
       id: 'quote',
+      requires: F.QUOTE,
       description: 'Оптическое выравнивание открывающей кавычки',
       enabled: false,
       htmlOnly: true,
@@ -28,6 +31,7 @@ export const optAlignGroup = {
     },
     {
       id: 'bracket',
+      requires: F.PAREN,
       description: 'Оптическое выравнивание скобок',
       enabled: false,
       htmlOnly: true,

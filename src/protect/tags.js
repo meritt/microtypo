@@ -3,6 +3,7 @@ import { BLOCK_TAG_NAMES, VOID_BLOCK_TAG_NAMES } from '../lib/block-tags.js';
 import { NAME_START, TAG_NAME_RE, isTagNameStart } from '../lib/tag-name.js';
 import { OPEN, CLOSE, TAG_VAULT_KINDS } from './placeholders.js';
 import {
+  COMMENT_OPEN,
   DOCUMENT_READING,
   FRAGMENT_READING,
   selfClosing,
@@ -42,6 +43,8 @@ const LEADING_NAME_RE = new RegExp(String.raw`^([${NAME_START}][\p{L}\p{N}._:-]*
 // The vaults `findByTagName` reads, in the order it reports them.
 const NAMED_KINDS = ['T', 'A', 'L'];
 
+// Every `&` is escaped, so the browser reads exactly the value given. A rule that checked an `href`
+// cannot have a reference in it decode into something it did not check.
 function escapeAttr(v) {
   return String(v)
     .replace(/&/g, '&amp;')
@@ -66,6 +69,9 @@ export class SafeTags {
   // `DOCUMENT_READING` for an HTML document, `FRAGMENT_READING` for anything else; `tagEnd` says what
   // the two change.
   #reading;
+  #readComments;
+  // Whether a tag is named as XML names one, by any letter, or as HTML does.
+  #xmlNames;
   #tagVault = new Vault('T');
   #anchorVault = new Vault('A');
   #blockVault = new Vault('L');
@@ -87,8 +93,10 @@ export class SafeTags {
 
   #heads = new Map(NAMED_KINDS.map((prefix) => [prefix, []]));
 
-  constructor({ document = true } = {}) {
+  constructor({ document = true, readComments = null, xmlNames = false } = {}) {
     this.#reading = document ? DOCUMENT_READING : FRAGMENT_READING;
+    this.#readComments = readComments;
+    this.#xmlNames = xmlNames;
   }
 
   reset() {
@@ -122,13 +130,20 @@ export class SafeTags {
     const parts = [];
     let cursor = 0;
     let ends = null;
+    let readComment;
 
     for (let lt = text.indexOf('<'); lt !== -1; lt = text.indexOf('<', lt + 1)) {
       const at = text[lt + 1] === '/' ? lt + 2 : lt + 1;
       const first = text.codePointAt(at);
 
-      if (!isTagNameStart(first) && first !== PLACEHOLDER_START) {
+      if (!isTagNameStart(first, this.#xmlNames) && first !== PLACEHOLDER_START) {
         continue;
+      }
+      if (this.#readComments !== null && text.startsWith(COMMENT_OPEN, lt)) {
+        readComment ??= this.#readComments(text);
+        if (readComment(lt) === -1) {
+          continue;
+        }
       }
 
       const gt = ends === null ? tagEnd(text, at, this.#reading) : ends[at];
@@ -161,12 +176,16 @@ export class SafeTags {
     return parts.join('');
   }
 
-  restore(text) {
-    return text.replace(VAULTED_TAG_RE, (m, slash, prefix, id) => {
+  restore(text, mapping) {
+    const replacement = (m, slash, prefix, id) => {
       const value = this.#vaults.get(prefix)?.retrieve(Number(id));
 
       return value == null ? m : `<${slash}${value}>`;
-    });
+    };
+    return (
+      mapping?.replace(text, VAULTED_TAG_RE, replacement) ??
+      text.replace(VAULTED_TAG_RE, replacement)
+    );
   }
 
   makeTag({ content, tag = 'span', attributes = {}, layout = DEFAULT_LAYOUT }) {
@@ -220,13 +239,16 @@ export class SafeTags {
   // An inline block may hold another one — a rule group that boxes the whole text wraps whatever the
   // `<notg>` layer already vaulted — so one pass uncovers the outer token and stops on the inner,
   // leaving the engine's own placeholder in the output in place of the author's words.
-  restoreIblocks(text) {
+  restoreIblocks(text, mapping) {
     let result = text;
     let previous;
 
     do {
       previous = result;
-      result = this.#hiddenIblockVault.restoreAll(this.#iblockVault.restoreAll(result));
+      result = this.#hiddenIblockVault.restoreAll(
+        this.#iblockVault.restoreAll(result, mapping),
+        mapping
+      );
     } while (previous !== result);
 
     return result;
@@ -252,6 +274,23 @@ export class SafeTags {
     }
 
     return out;
+  }
+
+  // The name of a vaulted inline tag, lowercased, or null for a comment, a declaration or an id the
+  // vault does not hold. Engine-only: the lifting of inline markup pairs tags by it.
+  nameOf(prefix, id) {
+    const heads = NAMED_KINDS.includes(prefix) ? this.#headsOf(prefix) : null;
+    const head = heads?.[id];
+
+    return head == null ? null : head.name.toLowerCase();
+  }
+
+  // A vaulted inline tag as written between its angle brackets, or null. Engine-only: the lifting of
+  // inline markup reads whether an author's element already keeps its words together.
+  rawOf(prefix, id) {
+    const vault = NAMED_KINDS.includes(prefix) ? this.#vaults.get(prefix) : null;
+
+    return vault == null || id >= vault.size ? null : vault.retrieve(id);
   }
 
   // A vault only grows within a `process()`, so each entry's head is parsed once however many rules

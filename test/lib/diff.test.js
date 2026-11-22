@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { describe, test } from 'node:test';
 
+import { defineRuleGroup } from '../../src/define-rule.js';
+import { MicroTypo } from '../../src/index.js';
 import { changedRanges } from '../../src/lib/diff.js';
 
 // What every answer must satisfy: the characters of `after` outside the ranges, read in order, are
@@ -17,10 +19,11 @@ function assertCovers(before, after, ranges) {
 
   kept += after.slice(cursor);
 
+  // UTF-16 units on both sides, as the ranges count them.
   let i = 0;
 
-  for (const ch of before) {
-    if (i < kept.length && kept[i] === ch) {
+  for (let k = 0; k < before.length; k++) {
+    if (i < kept.length && kept[i] === before[k]) {
       i++;
     }
   }
@@ -119,6 +122,55 @@ test('random edits are always covered', () => {
 
     assertCovers(before, after, changedRanges(before, after));
   }
+});
+
+const splitsPair = (text, at) =>
+  /[\uD800-\uDBFF]/u.test(text[at - 1]) && /[\uDC00-\uDFFF]/u.test(text[at]);
+
+describe('a range edge never splits a surrogate pair', () => {
+  // U+1F600 and U+1F603 share the high surrogate U+D83D and differ in the low one.
+  const GRIN = '\u{1F600}';
+  const SMILE = '\u{1F603}';
+
+  test('a replaced character beyond the BMP is covered whole', () => {
+    assert.deepEqual(changedRanges(`а ${GRIN} б`, `а ${SMILE} б`), [[2, 4]]);
+    assert.deepEqual(changedRanges(GRIN, SMILE), [[0, 2]]);
+  });
+
+  test('a deletion between two such characters takes the pair it stood in', () => {
+    const ranges = changedRanges(`${GRIN}${SMILE}`, SMILE);
+
+    assert.deepEqual(ranges, [[0, 2]]);
+    assertCovers(`${GRIN}${SMILE}`, SMILE, ranges);
+  });
+
+  test('ranges stay sorted, apart and covering', () => {
+    const before = `${GRIN}-${GRIN}${SMILE} ${SMILE}${GRIN}`;
+    const after = `${SMILE}—${SMILE}${GRIN} ${GRIN}${SMILE}`;
+    const ranges = changedRanges(before, after);
+
+    assertCovers(before, after, ranges);
+
+    for (const [i, [start, end]] of ranges.entries()) {
+      assert.ok(!splitsPair(after, start) && !splitsPair(after, end), JSON.stringify(ranges));
+      assert.ok(i === 0 || start > ranges[i - 1][1], JSON.stringify(ranges));
+    }
+  });
+
+  test('process() reports them whole', () => {
+    const typo = new MicroTypo().registerRuleGroup(
+      defineRuleGroup({
+        title: 'Улыбка',
+        rules: [{ id: 'smile', pattern: new RegExp(GRIN, 'gu'), replacement: SMILE }]
+      }),
+      { name: 'smile' }
+    );
+
+    assert.deepEqual(typo.process(`Корвин ${GRIN}`, { changes: true }), {
+      text: `Корвин ${SMILE}`,
+      changes: [[7, 9]]
+    });
+  });
 });
 
 test('a budget check runs while the texts disagree, and its error stops the diff', () => {

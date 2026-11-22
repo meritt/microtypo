@@ -23,10 +23,62 @@ export function changedRanges(before, after, checkBudget) {
 
   walk(before, 0, before.length, after, 0, after.length, 0, ranges, steps);
 
-  return mergeTouching(ranges);
+  return mergeTouching(ranges.map((range) => wholePairs(after, range)));
 }
 
-function walk(a, aStart, aEnd, b, bStart, bEnd, level, out, steps) {
+export function equalRanges(before, after, checkBudget) {
+  const equal = [];
+  const steps = { seen: 0, checkBudget };
+
+  walk(before, 0, before.length, after, 0, after.length, 0, [], steps, equal);
+
+  return equal;
+}
+
+export function replacementEdits(before, after, checkBudget) {
+  if (before === after) {
+    return [];
+  }
+  const edits = [];
+  let a = 0;
+  let b = 0;
+  for (let [start, next, length] of equalRanges(before, after, checkBudget)) {
+    if (splitsPair(before, start) || splitsPair(after, next)) {
+      start++;
+      next++;
+      length--;
+    }
+    if (splitsPair(before, start + length) || splitsPair(after, next + length)) {
+      length--;
+    }
+    if (length <= 0) {
+      continue;
+    }
+    if (start > a || next > b) {
+      edits.push({ start: a, end: start, text: after.slice(b, next) });
+    }
+    a = start + length;
+    b = next + length;
+  }
+  if (a < before.length || b < after.length) {
+    edits.push({ start: a, end: before.length, text: after.slice(b) });
+  }
+  return edits;
+}
+
+// The diff compares UTF-16 units, so two characters beyond the BMP that share a high surrogate agree
+// on it and differ on the low one alone. A range edge standing between the two halves of a pair takes
+// the whole pair: a caller slicing there would hold half a character.
+function wholePairs(text, [start, end]) {
+  return [splitsPair(text, start) ? start - 1 : start, splitsPair(text, end) ? end + 1 : end];
+}
+
+// Read from a high surrogate, a whole pair is one code point past the BMP.
+function splitsPair(text, at) {
+  return at > 0 && text.codePointAt(at - 1) > 0xffff;
+}
+
+function walk(a, aStart, aEnd, b, bStart, bEnd, level, out, steps, equal) {
   const anchor = ANCHORS[level];
   let i = aStart;
   let j = bStart;
@@ -36,9 +88,16 @@ function walk(a, aStart, aEnd, b, bStart, bEnd, level, out, steps) {
       steps.checkBudget?.('changes');
     }
 
+    const before = i;
+    const after = j;
+
     while (i < aEnd && j < bEnd && a[i] === b[j]) {
       i++;
       j++;
+    }
+
+    if (equal !== undefined && i > before) {
+      equal.push([before, after, i - before]);
     }
 
     if (i === aEnd || j === bEnd) {
@@ -52,9 +111,9 @@ function walk(a, aStart, aEnd, b, bStart, bEnd, level, out, steps) {
     const [i2, j2] = resync(a, i, aEnd, b, j, bEnd, anchor);
 
     if (i2 - i + (j2 - j) <= MYERS_SPAN) {
-      diffInto(a, i, i2, b, j, j2, out);
+      diffInto(a, i, i2, b, j, j2, out, equal);
     } else if (level + 1 < ANCHORS.length) {
-      walk(a, i, i2, b, j, j2, level + 1, out, steps);
+      walk(a, i, i2, b, j, j2, level + 1, out, steps, equal);
     } else {
       out.push([j, j2]);
     }
@@ -150,7 +209,7 @@ function gramHash(text, start, length) {
   return hash;
 }
 
-function diffInto(a, aStart, aEnd, b, bStart, bEnd, out) {
+function diffInto(a, aStart, aEnd, b, bStart, bEnd, out, equal) {
   let a0 = aStart;
   let a1 = aEnd;
   let b0 = bStart;
@@ -159,6 +218,10 @@ function diffInto(a, aStart, aEnd, b, bStart, bEnd, out) {
   while (a0 < a1 && b0 < b1 && a[a0] === b[b0]) {
     a0++;
     b0++;
+  }
+
+  if (equal !== undefined && a0 > aStart) {
+    equal.push([aStart, bStart, a0 - aStart]);
   }
 
   while (a0 < a1 && b0 < b1 && a[a1 - 1] === b[b1 - 1]) {
@@ -170,20 +233,20 @@ function diffInto(a, aStart, aEnd, b, bStart, bEnd, out) {
     if (a0 !== a1 || b0 !== b1) {
       out.push([b0, b1]);
     }
+  } else {
+    const split = middleSnake(a, a0, a1, b, b0, b1);
 
-    return;
+    if (split === null) {
+      out.push([b0, b1]);
+    } else {
+      diffInto(a, a0, split[0], b, b0, split[1], out, equal);
+      diffInto(a, split[0], a1, b, split[1], b1, out, equal);
+    }
   }
 
-  const split = middleSnake(a, a0, a1, b, b0, b1);
-
-  if (split === null) {
-    out.push([b0, b1]);
-
-    return;
+  if (equal !== undefined && a1 < aEnd) {
+    equal.push([a1, b1, aEnd - a1]);
   }
-
-  diffInto(a, a0, split[0], b, b0, split[1], out);
-  diffInto(a, split[0], a1, b, split[1], b1, out);
 }
 
 // The point where a shortest edit path crosses its middle, found by running Myers' search from both

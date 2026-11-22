@@ -83,3 +83,58 @@ describe('quote regressions from cross-test snapshot', () => {
     assert.ok(!out.includes('</a>ддддд'), `space consumed: ${out}`);
   });
 });
+
+describe('a leading byte-order mark', () => {
+  const BOM = '\u{FEFF}';
+
+  test('stays first, and the rest is typeset as without it', () => {
+    for (const [options, src] of [
+      [{}, 'Текст - тире'],
+      [{ input: 'html' }, '  <p>Текст - тире</p>'],
+      [{ html: true }, 'Текст - "тире"\n\nЕщё'],
+      [{ input: 'markdown' }, '# Заголовок - тире\n\n- пункт - тире'],
+      [{ input: 'frontmatter' }, '---\na: "Текст - тире"\n---\nТекст - тире'],
+      [{ input: 'json' }, '{"a":"Текст - тире"}'],
+      [{ input: 'yaml' }, 'a: Текст - тире'],
+      [{ input: 'toml' }, 'a = "Текст - тире"'],
+      [{ input: 'xml' }, '<a>Текст - тире</a>']
+    ]) {
+      assert.equal(microtypo(BOM + src, options), BOM + microtypo(src, options), src);
+    }
+  });
+
+  test('text and html keep it', () => {
+    for (const options of [{}, { input: 'html' }]) {
+      assert.equal(microtypo(`${BOM}Текст - тире`, options), `${BOM}Текст\u{00A0}— тире`);
+    }
+  });
+});
+
+// The quote cases a client reported against 0.3.1, inputs and expectations as they wrote them.
+describe('Yamb: a following block does not change a finished paragraph', () => {
+  const config = { input: 'html', html: false };
+
+  for (const { id, source, expected } of [
+    {
+      id: 'quote-code',
+      source: '<p>"<em>слово</em> и <a href="/x">другое</a>"</p>\n<p><code>"x" -- a  b</code></p>',
+      expected: '<p>«<em>слово</em> и <a href="/x">другое</a>»</p>\n<p><code>"x" -- a  b</code></p>'
+    },
+    {
+      id: 'quote-caption',
+      source:
+        '<p>"<em>слово</em> и <a href="/x">другое</a>"</p>\n<figure><img src="/x"><figcaption>"Подпись"</figcaption></figure>',
+      expected:
+        '<p>«<em>слово</em> и <a href="/x">другое</a>»</p>\n<figure><img src="/x"><figcaption>«Подпись»</figcaption></figure>'
+    },
+    {
+      id: 'quote-trailing-newline',
+      source: '<p>"<em>слово</em> и <a href="/x">другое</a>"</p>\n',
+      expected: '<p>«<em>слово</em> и <a href="/x">другое</a>»</p>'
+    }
+  ]) {
+    test(id, () => {
+      assert.equal(new MicroTypo(config).process(source), expected);
+    });
+  }
+});

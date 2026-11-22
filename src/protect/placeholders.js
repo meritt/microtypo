@@ -25,9 +25,23 @@ export function placeholderRegex(prefix, flags = 'g') {
 // Spelled inline in each consumer it drifts, and one copy bounds the id where another does not.
 export const PLACEHOLDER_TOKEN = `${OPEN}[A-Za-z]+\\d+${CLOSE}`;
 
+// The tokens the tag vault holds for the elements `nameOrRegex` names, as they stand in the text
+// between `<` and `>`.
+export function tagTokens(tags, nameOrRegex) {
+  return tags.findByTagName(nameOrRegex).map(({ prefix, id }) => `${OPEN}${prefix}${id}${CLOSE}`);
+}
+
 // The same token as the tag a rule reads back out of the text, capturing the closing slash and the
 // token itself. Built per consumer rather than shared: a `g` regex carries `lastIndex`.
 export const TAG_PLACEHOLDER_SOURCE = `<(/?)(${PLACEHOLDER_TOKEN})>`;
+
+// A character reference in XML is syntax, vaulted between its head and its `;`, and the vault holds
+// nothing: a rule reads `&#160;` as `&#160`, an empty placeholder and `;`. This source matches the
+// reference the engine writes for `glyph`, so a rule reads its own output back.
+export const REFERENCE_HOLE = `${OPEN}N\\d{1,9}${CLOSE}`;
+export function vaultedReference(glyph) {
+  return `&#${glyph.codePointAt(0)}${REFERENCE_HOLE};`;
+}
 
 // A rule reading the text around a placeholder cannot open the vault, so the prefix carries the
 // whole classification and every consumer reads the same set from here rather than spelling a subset
@@ -40,6 +54,7 @@ export const TAG_PLACEHOLDER_SOURCE = `<(/?)(${PLACEHOLDER_TOKEN})>`;
 export const BLOCK_KIND = 'L';
 export const TRANSPARENT_TAG_KINDS = 'TA';
 export const TRANSPARENT_BARE_KINDS = 'NHWF';
+export const INLINE_END = `<\\/${OPEN}[${TRANSPARENT_TAG_KINDS}]\\d+${CLOSE}>`;
 
 // A region protected to the end of an HTML document — the rest behind an element or comment never
 // closed, or a tag the document never ends — showing the reader something or nothing. The rules
@@ -60,9 +75,9 @@ const PARAGRAPH_TO_HTML = { POP: '<p>', PCL: '</p>', BR: '<br>' };
 // A paragraph marker carrying a tag placeholder is unwrapped into a real `<…>`/`</…>`, so tag
 // restore fills in the original bytes, attributes and all, rather than the plain `<p>`/`</p>` a
 // synthesized paragraph gets.
-const TAG_PLACEHOLDER_RE = `${OPEN}[TAL]\\d+${CLOSE}`;
-const PARAGRAPH_OPEN_TAGGED_RE = new RegExp(`${PARAGRAPH_OPEN}(${TAG_PLACEHOLDER_RE})`, 'gu');
-const PARAGRAPH_CLOSE_TAGGED_RE = new RegExp(`(${TAG_PLACEHOLDER_RE})${PARAGRAPH_CLOSE}`, 'gu');
+export const PARAGRAPH_TAG = `${OPEN}[TAL]\\d+${CLOSE}`;
+const PARAGRAPH_OPEN_TAGGED_RE = new RegExp(`${PARAGRAPH_OPEN}(${PARAGRAPH_TAG})`, 'gu');
+const PARAGRAPH_CLOSE_TAGGED_RE = new RegExp(`(${PARAGRAPH_TAG})${PARAGRAPH_CLOSE}`, 'gu');
 
 // A paragraph is something a document has and an attribute does not, so where the markers cannot
 // become `<p>` they are taken out whole — stripping only their PUA delimiters left the `POP` and
@@ -71,7 +86,16 @@ export function dropParagraphs(text) {
   return text.replace(PARAGRAPH_RESTORE_RE, '');
 }
 
-export function restoreParagraphs(text) {
+export function restoreParagraphs(text, mapping) {
+  if (mapping !== undefined) {
+    let result = mapping.replace(text, PARAGRAPH_OPEN_TAGGED_RE, (_, ph) => `<${ph}>`);
+    result = mapping.replace(result, PARAGRAPH_CLOSE_TAGGED_RE, (_, ph) => `</${ph}>`);
+    return mapping.replace(
+      result,
+      PARAGRAPH_RESTORE_RE,
+      (_, kind) => PARAGRAPH_TO_HTML[kind] ?? ''
+    );
+  }
   return text
     .replace(PARAGRAPH_OPEN_TAGGED_RE, (_, ph) => `<${ph}>`)
     .replace(PARAGRAPH_CLOSE_TAGGED_RE, (_, ph) => `</${ph}>`)

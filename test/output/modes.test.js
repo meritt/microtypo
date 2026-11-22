@@ -549,6 +549,38 @@ describe('paragraphs follow the author block tree', () => {
   }
 });
 
+describe('paragraphs alone part an author paragraph from its neighbour as they part their own', () => {
+  const alone = { html: true, rules: { 'hanging.*': false, 'text.breakline': false } };
+
+  test('a blank line beside an author paragraph stays a blank line', () => {
+    for (const [source, expected] of [
+      ['е\n\n<div>', '<p>е</p>\n\n<div>'],
+      ['<h1></h1>\n\n—', '<h1></h1>\n\n<p>—</p>'],
+      ['<p>Корвин</p>\n\nЭрик', '<p>Корвин</p>\n\n<p>Эрик</p>'],
+      ['Корвин\n\n<p>Эрик</p>', '<p>Корвин</p>\n\n<p>Эрик</p>'],
+      ['<p>Корвин</p>\r\n\r\nЭрик', '<p>Корвин</p>\n\n<p>Эрик</p>'],
+      ['<div>а</div>\n\n<p>е</p>\n\n<div>б</div>', '<div>а</div>\n\n<p>е</p>\n\n<div>б</div>']
+    ]) {
+      assert.equal(microtypo(source, alone), expected);
+      assert.equal(microtypo(expected, alone), expected);
+    }
+  });
+
+  test('a line break or nothing stays one line break', () => {
+    for (const [source, expected] of [
+      ['<p>Корвин</p>\nЭрик', '<p>Корвин</p>\n<p>Эрик</p>'],
+      ['<p>Корвин</p>\r\nЭрик', '<p>Корвин</p>\n<p>Эрик</p>'],
+      ['<p>Корвин</p>Эрик', '<p>Корвин</p>\n<p>Эрик</p>'],
+      ['е<div>', '<p>е</p>\n<div>']
+    ]) {
+      assert.equal(microtypo(source, alone), expected);
+      assert.equal(microtypo(expected, alone), expected);
+    }
+    const both = { html: true, rules: { 'hanging.*': false } };
+    assert.equal(microtypo('<p>е</p>\n<div>', both), '<p>е</p>\n\n<div>');
+  });
+});
+
 // In HTML the line breaks inside the author's markup lay out the source, so paragraphs and `<br>` go
 // into the text outside every author element only. A paragraph boundary inside an inline element
 // would also end it: a `</p>` closes every element opened inside its paragraph.
@@ -655,7 +687,7 @@ describe('line breaks inside an author element stay as written', () => {
     // A block inside an inline element is inside an element too, and the run around it stays bare.
     [
       'Дворкин\n\n<a href="/amber"><div>Корвин\n\nЭрик</div></a>\n\nРэндом',
-      '<p>Дворкин</p><a href="/amber"><div>Корвин\n\nЭрик</div></a><p>Рэндом</p>',
+      '<p>Дворкин</p>\n\n<a href="/amber"><div>Корвин\n\nЭрик</div></a>\n\n<p>Рэндом</p>',
       { Эрик: '<a href="/amber"><div>', Рэндом: '<p>' }
     ],
     // An element with no end tag wraps nothing.
@@ -677,7 +709,7 @@ describe('line breaks inside an author element stay as written', () => {
     ],
     [
       'Дворкин\n\n<div>Амбер</div>\n\n<span class="red">Корвин\n\nЭрик<p>Рэндом</p>Блейз</span>',
-      '<p>Дворкин</p>\n\n<div>Амбер</div><span class="red">Корвин\n\nЭрик<p>Рэндом</p>Блейз</span>',
+      '<p>Дворкин</p>\n\n<div>Амбер</div>\n\n<span class="red">Корвин\n\nЭрик<p>Рэндом</p>Блейз</span>',
       { Амбер: '<div>', Эрик: '<span class="red">', Блейз: '<span class="red">' }
     ],
     [

@@ -65,11 +65,11 @@ describe('sub/sup markup', () => {
     assert.doesNotMatch(out, /\^/);
   });
 
-  test('wraps amber_2 in sub/small markup', () => {
-    const out = microtypo('amber_2', { html: true });
+  test('wraps a_2 in sub/small markup', () => {
+    const out = microtypo('a_2', { html: true });
     assert.match(out, /<sub[\s>]/i);
     assert.match(out, /<small[\s>]/i);
-    assert.doesNotMatch(out, /amber_2/);
+    assert.doesNotMatch(out, /a_2/);
   });
 });
 
@@ -122,19 +122,33 @@ describe('other.en_time_range', () => {
 
 describe('other.strip_nbsp_in_nowrap', () => {
   test('pulls an NBSP-bound trailing word into the nowrap span', () => {
-    const out = microtypo('Оберон пал 01.01.2024 г. затем', NOP);
-    assert.equal(out, 'Оберон пал <span style="white-space:nowrap;">01.01.2024 г. затем</span>');
+    const out = microtypo('Оберон пал 01.01.2024 г. ли?', NOP);
+    assert.equal(out, 'Оберон пал <span style="white-space:nowrap;">01.01.2024 г. ли</span>?');
   });
 
   test('disabled: the trailing word stays NBSP-bound outside the span', () => {
-    const out = microtypo('Оберон пал 01.01.2024 г. затем', {
+    const out = microtypo('Оберон пал 01.01.2024 г. ли?', {
       ...NOP,
       rules: { 'other.strip_nbsp_in_nowrap': false }
     });
     assert.equal(
       out,
-      `Оберон пал <span style="white-space:nowrap;">01.01.2024 г.</span>${NBSP}затем`
+      `Оберон пал <span style="white-space:nowrap;">01.01.2024 г.</span>${NBSP}ли?`
     );
+  });
+
+  test("moves only its wrapper's closing tag, not an author's </span> before a bound word", () => {
+    const out = microtypo(`и т.д. и <span>он</span>${NBSP}был`, NOP);
+    assert.equal(
+      out,
+      `<span style="white-space:nowrap;">и т. д.</span> и${NBSP}<span>он</span>${NBSP}был`
+    );
+  });
+
+  test("reads its wrapper to its own closing tag, past an author's </span> inside it", () => {
+    const expected = `<i>и</i>${NBSP}<span style="white-space:nowrap;">б <span>и</span> пр.</span>`;
+    assert.equal(microtypo(`<i>и</i> б${NBSP}<span>и</span> пр.`, NOP), expected);
+    assert.equal(microtypo(expected, NOP), expected);
   });
 });
 
@@ -158,7 +172,7 @@ describe('other.split_triads', () => {
 
   test('a standalone number and a unit on the right still split', () => {
     assert.equal(microtypo('12345', NOP), `12${NNBSP}345`);
-    assert.equal(microtypo('-12345', NOP), `-12${NNBSP}345`);
+    assert.equal(microtypo('-12345', NOP), `−12${NNBSP}345`);
     assert.equal(microtypo('12345м', NOP), `12${NNBSP}345${NBSP}м`);
     assert.equal(microtypo('12345кг', NOP), `12${NNBSP}345${NBSP}кг`);
   });
@@ -180,6 +194,89 @@ describe('other.split_triads', () => {
 
   test('triad entities emit &#8239; not &thinsp;', () => {
     assert.ok(microtypo('378000', { entities: true }).includes('378&#8239;000'));
+  });
+
+  test('digits after a decimal separator are not grouped', () => {
+    for (const [src, want] of [
+      ['3,14159265', '3,14159265'],
+      ['0.123456', '0.123456'],
+      ['курс 1234567,891234', `курс 1${NNBSP}234${NNBSP}567,891234`],
+      ['версия 1.23456.7', 'версия 1.23456.7']
+    ]) {
+      const once = microtypo(src);
+
+      assert.equal(once, want);
+      assert.equal(microtypo(once), once);
+    }
+  });
+
+  test('numbers and identifiers stay as typed', () => {
+    for (const [src, want] of [
+      ['№ 123456', `№${NNBSP}123456`],
+      ['ИНН 7707083893', 'ИНН 7707083893'],
+      ['КПП 770701001', 'КПП 770701001'],
+      ['ОГРН 1027700132195', 'ОГРН 1027700132195'],
+      ['ОГРНИП 304500116000157', 'ОГРНИП 304500116000157'],
+      ['БИК 044525225', 'БИК 044525225'],
+      ['СНИЛС 11223344595', 'СНИЛС 11223344595'],
+      ['ОКПО 12345678', 'ОКПО 12345678'],
+      ['счёт 40702810400000001234', 'счёт 40702810400000001234'],
+      ['счет 40702810400000001234', 'счет 40702810400000001234'],
+      ['р/с 40702810400000001234', 'р/с 40702810400000001234'],
+      ['к/с 30101810400000000225', 'к/с 30101810400000000225'],
+      ['индекс 125009', 'индекс 125009'],
+      ['код 1234567', 'код 1234567'],
+      ['арт. 1234567', 'арт. 1234567'],
+      ['ИНН: 7707083893', 'ИНН: 7707083893'],
+      ['ИНН № 7707083893', `ИНН №${NNBSP}7707083893`],
+      ['заказ 0001234567', 'заказ 0001234567'],
+      ['12345678901234567890', '12345678901234567890'],
+      ['125009, Москва', '125009, Москва'],
+      ['125009 г. Москва', `125009${NBSP}г.${NBSP}Москва`],
+      ['000000a', '000000a']
+    ]) {
+      const once = microtypo(src);
+
+      assert.equal(once, want);
+      assert.equal(microtypo(once), once);
+    }
+  });
+
+  test('a rerun of XML written with entities reads № and the index as the first run did', () => {
+    const typo = new MicroTypo({ input: 'xml', entities: true });
+
+    for (const [src, want] of [
+      ['<doc><p>№1000357 {</p></doc>', '<doc><p>&#8470;&#8239;1000357 {</p></doc>'],
+      ['<doc><p>125009 г. Москва</p></doc>', '<doc><p>125009&#160;г.&#160;Москва</p></doc>']
+    ]) {
+      const once = typo.process(src);
+
+      assert.equal(once, want);
+      assert.equal(typo.process(once), once);
+    }
+  });
+
+  test('an identifier inside inline markup stays as typed', () => {
+    assert.equal(microtypo('№ <b>123456</b>'), `№${NNBSP}<b>123456</b>`);
+    assert.equal(microtypo('<b>ИНН</b> 7707083893'), '<b>ИНН</b> 7707083893');
+    assert.equal(microtypo('ИНН *7707083893*', { input: 'markdown' }), 'ИНН *7707083893*');
+  });
+
+  test('a quantity next to a label-free word is still grouped', () => {
+    assert.equal(microtypo('1234567 руб.'), `1${NNBSP}234${NNBSP}567${NBSP}₽.`);
+    assert.equal(
+      microtypo('население 1234567 человек'),
+      `население 1${NNBSP}234${NNBSP}567 человек`
+    );
+    assert.equal(microtypo('тел. 84951234567'), `тел. 8${NBSP}495${NBSP}123-45-67`);
+    assert.equal(microtypo('123456789012345'), ['123', '456', '789', '012', '345'].join(NNBSP));
+  });
+
+  test('the whole part before a decimal separator is still grouped', () => {
+    assert.equal(microtypo('1234567.5'), `1${NNBSP}234${NNBSP}567.5`);
+    assert.equal(microtypo('12345,6789 руб.'), `12${NNBSP}345,6789${NBSP}₽.`);
+    assert.equal(microtypo('1000000'), `1${NNBSP}000${NNBSP}000`);
+    assert.equal(microtypo('1 234 567,89'), `1${NNBSP}234${NNBSP}567,89`);
   });
 });
 

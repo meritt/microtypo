@@ -1,9 +1,10 @@
-// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node from
-// `.nvmrc`, one file at a time, and no other test run, coverage or build beside it. Ratio
+// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node pinned in
+// `package.json`, one file at a time, and no other test run, coverage or build beside it. Ratio
 // checks hold on any machine; absolute limits were set on an Intel i9-10910 under macOS and are
 // smoke limits elsewhere.
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import { MicroTypo, microtypo } from '../../src/index.js';
@@ -86,3 +87,31 @@ test('functional API remains acceptable for one-off short calls', () => {
 
   assert.ok(ms < 2, `functional short call took ${ms.toFixed(3)}ms`);
 });
+
+// The big-text scenes in both output modes, as two copies of the scene and as eight.
+for (const scene of ['pattern-walk', 'arden-report', 'rebma-release']) {
+  test(`${scene}: both modes cost the text, not its square`, () => {
+    const input = readFileSync(
+      new URL(`../fixtures/big-text/${scene}.input.txt`, import.meta.url),
+      'utf8'
+    );
+    const limits = { maxInputLength: 1_000_000, maxProcessingMs: 0 };
+    const markup = new MicroTypo({ html: true, entities: true, ...limits });
+    const unicode = new MicroTypo({ entities: false, ...limits });
+    const copies = (n) => Array.from({ length: n }, () => input).join('\n\n');
+    const small = copies(2);
+    const large = copies(8);
+    const both = (text) => {
+      markup.process(text);
+      unicode.process(text);
+    };
+
+    const smallMs = once(() => both(small));
+    const largeMs = once(() => both(large));
+
+    assert.ok(
+      largeMs < smallMs * 8 + 1,
+      `4x the text cost ${(largeMs / smallMs).toFixed(1)}x the time (${smallMs.toFixed(2)}ms -> ${largeMs.toFixed(2)}ms)`
+    );
+  });
+}

@@ -10,6 +10,53 @@ function entity(text) {
   return new MicroTypo({ ...P, entities: true }).process(text);
 }
 
+describe('a hyphen beside an equals sign stays', () => {
+  test('a spaced hyphen between operands of an equation is kept', () => {
+    for (const src of ['x = 5 - 3', '10 - 2 = 8', 'a = b - c', '2 + 2 = 4, 10 - 2 = 8']) {
+      const once = microtypo(src);
+
+      assert.equal(once, src);
+      assert.equal(microtypo(once), once);
+    }
+  });
+
+  test('away from an equals sign a spaced hyphen is still a range', () => {
+    assert.equal(microtypo('5 - 3'), '5–3');
+    assert.equal(microtypo('стр. 10 - 20'), 'стр. 10–20');
+    assert.equal(microtypo('x = 5 – 3'), 'x = 5–3');
+  });
+
+  test('an operand ends at the first character that is no digit or letter', () => {
+    for (const [src, opts, want] of [
+      ['(x = 5 - 3)', undefined, '(x = 5 - 3)'],
+      ['"= 5 - 3 »', { input: 'html' }, '«= 5 - 3»'],
+      ['= 7 - 3...', undefined, '= 7 - 3…'],
+      ['= 7 - 7', { html: true }, '<p>= 7 - 7</p>'],
+      ['$a - b = 0$', { input: 'markdown' }, '$a - b = 0$'],
+      [
+        '<doc><note>4 - 6\u{00A0}=</note></doc>',
+        { input: 'xml', entities: true },
+        '<doc><note>4 - 6&#160;=</note></doc>'
+      ]
+    ]) {
+      const once = microtypo(src, opts);
+
+      assert.equal(once, want);
+      assert.equal(microtypo(once, opts), once);
+    }
+  });
+
+  test('an operand is a number or a word, so a dash before a formula stays a dash', () => {
+    assert.equal(microtypo('x = 2.5 - 1.5'), 'x = 2.5 - 1.5');
+    assert.ok(
+      microtypo('работа на всём пути - $W = k L^2 / 2$', { input: 'markdown' }).includes(
+        'пути — $W ='
+      )
+    );
+    assert.equal(microtypo('title = «Амбер - город»'), 'title = «Амбер — город»');
+  });
+});
+
 describe('emphatic particles attach with a hyphen', () => {
   test('ка joins the stem', () => {
     assert.equal(microtypo('принеси ка', P), 'принеси-ка');
@@ -76,11 +123,11 @@ describe('a range written with an en dash stays a range', () => {
   const NBSP = '\u{00A0}';
 
   test('a spaced en dash closes up', () => {
-    assert.equal(microtypo('за 12 – 19 дней', P), `за${NBSP}12–19 дней`);
+    assert.equal(microtypo('за 12 – 19 дней', P), `за${NBSP}12–19${NBSP}дней`);
   });
 
   test('an ndash entity closes up', () => {
-    assert.equal(microtypo('за 12 &ndash; 19 дней', P), `за${NBSP}12–19 дней`);
+    assert.equal(microtypo('за 12 &ndash; 19 дней', P), `за${NBSP}12–19${NBSP}дней`);
   });
 
   test('the range survives entity output', () => {
@@ -96,7 +143,7 @@ describe('a range written with an en dash stays a range', () => {
   });
 
   test('a spaced em dash stays as written', () => {
-    assert.equal(microtypo('за 12 — 19 дней', P), `за${NBSP}12${NBSP}— 19 дней`);
+    assert.equal(microtypo('за 12 — 19 дней', P), `за${NBSP}12${NBSP}— 19${NBSP}дней`);
   });
 });
 
@@ -138,15 +185,15 @@ describe('a line-start and post-sentence dash read the en dash too', () => {
   const NBSP = '\u{00A0}';
 
   test('an en dash after a line break becomes an em dash', () => {
-    assert.equal(microtypo('Амбер.\n– Корвин шёл', P), `Амбер.\n—${NBSP}Корвин шёл`);
+    assert.equal(microtypo('Амбер.\n– Корвин шёл', P), `Амбер.\n—${NBSP}Корвин${NBSP}шёл`);
   });
 
   test('an en dash after a sentence mark becomes an em dash', () => {
-    assert.equal(microtypo('Амбер. – Корвин шёл', P), `Амбер. —${NBSP}Корвин шёл`);
+    assert.equal(microtypo('Амбер. – Корвин шёл', P), `Амбер. —${NBSP}Корвин${NBSP}шёл`);
   });
 
   test('an en dash after an ellipsis becomes an em dash', () => {
-    assert.equal(microtypo('Тень… – Корвин шёл', P), `Тень… —${NBSP}Корвин шёл`);
+    assert.equal(microtypo('Тень… – Корвин шёл', P), `Тень… —${NBSP}Корвин${NBSP}шёл`);
   });
 });
 
@@ -227,6 +274,49 @@ describe('dash.em — neighbours that are not letters', () => {
   });
 });
 
+// The end tag of an inline element stands after the words of that element: a dash behind it reads
+// what ends inside the element, as it would with no tag there.
+describe('dash behind an inline end tag', () => {
+  const NBSP = '\u{00A0}';
+
+  test('a sentence mark inside the element is the sentence mark the dash follows', () => {
+    assert.equal(microtypo('<b>Конец.</b> - текст', NOP), `<b>Конец.</b> —${NBSP}текст`);
+    assert.equal(
+      microtypo('<b>Конец.</b> - текст', { ...NOP, rules: { 'dash.em_after_sentence': false } }),
+      '<b>Конец.</b> - текст'
+    );
+  });
+
+  test('the end tag opens no line', () => {
+    assert.equal(
+      microtypo('<i>дву</i>- и трёхкомнатные', NOP),
+      `<i>дву</i>- и${NBSP}трёхкомнатные`
+    );
+  });
+
+  test('a word inside the element and a tag that does open a line read as before', () => {
+    assert.equal(microtypo('<b>слово</b> - текст', NOP), `<b>слово</b>${NBSP}— текст`);
+    assert.equal(microtypo('<b>- пункт</b>', NOP), `<b>—${NBSP}пункт</b>`);
+  });
+
+  test('the period of an abbreviated currency inside the element ends no sentence', () => {
+    const NNBSP = '\u{202F}';
+
+    for (const [source, expected] of [
+      [
+        '<p>24 900 руб. <s>29 900 руб.</s> - скидка 17%</p>',
+        `<p>24${NNBSP}900${NBSP}₽${NBSP}<s>29${NNBSP}900${NBSP}₽</s>${NBSP}— скидка 17%</p>`
+      ],
+      ['<p><b><s>5 долл.</s></b> - скидка</p>', `<p><b><s>5${NBSP}$</s></b>${NBSP}— скидка</p>`]
+    ]) {
+      const once = microtypo(source, { input: 'html', html: false });
+
+      assert.equal(once, expected, source);
+      assert.equal(microtypo(once, { input: 'html', html: false }), once, source);
+    }
+  });
+});
+
 // Half-typeset sources arrive with short words already glued: the separator around the dash is a
 // non-breaking space, which em_after_sentence has always read and em did not.
 describe('dash after a non-breaking space', () => {
@@ -241,12 +331,30 @@ describe('dash after a non-breaking space', () => {
   });
 
   test('a spaced range stays a range, not an em dash', () => {
-    assert.equal(microtypo(`Годы 1979${NBSP}- 1985 тут.`, NOP), 'Годы 1979–1985 тут.');
-    assert.equal(microtypo(`Годы 1979${NBSP}-${NBSP}1985 тут.`, NOP), 'Годы 1979–1985 тут.');
+    assert.equal(microtypo(`Годы 1979${NBSP}- 1985 тут.`, NOP), `Годы 1979–1985${NBSP}тут.`);
+    assert.equal(microtypo(`Годы 1979${NBSP}-${NBSP}1985 тут.`, NOP), `Годы 1979–1985${NBSP}тут.`);
   });
 
   test('an existing em dash after an nbsp is left alone', () => {
     assert.equal(microtypo(`Корвин${NBSP}— принц.`, NOP), `Корвин${NBSP}— принц.`);
+  });
+
+  test('a dash after no-break spaces at the start of a line converts as at the start of an element', () => {
+    const paragraphs = new MicroTypo({ html: true });
+    for (const [source, expected] of [
+      [`.\n\n${NBSP}${NBSP}-`, `<p>.</p>\n\n<p>${NBSP}—</p>`],
+      [`.\n\n${NBSP}${NBSP}– б`, `<p>.</p>\n\n<p>${NBSP}— б</p>`]
+    ]) {
+      const once = paragraphs.process(source);
+      assert.equal(once, expected);
+      assert.equal(paragraphs.process(once), once);
+    }
+    assert.equal(
+      microtypo(`<p>${NBSP}${NBSP}-</p>`, { html: true, input: 'html' }),
+      `<p>${NBSP}—</p>`
+    );
+    assert.equal(microtypo(`а\n${NBSP}- б`), `а\n${NBSP}— б`);
+    assert.equal(microtypo(`а\n${NBSP}-5 и`), `а\n${NBSP}−5${NBSP}и`);
   });
 
   test('a thematic break is still not an em dash', () => {

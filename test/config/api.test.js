@@ -71,16 +71,16 @@ describe('the outer trim stops at a body left open to the end', () => {
     assert.equal(microtypo('\n  \n<!-- x\n\n', { input: 'markdown' }), '<!-- x\n\n');
   });
 
-  test('markdown keeps the indent of indented code and drops blank edge lines as before', () => {
+  test('Markdown keeps code indentation and final file newlines', () => {
     const config = { input: 'markdown' };
 
-    assert.equal(microtypo('\n\n    код\n\n', config), '    код');
-    assert.equal(microtypo('Текст.\n\n    код\n\n\n', config), 'Текст.\n\n    код');
-    assert.equal(microtypo('\n\n  Корвин - принц  \n\n', config), `  Корвин${NBSP}— принц  `);
-    assert.equal(microtypo('\n\n```\nкод\n```\n\n\n', config), '```\nкод\n```');
+    assert.equal(microtypo('\n\n    код\n\n', config), '    код\n\n');
+    assert.equal(microtypo('Текст.\n\n    код\n\n\n', config), 'Текст.\n\n    код\n\n\n');
+    assert.equal(microtypo('\n\n  Корвин - принц  \n\n', config), `  Корвин${NBSP}— принц  \n\n`);
+    assert.equal(microtypo('\n\n```\nкод\n```\n\n\n', config), '```\nкод\n```\n\n\n');
     assert.equal(
       microtypo(`${FRONTMATTER}\n\n    код\n\n`, { input: 'frontmatter' }),
-      `${FRONTMATTER}    код`
+      `${FRONTMATTER}\n\n    код\n\n`
     );
   });
 });

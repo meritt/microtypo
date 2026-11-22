@@ -1,9 +1,11 @@
-// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node from
-// `.nvmrc`, one file at a time, and no other test run, coverage or build beside it. Ratio
+// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node pinned in
+// `package.json`, one file at a time, and no other test run, coverage or build beside it. Ratio
 // checks hold on any machine; absolute limits were set on an Intel i9-10910 under macOS and are
 // smoke limits elsewhere.
 
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { clearSpecialChars } from '../../src/clear-special.js';
@@ -52,21 +54,12 @@ test('long input ~50 paragraphs processes < 50ms', () => {
   assert.ok(ms < 50, `Got ${ms.toFixed(1)}ms (expected < 50)`);
 });
 
-test('memory: 5000 unique inputs on shared instance does not leak', () => {
-  const typo = new MicroTypo();
-  const before = process.memoryUsage().heapUsed;
-
-  for (let i = 0; i < 5000; i++) {
-    typo.process(`<pre>amber-${i}</pre> http://amber.example/${i} corwin${i}@amber.example "${i}"`);
-  }
-  if (globalThis.gc) {
-    globalThis.gc();
-  }
-
-  const after = process.memoryUsage().heapUsed;
-  const growthMB = (after - before) / 1024 / 1024;
-  // Without --expose-gc this is fuzzy; just a GB-land sanity check.
-  assert.ok(growthMB < 50, `Heap grew ${growthMB.toFixed(2)} MB`);
+test('memory: 5000 unique inputs on shared instance does not leak', (t) => {
+  const probe = join(import.meta.dirname, 'retained-heap.mjs');
+  const bytes = execFileSync(process.execPath, ['--expose-gc', probe], { encoding: 'utf8' });
+  const growthMiB = JSON.parse(bytes) / 1024 ** 2;
+  t.diagnostic(`Retained heap grew by ${growthMiB.toFixed(2)} MiB`);
+  assert.ok(growthMiB < 50, `Heap grew ${growthMiB.toFixed(2)} MiB`);
 });
 
 test('clearSpecialChars: 29K mixed-glyph input processes well under threshold', () => {
@@ -144,6 +137,26 @@ test('cycled rule respects maxProcessingMs (interrupted promptly, not after 100 
   assert.throws(() => typo.process('a'), MicroTypoBudgetError);
   const ms = performance.now() - start;
   assert.ok(ms < 100, `cycle() ignored the budget: took ${ms.toFixed(1)}ms (expected < 100)`);
+});
+
+// Whether it finishes or trips the budget, a megabyte of nested quotes holds the thread for no more
+// than a small multiple of that budget.
+test('adversarial nested quotes hold the thread for a bounded multiple of the budget', () => {
+  const budgetMs = 500;
+  const typo = new MicroTypo({ maxInputLength: 1_000_000, maxProcessingMs: budgetMs });
+  const input = '«'.repeat(500_000) + '»'.repeat(500_000);
+  const start = performance.now();
+
+  try {
+    typo.process(input);
+  } catch (error) {
+    if (!(error instanceof MicroTypoBudgetError)) {
+      throw error;
+    }
+  }
+
+  const ms = performance.now() - start;
+  assert.ok(ms < budgetMs * 4, `held the thread for ${ms.toFixed(0)}ms on a ${budgetMs}ms budget`);
 });
 
 // Isolated at the SafeBlocks level, because the full pipeline's URL and email scan would mask

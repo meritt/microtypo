@@ -6,11 +6,12 @@ import { isPlainObject } from './util.js';
 
 const RC_NAME = '.microtyporc.json';
 
-export async function loadConfigFile(explicitPath, cwd) {
+export async function loadConfigFile(explicitPath, cwd, located) {
   const path = explicitPath ? resolve(cwd, explicitPath) : await discover(cwd);
   if (!path) {
     return {};
   }
+  located?.(path);
 
   let raw;
   try {

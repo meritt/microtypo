@@ -1,5 +1,5 @@
-// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node from
-// `.nvmrc`, one file at a time, and no other test run, coverage or build beside it. Ratio
+// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node pinned in
+// `package.json`, one file at a time, and no other test run, coverage or build beside it. Ratio
 // checks hold on any machine; absolute limits were set on an Intel i9-10910 under macOS and are
 // smoke limits elsewhere.
 
@@ -71,6 +71,17 @@ test('scanXmlSpacePreserve (many preserve + plain siblings) scales ~linearly', (
   assert.ok(
     ratio < 8,
     `quadratic scanXmlSpacePreserve: 4x the input scaled ${ratio.toFixed(1)}x (expected < 8)`
+  );
+});
+
+// A `<` that opens no tag is where the next one may start, so the walk resumes there rather than
+// one character on.
+test('scanXmlSpacePreserve over a malformed run does not re-read the suffix from every opener', () => {
+  const ratio = growth(scanXmlSpacePreserve, (k) => `${'<a'.repeat(k)} xml:space`, 16_000, 0.5);
+
+  assert.ok(
+    ratio < 8,
+    `quadratic malformed-run scan: 4x the openers scaled ${ratio.toFixed(1)}x (expected < 8)`
   );
 });
 

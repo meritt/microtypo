@@ -22,7 +22,10 @@ describe('TOML quoted-string values', () => {
     const src = 'title = "Хроники Амбера - истинный мир"\nslug = "amber-chronicles"';
     const out = microtypo(src, { input: { format: 'toml' } });
 
-    assert.equal(out, `title = "Хроники Амбера${NBSP}— истинный мир"\nslug = "amber-chronicles"`);
+    assert.equal(
+      out,
+      `title = "Хроники Амбера${NBSP}— истинный${NBSP}мир"\nslug = "amber-chronicles"`
+    );
   });
 
   test('literal string: interior typeset, backslash content preserved verbatim', () => {
@@ -51,9 +54,9 @@ describe('TOML quoted-string values', () => {
   });
 
   test('hash and equals inside a value stay put; only the dash is typeset', () => {
-    const out = microtypo('k = "a # b = c - d"', { input: { format: 'toml' } });
+    const out = microtypo('k = "a # b = c; d - e"', { input: { format: 'toml' } });
 
-    assert.equal(out, `k = "a # b = c${NBSP}— d"`);
+    assert.equal(out, `k = "a # b = c; d${NBSP}— e"`);
   });
 
   test('table header is verbatim, value typeset, path is table.key', () => {

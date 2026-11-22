@@ -61,6 +61,7 @@ export const VOID_TAG_NAMES = Object.freeze([
   'track',
   'wbr'
 ]);
+export const VOID_TAGS = new Set(VOID_TAG_NAMES);
 
 // The open elements a start tag closes when the author left their end tags out, as far as the
 // block-level tags go.
@@ -75,3 +76,20 @@ export const IMPLIED_END_TAGS = Object.freeze({
   tbody: Object.freeze(['td', 'th', 'tr', 'thead', 'tbody', 'tfoot']),
   tfoot: Object.freeze(['td', 'th', 'tr', 'thead', 'tbody', 'tfoot'])
 });
+
+// Raw-text tags whose content is not typeset; block-level tags are excluded, since their content is.
+// `textarea` belongs here for a different reason: its content is the form's value, not display prose,
+// and `math` because its content is a formula in MathML.
+// prettier-ignore
+export const DEFAULT_SAFE_TAGS = [
+  'pre',
+  'code',
+  'script',
+  'style',
+  'kbd',
+  'samp',
+  'var',
+  'tt',
+  'textarea',
+  'math',
+];
