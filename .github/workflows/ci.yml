@@ -75,8 +75,17 @@ jobs:
           format: lcov
           fail-on-error: false
 
+      # Wall-clock ratios are noisy on a shared runner; a real growth defect fails every attempt.
       - name: Budget
-        run: pnpm test:perf
+        run: |
+          state="$RUNNER_TEMP/perf-rerun.json"
+          for attempt in 1 2 3; do
+            if pnpm exec node --test --test-concurrency=1 --test-rerun-failures="$state" 'test/perf/**/*.perf.js'; then
+              exit 0
+            fi
+            echo "::warning::timing budget attempt $attempt failed"
+          done
+          exit 1
 
       - name: Package
         id: package
