@@ -17,7 +17,7 @@ describe('ENRICH-1 — owned cases for behaviors thin in the corpus', () => {
   test('era abbreviation "до н.э." nowrap-bound', () => {
     assert.equal(
       microtypo('Первые Тени возникли ещё в III веке до н.э., задолго до Дворкина', NOP),
-      `Первые Тени возникли ещё в${NBSP}III веке <span style="white-space:nowrap;">до н. э.</span>, задолго до${NBSP}Дворкина`
+      `Первые Тени возникли ещё в${NBSP}III${NBSP}веке <span style="white-space:nowrap;">до н. э.</span>, задолго до${NBSP}Дворкина`
     );
   });
 

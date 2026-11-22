@@ -2244,7 +2244,7 @@ function projectEdits(state, after, cx, edits) {
 
 // A compact separator and an ordinary suffix gap already enter the date rule directly.
 function* spacedYearRanges(visible, cx, projectGaps) {
-  let collapse;
+  let gapRules;
   for (const match of visible.matchAll(cx.yearRange)) {
     const separator = match[3];
     const { suffixGap } = match.groups;
@@ -2254,8 +2254,14 @@ function* spacedYearRanges(visible, cx, projectGaps) {
       yield match;
     } else if (suffixGap && suffixGap !== ' ' && suffixGap !== G.NBSP) {
       // Preserve an author's period when an enabled gap rule lets the date reader see its suffix.
-      collapse ??= cx.collapsesSpaces();
-      if (!collapse || /[^ \t]/u.test(suffixGap)) {
+      // A compact ASCII hyphen after a digit is excluded by the number-to-word binder.
+      gapRules ??= cx.yearGapRules();
+      const collapses = gapRules.collapse && !/[^ \t]/u.test(suffixGap);
+      const binds =
+        gapRules.bind &&
+        (separator !== '-' || gapRules.range) &&
+        !/[^ \t\u{00A0}]/u.test(suffixGap);
+      if (!collapses && !binds) {
         yield match;
       }
     }

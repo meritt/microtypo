@@ -7,7 +7,7 @@
 //             [--case-timeout S]
 //   pnpm fuzz --case K --seed S [--case-timeout S]
 //   pnpm fuzz --coverage [--cases N] [--seed S] [--jobs N]
-import { writeFileSync } from 'node:fs';
+import { closeSync, openSync, writeFileSync, writeSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { parseArgs } from 'node:util';
 
@@ -16,6 +16,7 @@ import { FORMATS } from './fuzz/documents.mjs';
 import { NAMES, silence } from './fuzz/invariants.mjs';
 import { createPool } from './fuzz/pool.mjs';
 import { createSession, groupOf } from './fuzz/session.mjs';
+import { classifyStructure, STRUCTURE_REVISION } from './fuzz/structure.mjs';
 import { visible } from './visible.mjs';
 
 const USAGE = `Usage: pnpm fuzz [options]
@@ -25,6 +26,9 @@ const USAGE = `Usage: pnpm fuzz [options]
   --format <f>      one format only: ${FORMATS.join(', ')}
   --keep-going      collect every distinct violation, grouped by the rule to blame
   --summary <file>  with --keep-going: write the groups as JSON, to compare runs on one seed
+  --rule-set <set>  random (default) or default; default forces the default rule selection
+  --witnesses <file>
+                    with --keep-going: preserve every unshrunk input/config/violation/output as JSONL
   --case <k>        run case k of the seed alone and print it
   --coverage        count, per rule, the cases whose output changes when the rule is switched off
   --jobs <n>        worker threads (default: ${availableParallelism()}); the result does not depend on it
@@ -39,6 +43,11 @@ const EXAMPLES_PER_GROUP = 2;
 const BLOCK = 200;
 // A rule exercised fewer times than this per 100 000 cases cannot be checked by the fuzzer.
 const COVERAGE_FLOOR = 30;
+const classifiedInvariant = (name) => name === 'idempotence' || name === 'convergence';
+const classificationOf = (finding) =>
+  classifiedInvariant(finding.violation.invariant)
+    ? (finding.classification ?? classifyStructure(finding.kase))
+    : null;
 
 // A fingerprint seen before is most likely the same defect: only a sample of its later occurrences
 // pays for finding the rule to blame, enough to catch two defects sharing one.
@@ -63,6 +72,8 @@ function readOptions(argv) {
       format: { type: 'string' },
       'keep-going': { type: 'boolean', default: false },
       summary: { type: 'string' },
+      'rule-set': { type: 'string', default: 'random' },
+      witnesses: { type: 'string' },
       case: { type: 'string' },
       coverage: { type: 'boolean', default: false },
       jobs: { type: 'string', default: String(availableParallelism()) },
@@ -78,6 +89,12 @@ function readOptions(argv) {
   if (values.summary !== undefined && !values['keep-going']) {
     throw new Error('--summary needs --keep-going');
   }
+  if (!['random', 'default'].includes(values['rule-set'])) {
+    throw new Error('--rule-set expects random or default');
+  }
+  if (values.witnesses !== undefined && !values['keep-going']) {
+    throw new Error('--witnesses needs --keep-going');
+  }
 
   return {
     help: values.help,
@@ -89,6 +106,8 @@ function readOptions(argv) {
     format: values.format ?? null,
     keepGoing: values['keep-going'],
     summary: values.summary ?? null,
+    ruleSet: values['rule-set'],
+    witnesses: values.witnesses ?? null,
     only: values.case === undefined ? null : integer('case', values.case),
     coverage: values.coverage,
     jobs: integer('jobs', values.jobs, 1),
@@ -96,7 +115,12 @@ function readOptions(argv) {
   };
 }
 
-const workerData = (opts) => ({ seed: opts.seed, format: opts.format, coverage: opts.coverage });
+const workerData = (opts) => ({
+  seed: opts.seed,
+  format: opts.format,
+  ruleSet: opts.ruleSet,
+  coverage: opts.coverage
+});
 
 const poolFor = (opts, size) => createPool(size, workerData(opts), opts.caseTimeout * 1000);
 
@@ -207,34 +231,58 @@ function progress(label, total) {
   };
 }
 
-function createReporter(session, seed) {
+function createReporter(session, seed, ruleSet) {
   // A case the engine does not answer on is not run again here: this thread would wait with it.
-  const describe = ({ violation, kase, index, blame }) => {
+  const describe = (finding) => {
+    const { violation, kase, index, blame } = finding;
+    const classification = classificationOf(finding);
     const transparent = violation.invariant === 'transparent';
-    const { out, again } =
+    const { out, again, third, thirdError } =
       violation.invariant === 'responds'
         ? {}
         : session.check(kase, transparent ? 'transparent' : null);
     const [first, second] = transparent
       ? ['со снятой разметкой:', 'без разметки:']
       : ['вывод 1:', 'вывод 2:'];
+    const growing =
+      out !== undefined &&
+      again !== undefined &&
+      third !== undefined &&
+      out.length < again.length &&
+      again.length < third.length;
 
     return {
       lines: [
         `━━ ${NAMES[violation.invariant]}`,
         `виновник: ${blame.length > 0 ? blame.join(' + ') : 'не определён'}`,
-        `seed ${seed}, случай ${index}${kase.transparent ? ' (проза с разметкой)' : ''}: pnpm fuzz --seed ${seed} --case ${index}`,
+        `seed ${seed}, случай ${index}${kase.transparent ? ' (проза с разметкой)' : ''}: pnpm fuzz --seed ${seed} --case ${index} --rule-set ${ruleSet}`,
         `формат: ${kase.format}`,
         `конфиг: ${JSON.stringify(kase.config)}`,
+        ...(classification === null
+          ? []
+          : [
+              `класс минимума: ${classification.class}; основания: ${classification.reasons.join(', ') || 'нет'}; неопределённость: ${classification.uncertain.join(', ') || 'нет'}`
+            ]),
         ...(violation.detail ? [`суть: ${violation.detail}`] : []),
         `ввод ${JSON.stringify(kase.text)}`,
         block(kase.text),
         ...(out === undefined
           ? []
-          : [first, block(out), second, block(again ?? '(второй проход бросил ошибку)')])
+          : [first, block(out), second, block(again ?? '(второй проход бросил ошибку)')]),
+        ...(violation.invariant === 'convergence'
+          ? [
+              `рост длины минимума F1<F2<F3: ${growing ? 'да' : 'нет'}`,
+              'вывод 3:',
+              block(third ?? '(третий проход бросил ошибку)')
+            ]
+          : [])
       ].join('\n'),
       out,
-      again
+      again,
+      third,
+      thirdError,
+      classification,
+      growing
     };
   };
 
@@ -243,7 +291,7 @@ function createReporter(session, seed) {
 
 // The case is checked and shrunk on a worker, so a hang is reported rather than waited on.
 async function runCase(opts, session) {
-  const describe = createReporter(session, opts.seed);
+  const describe = createReporter(session, opts.seed, opts.ruleSet);
   const kase = session.caseAt(opts.only);
   await using pool = poolFor(opts, 1);
 
@@ -293,7 +341,7 @@ async function runFirst(opts, pool, session, started) {
       const { finding } = await examiner(pool, session)(index, violations[0]);
 
       await pool.close();
-      console.log(createReporter(session, opts.seed)(finding).lines);
+      console.log(createReporter(session, opts.seed, opts.ruleSet)(finding).lines);
       console.log(`\n${index + 1} случаев за ${seconds(started)} с`);
       return 1;
     }
@@ -318,6 +366,40 @@ async function runAll(opts, pool, session, started) {
   );
 
   const seen = new Map();
+  if (opts.witnesses !== null) {
+    const fd = openSync(opts.witnesses, 'w');
+    try {
+      for (const { index, violations } of scans.flat()) {
+        for (const violation of violations) {
+          const kase = session.caseOf(index, violation);
+          const result =
+            violation.invariant === 'responds'
+              ? {}
+              : session.check(kase, violation.invariant === 'transparent' ? 'transparent' : null);
+          const serialized = JSON.stringify(
+            {
+              seed: opts.seed,
+              ruleSet: opts.ruleSet,
+              index,
+              violation,
+              kase,
+              out: result.out ?? null,
+              again: result.again ?? null,
+              third: result.third ?? null,
+              thirdError: result.thirdError ?? null
+            },
+            (_key, value) =>
+              value instanceof RegExp
+                ? { regex: { source: value.source, flags: value.flags } }
+                : value
+          );
+          writeSync(fd, `${serialized}\n`);
+        }
+      }
+    } finally {
+      closeSync(fd);
+    }
+  }
   const occurrences = [];
   const tasks = [];
   const tally = Object.fromEntries(Object.keys(NAMES).map((invariant) => [invariant, 0]));
@@ -329,7 +411,11 @@ async function runAll(opts, pool, session, started) {
 
       tally[violation.invariant] += 1;
       seen.set(print, count);
-      occurrences.push({ print, task: examined(count) ? tasks.length : null });
+      occurrences.push({
+        print,
+        task: examined(count) ? tasks.length : null,
+        growing: violation.growing === true
+      });
 
       if (examined(count)) {
         tasks.push([index, violation]);
@@ -352,14 +438,36 @@ async function runAll(opts, pool, session, started) {
 
   const groups = new Map();
   const lastGroup = new Map();
+  const originalGroups = new Set();
+  const byClass = {
+    intact: { cases: 0, groups: 0 },
+    malformed: { cases: 0, groups: 0 }
+  };
+  let growingCount = 0;
 
-  for (const { print, task } of occurrences) {
-    const group = task === null ? lastGroup.get(print) : results[task].group;
-    const entry = groups.get(group) ?? { count: 0, findings: [] };
+  for (const { print, task, growing } of occurrences) {
+    let key = lastGroup.get(print);
+    if (task !== null) {
+      const { group, finding } = results[task];
+      finding.classification = classificationOf(finding);
+      key = `${group}\u{0}${finding.classification?.class ?? ''}`;
+      originalGroups.add(group);
+      if (!groups.has(key)) {
+        groups.set(key, {
+          group,
+          class: finding.classification?.class ?? null,
+          count: 0,
+          growingCount: 0,
+          findings: []
+        });
+      }
+    }
+    const entry = groups.get(key);
 
-    groups.set(group, entry);
-    lastGroup.set(print, group);
+    lastGroup.set(print, key);
     entry.count += 1;
+    entry.growingCount += Number(growing);
+    growingCount += Number(growing);
 
     if (task !== null && entry.findings.length < EXAMPLES_PER_GROUP) {
       entry.findings.push(results[task].finding);
@@ -368,14 +476,21 @@ async function runAll(opts, pool, session, started) {
 
   const elapsed = seconds(started);
   const rate = Math.round(opts.cases / Math.max(Number(elapsed), 0.001));
-  const describe = createReporter(session, opts.seed);
+  const describe = createReporter(session, opts.seed, opts.ruleSet);
   const summary = [];
 
-  for (const [group, entry] of [...groups].toSorted(([a], [b]) => a.localeCompare(b))) {
-    console.log(`\n■ ${group} — ${entry.count} раз`);
+  for (const [, entry] of [...groups].toSorted(([a], [b]) => a.localeCompare(b))) {
+    const { group } = entry;
+    console.log(
+      `\n■ ${group}${entry.class === null ? '' : ` | ${entry.class}`} — ${entry.count} раз; raw рост ${entry.growingCount}`
+    );
+    if (entry.findings[0].violation.invariant === 'idempotence') {
+      byClass[entry.class].cases += entry.count;
+      byClass[entry.class].groups += 1;
+    }
 
     entry.findings.forEach((finding, n) => {
-      const { lines, out, again } = describe(finding);
+      const { lines, out, again, third, thirdError, classification, growing } = describe(finding);
 
       console.log(lines);
 
@@ -384,10 +499,13 @@ async function runAll(opts, pool, session, started) {
 
         summary.push({
           group,
+          originalGroup: group,
+          structuralClass: entry.class,
           invariant: violation.invariant,
           kind: violation.kind ?? null,
           blame,
           count: entry.count,
+          growingCount: entry.growingCount,
           example: {
             index,
             format: kase.format,
@@ -395,7 +513,11 @@ async function runAll(opts, pool, session, started) {
             text: kase.text,
             detail: violation.detail ?? null,
             out: out ?? null,
-            again: again ?? null
+            again: again ?? null,
+            third: third ?? null,
+            thirdError: thirdError ?? null,
+            growing,
+            classification
           }
         });
       }
@@ -404,12 +526,18 @@ async function runAll(opts, pool, session, started) {
 
   console.log(
     `\n${opts.cases} случаев за ${elapsed} с (${rate} в секунду, потоков ${opts.jobs}), ` +
-      `нарушений ${occurrences.length}, групп ${groups.size}`
+      `нарушений ${occurrences.length}, групп ${originalGroups.size} (по классам ${groups.size}), raw рост ${growingCount}`
   );
 
   for (const [invariant, name] of Object.entries(NAMES)) {
     console.log(`  ${name}: ${tally[invariant]}`);
   }
+  for (const [name, counts] of Object.entries(byClass)) {
+    console.log(`  идемпотентность ${name}: случаев ${counts.cases}, групп ${counts.groups}`);
+  }
+  console.log(
+    'Класс частоты относится к сжатому диагностическому представителю; не ко всем полным исходным входам.'
+  );
 
   if (opts.summary !== null) {
     writeFileSync(
@@ -419,8 +547,15 @@ async function runAll(opts, pool, session, started) {
           seed: opts.seed,
           cases: opts.cases,
           format: opts.format,
+          ruleSet: opts.ruleSet,
           violations: occurrences.length,
           invariants: tally,
+          originalGroupCount: originalGroups.size,
+          growingCount,
+          classificationVersion: STRUCTURE_REVISION,
+          classificationBasis:
+            'shrunk diagnostic representative; unsampled occurrences inherit the last examined representative of their fingerprint',
+          idempotenceByClass: byClass,
           groups: summary
         },
         null,
@@ -493,7 +628,7 @@ async function main() {
 
   const session = opts.coverage
     ? null
-    : await createSession({ seed: opts.seed, format: opts.format });
+    : await createSession({ seed: opts.seed, format: opts.format, ruleSet: opts.ruleSet });
 
   if (opts.only !== null) {
     return runCase(opts, session);

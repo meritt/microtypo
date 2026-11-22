@@ -14,6 +14,31 @@ const MARKS_RE = /[\u{FDD0}\u{FDD1}]/gu;
 const SEGMENT_RE = /[^\u{FDD0}\u{FDD1}]+|\u{FDD0}[^\u{FDD0}\u{FDD1}]*\u{FDD1}/gu;
 
 const pad2 = (n) => String(n).padStart(2, '0');
+
+export const ADDED_RULE_PROSE = [
+  ['magnitude', '5 тыс. руб.; 1,5 млн рублей; 1 млн чел.'],
+  ['count', '12 шт.; 3 экз.; 4 чел.; 5 сек; 6 с; 7 мес.; 8 нед.; 9 дн.; 10 коп.'],
+  ['si', '5 Вт; 2 кВт; 3 кВт·ч; 4 А; 6 га; 7 ‰; 2 кв. м; 3 куб. м; 100 л. с.'],
+  ['currency-code', '100 USD; 200 EUR; 300 RUB'],
+  ['title', 'проф. Иванов, акад. Петров, доц. Сидоров, д-р Живаго, тов. Корвин, св. Пётр'],
+  ['part', 'т. 1, ч. 2, табл. 3, разд. 4, пп. 5, стст. 6'],
+  ['because', 'т. к., т. н., т. о., и др., и пр.'],
+  [
+    'organization',
+    'ПАО Банк, АО Завод, НКО Фонд, ИП Иванов, ФГУП Почта, МУП Вода, ГК Мир, НПО Космос, АНО Тень'
+  ],
+  ['initial', 'А. Пушкин; Дж. Р. Р. Толкин'],
+  ['after-number', '12 человек, 2024 год'],
+  ['last-word', 'Это мой дом.'],
+  ['phone', '+7 (999) 123 45 67; 8-800-555-35-35; +7-999-123-45-67'],
+  ['century', 'XXI век, XX в., 5 в. до н. э.'],
+  ['minus', 'Температура -5 градусов; -10; 1-5; 10 - 5; x-5'],
+  ['fraction', '1/3, 2/3, 1/8, 3/8, 5/8, 7/8'],
+  ['prime', 'Рост 5\' 10"'],
+  ['arrows', 'Туда <-> обратно => вывод <=> равенство'],
+  ['plus-minus', 'Погрешность +/-5'],
+  ['triple-hyphen', 'Корвин --- принц']
+];
 const escapeXml = (s) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
 // A context is one stretch of prose: what it may contain and where its guarded pieces go.
@@ -262,21 +287,17 @@ const OPERATORS = [
   '^'
 ];
 // A `<` and a letter open a tag that runs to the next `>`, so a tag right after one is only its
-// attribute text: a shrunk case that leaves such a `<` in front no longer holds the tag.
-export const OUTSIDE_TAG = String.raw`(?<!<\p{L}[^>]*)`;
-const TAG_START_RE = /<(?=[\p{L}/!?])/gu;
+// attribute text: a shrunk case that leaves such a `<` in front no longer holds the tag. The letter
+// is an ASCII one, as HTML names a tag; a quoted attribute value and a template expression are read
+// through whole, their `>` ending nothing, and a value left open runs on.
+const TAG_ATOM = String.raw`[^>"'{<]|"[^"]*"|'[^']*'|<%[^]*?%>|\{%[^]*?%\}|\{\{[^]*?\}\}|[{<]`;
+export const OUTSIDE_TAG = String.raw`(?<!<[A-Za-z](?:${TAG_ATOM})*(?:"[^"]*|'[^']*)?)`;
+const TAG_START_RE = /<(?=[A-Za-z/!?])/gu;
 // A UUID or an IPv6 address glued to more hex digits or colons is a different token or none.
 const HEX_EDGE_BEFORE = String.raw`(?<![\p{L}\p{N}:\-])`;
 const HEX_EDGE_AFTER = String.raw`(?![\p{L}\p{N}:\-])`;
-// A code span opens and closes on backtick runs of one length (CommonMark §6.1): a backtick glued to
-// either end makes a longer run, which the span's own backticks no longer close. A backtick left open
-// earlier in the paragraph pairs with the span's first one, so the span counts only behind closed
-// pairs.
-const IN_PARAGRAPH = '(?:(?!\\n[ \\t]*\\n)[^`])*';
-const CODE_EDGE = {
-  before: `(?<!\`)(?<=(?:^|\\n[ \\t]*\\n)${IN_PARAGRAPH}(?:\`${IN_PARAGRAPH}\`${IN_PARAGRAPH})*)`,
-  after: '(?!`)'
-};
+// Delimiters must be maximal runs; the invariant independently checks their actual pairing.
+const CODE_EDGE = { before: '(?<!`)', after: '(?!`)' };
 const ROMAN = ['I', 'II', 'IV', 'V', 'IX', 'X', 'XIV', 'XIX', 'XX', 'XXI'];
 const DASHES = [
   [8, ' - '],
@@ -333,8 +354,20 @@ const ENTITIES = [
   '&shy;',
   '&thinsp;'
 ];
-const INLINE_TAGS = ['b', 'i', 'em', 'strong', 'span', 'a', 'abbr', 'small', 'sup', 'sub', 'mark'];
-const SAFE_TAGS = [
+export const INLINE_TAGS = [
+  'b',
+  'i',
+  'em',
+  'strong',
+  'span',
+  'a',
+  'abbr',
+  'small',
+  'sup',
+  'sub',
+  'mark'
+];
+export const SAFE_TAGS = [
   'pre',
   'code',
   'script',
@@ -663,21 +696,41 @@ export function createGrammar(lexicon, d) {
     return `${local}@${domain}`;
   }
 
+  function address(ctx) {
+    const text = url();
+
+    return ctx.xml ? text.replaceAll('&amp;', '').replaceAll('&', '') : text;
+  }
+
+  // An address and an e-mail with one sign between them: each is read where the other already is a
+  // placeholder, and either holds characters the other may hold. The signs are those that leave no
+  // doubt where one ends: a `-` or a `.` after an e-mail goes on with its domain.
+  function glued(ctx) {
+    const pair = [guard(ctx, 'url', address(ctx)), guard(ctx, 'email', email())];
+
+    if (pick([true, false])) {
+      pair.reverse();
+    }
+
+    return pair.join(pick(["'", '`', '"', '|', '(', ')', ',', ';', ':', '/', "'`"]));
+  }
+
   function sequence(ctx) {
     const kind = weighted([
       [5, 'url'],
       [3, 'email'],
       [1, 'uuid'],
-      [1, 'ipv6']
+      [1, 'ipv6'],
+      [1, 'glued']
     ]);
     let text;
 
-    if (kind === 'url') {
-      text = url();
+    if (kind === 'glued') {
+      return glued(ctx);
+    }
 
-      if (ctx.xml) {
-        text = text.replaceAll('&amp;', '').replaceAll('&', '');
-      }
+    if (kind === 'url') {
+      text = address(ctx);
     } else if (kind === 'email') {
       text = email();
     } else if (kind === 'uuid') {
@@ -1008,6 +1061,7 @@ export function createGrammar(lexicon, d) {
 
   function chunk(ctx, depth = 1) {
     const choices = [
+      [20, () => pick(ADDED_RULE_PROSE)[1]],
       [30, word],
       [10, () => `${short()} ${word()}`],
       [6, () => pick(lexicon.phrases).toLowerCase()],

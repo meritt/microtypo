@@ -144,6 +144,12 @@ describe('other.strip_nbsp_in_nowrap', () => {
       `<span style="white-space:nowrap;">и т. д.</span> и${NBSP}<span>он</span>${NBSP}был`
     );
   });
+
+  test("reads its wrapper to its own closing tag, past an author's </span> inside it", () => {
+    const expected = `<i>и</i>${NBSP}<span style="white-space:nowrap;">б <span>и</span> пр.</span>`;
+    assert.equal(microtypo(`<i>и</i> б${NBSP}<span>и</span> пр.`, NOP), expected);
+    assert.equal(microtypo(expected, NOP), expected);
+  });
 });
 
 describe('other.split_triads', () => {
@@ -166,7 +172,7 @@ describe('other.split_triads', () => {
 
   test('a standalone number and a unit on the right still split', () => {
     assert.equal(microtypo('12345', NOP), `12${NNBSP}345`);
-    assert.equal(microtypo('-12345', NOP), `-12${NNBSP}345`);
+    assert.equal(microtypo('-12345', NOP), `−12${NNBSP}345`);
     assert.equal(microtypo('12345м', NOP), `12${NNBSP}345${NBSP}м`);
     assert.equal(microtypo('12345кг', NOP), `12${NNBSP}345${NBSP}кг`);
   });
@@ -226,7 +232,7 @@ describe('other.split_triads', () => {
       ['заказ 0001234567', 'заказ 0001234567'],
       ['12345678901234567890', '12345678901234567890'],
       ['125009, Москва', '125009, Москва'],
-      ['125009 г. Москва', `125009 г.${NBSP}Москва`],
+      ['125009 г. Москва', `125009${NBSP}г.${NBSP}Москва`],
       ['000000a', '000000a']
     ]) {
       const once = microtypo(src);
@@ -241,7 +247,7 @@ describe('other.split_triads', () => {
 
     for (const [src, want] of [
       ['<doc><p>№1000357 {</p></doc>', '<doc><p>&#8470;&#8239;1000357 {</p></doc>'],
-      ['<doc><p>125009 г. Москва</p></doc>', '<doc><p>125009 г.&#160;Москва</p></doc>']
+      ['<doc><p>125009 г. Москва</p></doc>', '<doc><p>125009&#160;г.&#160;Москва</p></doc>']
     ]) {
       const once = typo.process(src);
 

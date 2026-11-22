@@ -123,11 +123,11 @@ describe('a range written with an en dash stays a range', () => {
   const NBSP = '\u{00A0}';
 
   test('a spaced en dash closes up', () => {
-    assert.equal(microtypo('за 12 – 19 дней', P), `за${NBSP}12–19 дней`);
+    assert.equal(microtypo('за 12 – 19 дней', P), `за${NBSP}12–19${NBSP}дней`);
   });
 
   test('an ndash entity closes up', () => {
-    assert.equal(microtypo('за 12 &ndash; 19 дней', P), `за${NBSP}12–19 дней`);
+    assert.equal(microtypo('за 12 &ndash; 19 дней', P), `за${NBSP}12–19${NBSP}дней`);
   });
 
   test('the range survives entity output', () => {
@@ -143,7 +143,7 @@ describe('a range written with an en dash stays a range', () => {
   });
 
   test('a spaced em dash stays as written', () => {
-    assert.equal(microtypo('за 12 — 19 дней', P), `за${NBSP}12${NBSP}— 19 дней`);
+    assert.equal(microtypo('за 12 — 19 дней', P), `за${NBSP}12${NBSP}— 19${NBSP}дней`);
   });
 });
 
@@ -185,15 +185,15 @@ describe('a line-start and post-sentence dash read the en dash too', () => {
   const NBSP = '\u{00A0}';
 
   test('an en dash after a line break becomes an em dash', () => {
-    assert.equal(microtypo('Амбер.\n– Корвин шёл', P), `Амбер.\n—${NBSP}Корвин шёл`);
+    assert.equal(microtypo('Амбер.\n– Корвин шёл', P), `Амбер.\n—${NBSP}Корвин${NBSP}шёл`);
   });
 
   test('an en dash after a sentence mark becomes an em dash', () => {
-    assert.equal(microtypo('Амбер. – Корвин шёл', P), `Амбер. —${NBSP}Корвин шёл`);
+    assert.equal(microtypo('Амбер. – Корвин шёл', P), `Амбер. —${NBSP}Корвин${NBSP}шёл`);
   });
 
   test('an en dash after an ellipsis becomes an em dash', () => {
-    assert.equal(microtypo('Тень… – Корвин шёл', P), `Тень… —${NBSP}Корвин шёл`);
+    assert.equal(microtypo('Тень… – Корвин шёл', P), `Тень… —${NBSP}Корвин${NBSP}шёл`);
   });
 });
 
@@ -331,8 +331,8 @@ describe('dash after a non-breaking space', () => {
   });
 
   test('a spaced range stays a range, not an em dash', () => {
-    assert.equal(microtypo(`Годы 1979${NBSP}- 1985 тут.`, NOP), 'Годы 1979–1985 тут.');
-    assert.equal(microtypo(`Годы 1979${NBSP}-${NBSP}1985 тут.`, NOP), 'Годы 1979–1985 тут.');
+    assert.equal(microtypo(`Годы 1979${NBSP}- 1985 тут.`, NOP), `Годы 1979–1985${NBSP}тут.`);
+    assert.equal(microtypo(`Годы 1979${NBSP}-${NBSP}1985 тут.`, NOP), `Годы 1979–1985${NBSP}тут.`);
   });
 
   test('an existing em dash after an nbsp is left alone', () => {
@@ -354,7 +354,7 @@ describe('dash after a non-breaking space', () => {
       `<p>${NBSP}—</p>`
     );
     assert.equal(microtypo(`а\n${NBSP}- б`), `а\n${NBSP}— б`);
-    assert.equal(microtypo(`а\n${NBSP}-5 и`), `а\n${NBSP}-5 и`);
+    assert.equal(microtypo(`а\n${NBSP}-5 и`), `а\n${NBSP}−5${NBSP}и`);
   });
 
   test('a thematic break is still not an em dash', () => {

@@ -14,6 +14,7 @@ export const NAMES = {
   prose: 'проза вне синтаксиса',
   shape: 'форма документа',
   idempotence: 'идемпотентность',
+  convergence: 'сходимость',
   transparent: 'строчная разметка прозрачна',
   filtering: 'отсев не меняет вывод'
 };
@@ -165,7 +166,7 @@ function checkShape(format, text, out, before, after) {
 // An address the text group turns into a link reaches its `href` with its character references
 // decoded once and then escaped as attribute text.
 const REFERENCE_RE = /&(?:(amp|lt|gt|quot|apos)|#([0-9]{1,7})|#[xX]([0-9A-Fa-f]{1,6}));/gu;
-const NAMED_REFERENCES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+export const NAMED_REFERENCES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
 
 function hrefOf(address) {
   const decoded = address.replaceAll(REFERENCE_RE, (whole, name, decimal, hex) => {
@@ -187,10 +188,106 @@ function hrefOf(address) {
     .replaceAll('>', '&gt;');
 }
 
-const forms = (item) =>
-  item.kind === 'url' || item.kind === 'email'
-    ? [item.text, `href="${hrefOf(item.text)}"`]
-    : [item.text];
+// Only equal maximal backtick runs pair (CommonMark 6.1). Resolve their next equal run
+// independently of the product scanner, then skip the complete spans in reading order.
+function codeCoverage(text) {
+  const runs = [];
+  const next = new Map();
+  const tokens = [...text.matchAll(/`+|\r?\n[ \t]*\r?\n/gu)];
+  for (let i = tokens.length - 1; i >= 0; i -= 1) {
+    const { [i]: token } = tokens;
+    if (token[0][0] !== '`') {
+      next.clear();
+      continue;
+    }
+    let slashes = 0;
+    for (let at = token.index - 1; at >= 0 && text[at] === '\\'; at -= 1) {
+      slashes += 1;
+    }
+    const { length } = token[0];
+    const escaped = slashes % 2;
+    const close = length > escaped ? next.get(length - escaped) : undefined;
+    runs.push({ start: token.index + escaped, end: token.index + length, close });
+    next.set(length, token.index + length);
+  }
+  const spans = [];
+  let after = 0;
+  for (let i = runs.length - 1; i >= 0; i -= 1) {
+    const run = runs[i];
+    if (run.start >= after && run.close !== undefined) {
+      spans.push([run.start, run.close]);
+      after = run.close;
+    }
+  }
+  return spans;
+}
+
+function holdsCode(text, needle, spans) {
+  let at = text.indexOf(needle);
+  let span = 0;
+  while (at !== -1) {
+    while (span < spans.length && spans[span][1] <= at) {
+      span += 1;
+    }
+    if (span >= spans.length) {
+      return false;
+    }
+    if (spans[span][0] <= at && at + needle.length <= spans[span][1]) {
+      return true;
+    }
+    at = text.indexOf(needle, at + 1);
+  }
+  return false;
+}
+
+// A textual attribute the configuration selects is typeset (`input.attributes`, all five by default,
+// in text, HTML, Markdown and a front-matter body): its tag keeps the shape, not the bytes of the
+// value.
+const TEXT_ATTRIBUTES = ['alt', 'title', 'aria-label', 'placeholder', 'content'];
+const ATTRIBUTE_FORMATS = new Set(['text', 'html', 'markdown', 'frontmatter']);
+const QUOTED_ATTRIBUTE_RE = /\s([A-Za-z-]+)=(?:(")([^"]*)"|(')([^']*)')/gu;
+
+function typesetAttributes(format, config) {
+  if (!ATTRIBUTE_FORMATS.has(format)) {
+    return [];
+  }
+  const input = typeof config?.input === 'object' && config.input !== null ? config.input : {};
+  return input.attributes ?? TEXT_ATTRIBUTES;
+}
+
+function tagShape(tag, names) {
+  let pattern = '';
+  let at = 0;
+  for (const match of tag.matchAll(QUOTED_ATTRIBUTE_RE)) {
+    if (names.includes(match[1].toLowerCase())) {
+      const quote = match[2] ?? match[4];
+      const text = match[3] ?? match[5];
+      const value = match.index + match[0].length - 1 - text.length;
+      pattern += `${RegExp.escape(tag.slice(at, value))}[^${quote}<>]*`;
+      at = value + text.length;
+    }
+  }
+  return at === 0 ? null : new RegExp(pattern + RegExp.escape(tag.slice(at)), 'u');
+}
+
+function forms(item, source) {
+  if (item.kind !== 'url' && item.kind !== 'email') {
+    return [item.text];
+  }
+  const matches = [item.text, `href="${hrefOf(item.text)}"`];
+  if (item.kind === 'url') {
+    for (let at = source.indexOf(item.text); at !== -1; at = source.indexOf(item.text, at + 1)) {
+      const end = at + item.text.length;
+      const tail = source.slice(end).match(/^[^\s<>"'`]+/u)?.[0] ?? '';
+      let continued = item.text;
+      for (const character of tail) {
+        continued += character;
+        matches.push(`href="${hrefOf(continued)}"`);
+      }
+    }
+  }
+  return matches;
+}
 
 // A fingerprint tells occurrences of one defect from another without running anything: letters and
 // digits fold to their class, everything else is kept as it is.
@@ -419,12 +516,24 @@ export function createChecker(MicroTypo, restart, unfiltered) {
     }
     let again;
     let secondError;
+    let third;
+    let thirdError;
+    let thirdFailed = false;
 
-    if (wants('idempotence') || wants('errors')) {
+    if (wants('idempotence') || wants('convergence') || wants('errors')) {
       try {
         again = typo.process(out);
       } catch (error) {
         secondError = error;
+      }
+    }
+
+    if (wants('convergence') && secondError === undefined && again !== undefined && again !== out) {
+      try {
+        third = typo.process(again);
+      } catch (error) {
+        thirdFailed = true;
+        thirdError = error;
       }
     }
 
@@ -446,12 +555,20 @@ export function createChecker(MicroTypo, restart, unfiltered) {
       }
 
       const seen = new Set();
+      const attributes = typesetAttributes(format, config);
+      let codeSpans;
 
       for (const item of wants('protected') ? protect : []) {
         const applies =
-          input.includes(item.text) && (item.context === null || item.context.test(text));
+          input.includes(item.text) &&
+          (item.context === null || item.context.test(text)) &&
+          (item.kind !== 'md-code' ||
+            holdsCode(text, item.text, (codeSpans ??= codeCoverage(text))));
+        const kept = () =>
+          forms(item, text).some((f) => output.includes(f)) ||
+          (item.kind === 'tag' && tagShape(item.text, attributes)?.test(output) === true);
 
-        if (!seen.has(item.text) && applies && !forms(item).some((f) => output.includes(f))) {
+        if (!seen.has(item.text) && applies && !kept()) {
           violations.push({
             invariant: 'protected',
             key: `${item.kind}\u{0}${item.text}`,
@@ -514,6 +631,44 @@ export function createChecker(MicroTypo, restart, unfiltered) {
       });
     }
 
-    return { violations, out, again };
+    if (thirdFailed) {
+      const key = errorKey(thirdError);
+      if (!isTyped(thirdError)) {
+        violations.push({
+          invariant: 'errors',
+          key,
+          fingerprint: key,
+          detail: `третий проход: ${key}`
+        });
+      }
+      violations.push({
+        invariant: 'convergence',
+        key: `third:${key}`,
+        fingerprint: key,
+        detail: `третий проход бросил ${key}`
+      });
+    } else if (third !== undefined && third !== again) {
+      violations.push({
+        invariant: 'convergence',
+        key: 'convergence',
+        fingerprint: firstEdit(again, third),
+        growing: out.length < again.length && again.length < third.length
+      });
+    }
+
+    return {
+      violations,
+      out,
+      again,
+      third,
+      thirdError: thirdFailed
+        ? {
+            name: thirdError?.name ?? typeof thirdError,
+            code: thirdError?.code,
+            message: String(thirdError?.message ?? thirdError),
+            details: thirdError?.details
+          }
+        : undefined
+    };
   }
 }

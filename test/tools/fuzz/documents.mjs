@@ -124,6 +124,10 @@ const LINE_END = String.raw`(?:\r?\n|$)`;
 
 const YAML_PLAIN_RE = /^[А-Яа-яЁёA-Za-z][^:#\n\r]*[^\s:#]$/u;
 
+export function withRuleSet(config, ruleSet) {
+  return ruleSet === 'random' ? config : { ...config, presets: true, rules: {} };
+}
+
 export function createDocuments(lexicon, d) {
   const { int, pick, chance, weighted } = d;
   const g = createGrammar(lexicon, d);
@@ -685,14 +689,18 @@ export function createDocuments(lexicon, d) {
       ...flags,
       // An ERB tag opens with `<`, which an XML document cannot carry as text.
       template: format === 'xml' && template === 'erb' ? null : template,
-      placeholders: typeof config.input === 'object' ? config.input.placeholders : 'off',
+      placeholders:
+        (typeof config.input === 'object' ? config.input.placeholders : undefined) ?? 'all',
       comments: !structured && format !== 'plain',
       eol: structured ? ' ' : eol,
       // A line break inside a construct would end a Markdown heading, list item or table row.
       lines: format === 'text' || format === 'html' || format === 'plain'
     });
     let source = BUILDERS[format](ctx);
-    if (config.input?.pragmas === 'microtypo') {
+    if (
+      (config.input?.pragmas ?? 'microtypo') === 'microtypo' &&
+      ['text', 'html', 'markdown', 'frontmatter'].includes(format)
+    ) {
       const start = '<!-- microtypo-ignore-start -->';
       const end = chance(0.2) ? '' : '<!-- microtypo-ignore-end -->';
       source += `${nl(ctx)}${g.guard(ctx, 'pragma-region', `${start}${nl(ctx)}Код - "текст"${nl(ctx)}${end}`, { before: OUTSIDE_TAG })}`;

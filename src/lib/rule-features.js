@@ -1,3 +1,4 @@
+import { FRACTION_GLYPHS } from './glyphs.js';
 import { WHITESPACE } from './strings.js';
 
 export const F = Object.freeze({
@@ -55,7 +56,7 @@ const CHARACTER_SETS = [
   [F.NUMERO, '№'],
   [F.SECTION, '§'],
   [F.ELLIPSIS, '…'],
-  [F.FRACTION, '½¼¾'],
+  [F.FRACTION, FRACTION_GLYPHS],
   [F.LATIN, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'],
   [F.COPYRIGHT, '©'],
   [F.MARKUP, '<'],

@@ -248,7 +248,9 @@ describe('abbr.nbsp_fraction_unit — fraction glyph binds to unit (number.fract
   });
 
   test('¾ мгновение is not mistaken for the мг unit (word boundary guard)', () => {
-    const out = microtypo('¾ мгновение спустя Корвин пересёк Тень', NOP);
+    // `nbsp_after_number` binds the word as a word and would hide what the unit rule reads.
+    const config = { ...NOP, rules: { 'nobr.nbsp_after_number': false } };
+    const out = microtypo('¾ мгновение спустя Корвин пересёк Тень', config);
     assert.ok(out.includes('¾ мгновение'), `guard failed, unit false-matched: ${out}`);
     assert.ok(!out.includes(`¾${NBSP}мг`), `unit incorrectly bound inside word: ${out}`);
   });
@@ -311,8 +313,19 @@ describe('abbr.nbsp_fraction_unit — fraction glyph binds to unit (number.fract
     });
 
     test('a real sentence end still keeps its period', () => {
-      assert.equal(microtypo('Дань 100 руб. Корвин ушёл'), `Дань 100${NB}₽. Корвин ушёл`);
+      assert.equal(microtypo('Дань 100 руб. Корвин ушёл'), `Дань 100${NB}₽. Корвин${NB}ушёл`);
       assert.equal(microtypo('Дань 100 руб.'), `Дань 100${NB}₽.`);
+    });
+
+    test('a tab between the amount and the currency is one gap too', () => {
+      const config = { rules: { 'space.*': false } };
+      for (const [source, expected] of [
+        ['3\tр', `3${NB}₽`],
+        ['3\tруб.', `3${NB}₽.`]
+      ]) {
+        assert.equal(microtypo(source, config), expected);
+        assert.equal(microtypo(expected, config), expected);
+      }
     });
 
     // Markup and a bracket are not what ends a sentence — what stands behind them is — so putting the
@@ -362,7 +375,7 @@ describe('abbr.nbsp_fraction_unit — fraction glyph binds to unit (number.fract
       );
       assert.equal(
         microtypo('Он заплатил 100 руб. <script>void 0;</script> Корвин ушёл.', render),
-        `Он${NBSP}заплатил 100${NBSP}₽. <script>void 0;</script> Корвин ушёл.`
+        `Он${NBSP}заплатил 100${NBSP}₽. <script>void 0;</script> Корвин${NBSP}ушёл.`
       );
       assert.equal(
         microtypo('Он заплатил 100 руб. <script>void 0;</script> и ушёл', render),
@@ -433,7 +446,7 @@ describe('abbr word abbreviations — shared content boundaries', () => {
   test('a run binds every one of them, not every other', () => {
     const out = microtypo('Смотри гл. 5 гл. 7 гл. 9 указа Дворкина', NOP);
 
-    assert.equal(out.split(NBSP).length - 1, 3, out);
+    assert.equal(out, `Смотри гл.${NBSP}5 гл.${NBSP}7 гл.${NBSP}9${NBSP}указа Дворкина`);
     assert.equal(microtypo(out, NOP), out);
   });
 });

@@ -703,7 +703,7 @@ describe('autolink href escaping', () => {
       for (const value of [`буква${open}А`, `буква${open}А${close}`, 'буква%C2%ABА']) {
         const url = `https://x.ru/?q=${value}`;
         const source = `${open}Ищите на ${url}${close}, — сказала Анна.`;
-        const expected = `«Ищите на\u00a0<a href="${url}">${url.slice(8)}</a>»,\u00a0— сказала Анна.`;
+        const expected = `«Ищите на\u00a0<a href="${url}">${url.slice(8)}</a>»,\u00a0— сказала\u00a0Анна.`;
         assert.equal(engine.process(source), expected, source);
         assert.equal(engine.process(expected), expected, source);
       }

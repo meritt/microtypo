@@ -23,6 +23,19 @@ const twice = (config, text) => {
 };
 
 describe('inline markup is transparent to the rules that bind words', () => {
+  test('a dotted initial binds to a surname inside a generated nowrap or author emphasis', () => {
+    const config = WRAPPERS;
+    for (const [input, expected] of [
+      ['С. Пушкин ГБ здесь', `С.⍽${NOWRAP}Пушкин ГБ</span> здесь`],
+      ['С. <em>Пушкин ГБ здесь</em>', 'С.⍽<em>Пушкин⍽ГБ здесь</em>'],
+      ['С. <em>Пушкин</em> ГБ здесь', `С.⍽${NOWRAP}<em>Пушкин</em> ГБ</span> здесь`],
+      ['Дж. Толкин РР ушёл', `Дж.⍽${NOWRAP}Толкин РР ушёл</span>`],
+      ['С. <code>Пушкин</code> здесь', 'С. <code>Пушкин</code> здесь']
+    ]) {
+      assert.deepEqual(twice(config, input), [nb(expected), nb(expected)]);
+    }
+  });
+
   test('a paragraph binds the same with its words in inline tags as without them', () => {
     assert.equal(
       typeset(HTML, '<p>Он в доме и саду, т.е. дома, 10 кг, А. С. Пушкин, 2024 г., и т.д.</p>'),
@@ -81,32 +94,32 @@ describe('inline markup is transparent to the rules that bind words', () => {
     assert.equal(typeset(TEXT, 'Он в <code>x</code>'), nb('Он⍽в⍽<code>x</code>'));
     assert.equal(
       typeset(HTML, '<p>Он в <kbd>Ctrl</kbd> доме</p>'),
-      nb('<p>Он⍽в⍽<kbd>Ctrl</kbd> доме</p>')
+      nb('<p>Он⍽в⍽<kbd>Ctrl</kbd>⍽доме</p>')
     );
   });
 
   test('a city after an index in a tag binds as after the bare index', () => {
-    assert.equal(typeset(HTML, '125009 г. Москва'), nb('125009 г.⍽Москва'));
-    assert.equal(typeset(HTML, '<b>125009</b> г. Москва'), nb('<b>125009</b> г.⍽Москва'));
+    assert.equal(typeset(HTML, '125009 г. Москва'), nb('125009⍽г.⍽Москва'));
+    assert.equal(typeset(HTML, '<b>125009</b> г. Москва'), nb('<b>125009</b>⍽г.⍽Москва'));
   });
 
   test('a rule that rewrites a word next to markup reads the markup as it did', () => {
     assert.equal(typeset(HTML, '5 руб.'), nb('5⍽₽.'));
-    assert.equal(typeset(HTML, '5 <i>руб.</i>'), '5 <i>руб.</i>');
+    assert.equal(typeset(HTML, '5 <i>руб.</i>'), nb('5⍽<i>руб.</i>'));
     assert.equal(
       typeset(HTML, '<p>10 <b>кг</b> и 5 <i>руб.</i></p>'),
-      nb('<p>10⍽<b>кг</b> и⍽5 <i>руб.</i></p>')
+      nb('<p>10⍽<b>кг</b> и⍽5⍽<i>руб.</i></p>')
     );
     assert.equal(
       typeset(HTML, '<p>Он в <em>доме</em>, 5 <i>руб.</i></p>'),
-      nb('<p>Он⍽в⍽<em>доме</em>, 5 <i>руб.</i></p>')
+      nb('<p>Он⍽в⍽<em>доме</em>, 5⍽<i>руб.</i></p>')
     );
   });
 
   test('away from a rewritten word, the same rule binds through markup', () => {
     assert.equal(
       typeset(HTML, '<p>в тч ¾ <i>начертать и</i> т.п.</p>'),
-      nb('<p>в⍽тч ¾ <i>начертать и</i>⍽т.⍽п.</p>')
+      nb('<p>в⍽тч⍽¾⍽<i>начертать и</i>⍽т.⍽п.</p>')
     );
   });
 
@@ -140,7 +153,7 @@ describe('inline markup is transparent to the rules that bind words', () => {
     );
     assert.equal(
       typeset(config, 'и тд 5 <i>руб.</i>'),
-      `<p>${NOWRAP}и т. д.</span> 5 <i>руб.</i></p>`
+      nb(`<p>${NOWRAP}и т. д.</span> 5⍽<i>руб.</i></p>`)
     );
   });
 
@@ -171,7 +184,7 @@ describe('inline markup is transparent to the rules that bind words', () => {
     assert.equal(typeset(fm, nb('А⍽2F⍽слово⍽г⍽с')), `${NOWRAP}А 2 °F слово г с</span>`);
     assert.equal(
       typeset(fm, 'А 2F <code>x</code> г с'),
-      `А ${NOWRAP}2 °F</span> <code>x</code> г с`
+      nb(`А ${NOWRAP}2 °F</span> <code>x</code> г⍽с`)
     );
   });
 
@@ -184,11 +197,11 @@ describe('inline markup is transparent to the rules that bind words', () => {
     );
     assert.equal(
       typeset(HTML_ON, 'Запусти <code>ls</code> ка'),
-      '<p>Запусти <code>ls</code> ка</p>'
+      nb('<p>Запусти <code>ls</code>⍽ка</p>')
     );
     assert.equal(
       typeset(HTML_ON, 'Нажми <kbd>Enter</kbd> кась'),
-      '<p>Нажми <kbd>Enter</kbd> кась</p>'
+      nb('<p>Нажми <kbd>Enter</kbd>⍽кась</p>')
     );
     assert.equal(typeset(HTML_ON, 'Нажми Enter кась'), '<p>Нажми Enter кась</p>');
   });
@@ -210,14 +223,14 @@ describe('inline markup is transparent to the rules that bind words', () => {
     );
     assert.equal(
       typeset(HTML_ON, 'Диапазон <code>a</code>...<code>b</code> там'),
-      '<p>Диапазон <code>a</code>…<code>b</code> там</p>'
+      nb('<p>Диапазон <code>a</code>…<code>b</code>⍽там</p>')
     );
   });
 
   test('the marks against a code element stay as written', () => {
     assert.equal(
       typeset(HTML_ON, 'Диапазон <code>a</code>..<code>b</code> там'),
-      '<p>Диапазон <code>a</code>..<code>b</code> там</p>'
+      nb('<p>Диапазон <code>a</code>..<code>b</code>⍽там</p>')
     );
     assert.equal(typeset(HTML_ON, 'Он <var>x</var>.. ушёл'), nb('<p>Он⍽<var>x</var>.. ушёл</p>'));
     assert.deepEqual(twice(HTML_ON, 'Он сказал <code>x</code> !? и ушёл'), [
@@ -367,7 +380,7 @@ describe('what stays a boundary', () => {
   test('a block tag, a line break, a line ending', () => {
     assert.equal(
       typeset(HTML, '<p>Он в</p><p>доме и саду.</p>'),
-      nb('<p>Он в</p><p>доме и⍽саду.</p>')
+      nb('<p>Он⍽в</p><p>доме и⍽саду.</p>')
     );
     assert.equal(
       typeset(HTML, '<div>Он в <div>доме</div></div>'),
@@ -509,11 +522,11 @@ describe('what stays a boundary', () => {
   test('a value of a data format ends where it ends', () => {
     assert.equal(
       microtypo('{"a": "Он в <em>доме</em>", "b": ["Он в", "доме"]}', { input: 'json' }),
-      nb('{"a": "Он⍽в⍽<em>доме</em>", "b": ["Он в", "доме"]}')
+      nb('{"a": "Он⍽в⍽<em>доме</em>", "b": ["Он⍽в", "доме"]}')
     );
     assert.equal(
       microtypo('a: Он в <em>доме</em>\nb: Он в\nc: доме', { input: 'yaml' }),
-      nb('a: Он⍽в⍽<em>доме</em>\nb: Он в\nc: доме')
+      nb('a: Он⍽в⍽<em>доме</em>\nb: Он⍽в\nc: доме')
     );
   });
 });
@@ -571,12 +584,12 @@ describe("the engine's wrappers and the author's elements, html: true", () => {
       [
         { ...markdown, render: { nowrap: 'nobr' } },
         'К.Б.Кй<tt class=>.</tt> Ка С.С.',
-        '<nobr>К.⍽Б. Кй</nobr><tt class=>.</tt> <nobr>Ка С. С.</nobr>'
+        '<nobr>К.⍽Б.⍽Кй</nobr><tt class=>.</tt> <nobr>Ка С. С.</nobr>'
       ],
       [
         markdown,
         '<d class=><small>с</small> Т.Б.От Кашфы П.К.',
-        `<d class=><small>с</small> ${NOWRAP}Т.⍽Б. От</span> ${NOWRAP}Кашфы П. К.</span>`
+        `<d class=><small>с</small> ${NOWRAP}Т.⍽Б.⍽От</span> ${NOWRAP}Кашфы П. К.</span>`
       ],
       [
         { ...bare, input: 'html' },
@@ -586,7 +599,7 @@ describe("the engine's wrappers and the author's elements, html: true", () => {
       [
         nobr,
         '<i class="x">а</i> Т.Б.От <nobr>Кашфы П.К.</nobr>',
-        '<p><i class="x">а</i> <nobr>Т.⍽Б. От</nobr> <nobr>Кашфы П. К.</nobr></p>'
+        '<p><i class="x">а</i> <nobr>Т.⍽Б.⍽От</nobr> <nobr>Кашфы П. К.</nobr></p>'
       ],
       [
         bare,
@@ -596,17 +609,17 @@ describe("the engine's wrappers and the author's elements, html: true", () => {
       [
         bare,
         `Т.Б.От ${NOWRAP}Кашфы <b class="x">П.К.</b></span>`,
-        `<p>${NOWRAP}Т.⍽Б. От</span> ${NOWRAP}Кашфы <b class="x">П. К.</b></span></p>`
+        `<p>${NOWRAP}Т.⍽Б.⍽От</span> ${NOWRAP}Кашфы <b class="x">П. К.</b></span></p>`
       ],
       [
         bare,
         `${NOWRAP}Т.Б.От <b class="x">и</b> Кашфы П.К.</span>`,
-        `<p>${NOWRAP}Т.⍽Б. От <b class="x">и</b>⍽Кашфы П. К.</span></p>`
+        `<p>${NOWRAP}Т.⍽Б.⍽От <b class="x">и</b>⍽Кашфы П. К.</span></p>`
       ],
       [
         bare,
         `Т.Б.От ${NOWRAP}<b class="x">Кашфы П.К.</b></span>`,
-        `<p>${NOWRAP}Т.⍽Б. От</span> ${NOWRAP}<b class="x">Кашфы⍽П.⍽К.</b></span></p>`
+        `<p>${NOWRAP}Т.⍽Б.⍽От</span> ${NOWRAP}<b class="x">Кашфы⍽П.⍽К.</b></span></p>`
       ]
     ]) {
       assert.deepEqual(twice(config, text), [nb(expected), nb(expected)], text);
@@ -615,7 +628,7 @@ describe("the engine's wrappers and the author's elements, html: true", () => {
 
   test('a word glued to the end of a wrapper stays apart from the next one with markup further on, as without it', () => {
     for (const tail of ['<strong>Да</strong>', 'Да']) {
-      const settled = nb(`<p>ё⍽ж?.. ${NOWRAP}ГОСТ 76</span>x гончая ${tail}</p>`);
+      const settled = nb(`<p>ё⍽ж?.. ${NOWRAP}ГОСТ 76</span>x гончая⍽${tail}</p>`);
 
       assert.deepEqual(twice({ html: true }, `ё ж?..Гост76x гончая ${tail}`), [settled, settled]);
     }
@@ -631,8 +644,8 @@ describe("the engine's wrappers and the author's elements, html: true", () => {
         `<p>ё⍽ж?.. ${wrapped}x x⍽г-о <strong>Да</strong></p>`
       ],
       ['ё ж?..Гост76x x г-о Да', `<p>ё⍽ж?.. ${wrapped}x x⍽г-о Да</p>`],
-      ['Гост76x и <b>доме</b> там', `<p>${wrapped}x и⍽<b>доме</b> там</p>`],
-      ['Гост76x гончая там', `<p>${wrapped}x гончая там</p>`],
+      ['Гост76x и <b>доме</b> там', `<p>${wrapped}x и⍽<b>доме</b>⍽там</p>`],
+      ['Гост76x гончая там', `<p>${wrapped}x гончая⍽там</p>`],
       ['Гост 76 и доме', `<p>${wrapped} и⍽доме</p>`]
     ]) {
       assert.deepEqual(twice(config, text), [nb(expected), nb(expected)], text);

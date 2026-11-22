@@ -1415,7 +1415,10 @@ describe('block definitions and inline code keep their order', () => {
   test('a definition and a code span side by side both survive', () => {
     const src = '[амбер]: /url\n\nСмотри `Корвин - принц` и [Книга][амбер] тут';
 
-    assert.equal(microtypo(src, mdRender), src.replace('и [', `и${NBSP}[`));
+    assert.equal(
+      microtypo(src, mdRender),
+      src.replace('и [', `и${NBSP}[`).replace('] тут', `]${NBSP}тут`)
+    );
   });
 
   // Code inside a label is part of the label; code the label runs into carries the label's own `]`
@@ -1439,7 +1442,7 @@ describe('block definitions and inline code keep their order', () => {
     test('a code span crossing the closing bracket leaves no label behind', () => {
       const src = 'Амбер - Хаос `и] Рэндом` тут';
 
-      assert.equal(microtypo(src, mdRender), `Амбер${NBSP}— Хаос \`и] Рэндом\` тут`);
+      assert.equal(microtypo(src, mdRender), `Амбер${NBSP}— Хаос \`и] Рэндом\`${NBSP}тут`);
     });
   });
 });
@@ -2794,7 +2797,7 @@ describe('Markdown with paragraphs and breakline on', () => {
 
     assert.equal(
       settled(src, PARAGRAPHS),
-      `# Заголовок${NBSP}— тут\n\n<p>Первая строка${NBSP}— тире\nвторая строка</p>\n\n- пункт один\n- пункт два\n\n<p>Второй абзац.</p>`
+      `# Заголовок${NBSP}— тут\n\n<p>Первая строка${NBSP}— тире\nвторая строка</p>\n\n- пункт один\n- пункт${NBSP}два\n\n<p>Второй абзац.</p>`
     );
   });
 

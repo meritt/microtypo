@@ -22,7 +22,10 @@ describe('TOML quoted-string values', () => {
     const src = 'title = "Хроники Амбера - истинный мир"\nslug = "amber-chronicles"';
     const out = microtypo(src, { input: { format: 'toml' } });
 
-    assert.equal(out, `title = "Хроники Амбера${NBSP}— истинный мир"\nslug = "amber-chronicles"`);
+    assert.equal(
+      out,
+      `title = "Хроники Амбера${NBSP}— истинный${NBSP}мир"\nslug = "amber-chronicles"`
+    );
   });
 
   test('literal string: interior typeset, backslash content preserved verbatim', () => {

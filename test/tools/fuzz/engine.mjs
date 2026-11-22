@@ -33,11 +33,12 @@ const PATCHES = [
   ],
   [
     'rule-runner.js',
-    '    ctx.text = next;\n',
+    '    ctx.text = executeKeptRule(rule, ctx.text, ctx, keep, checkBudget);\n',
     (anchor) =>
       [
+        '    const fuzzInput = ctx.text;',
         anchor.trimEnd(),
-        '    if (ctx.text !== input) {',
+        '    if (ctx.text !== fuzzInput) {',
         "      globalThis[Symbol.for('microtypo.fuzz.trace')]?.add(compiled.name + '.' + rule.id);",
         '    }',
         ''

@@ -1292,7 +1292,13 @@ function hasAuthoredPartner(token) {
 }
 
 function measuredFeet(text, ctx, token, visit) {
-  return (token.followsFeet ??= followsFeet(text, token.measureDigit, ctx, visit));
+  return (token.followsFeet ??= followsFeet(
+    text,
+    token.measureDigit,
+    ctx,
+    visit,
+    activeQuoteRule.get(ctx)?.readFoot
+  ));
 }
 
 // Track the earliest and latest existing directional endpoints inside each
@@ -2062,11 +2068,11 @@ export function bindQuotePaddingStrip(ctx, active) {
 }
 
 // Which built-in quote rules can write in this call.
-export function bindQuoteRules(ctx, active, addressBefore) {
+export function bindQuoteRules(ctx, active, addressBefore, readFoot) {
   if (addressBefore) {
     labelAddressBefore.set(ctx, addressBefore);
   }
-  activeQuoteRule.set(ctx, active);
+  activeQuoteRule.set(ctx, { active, readFoot });
 }
 
 // What `open` writes for the straight quotes glued behind a `«` at `at`, or null where it leaves
@@ -2089,7 +2095,7 @@ function openedBehind(source, at, ctx) {
 
 function applyInnerQuotes(ctx) {
   const settings = ctx.group?.settings ?? {};
-  const active = activeQuoteRule.get(ctx);
+  const active = activeQuoteRule.get(ctx)?.active;
   const opens = active?.('open') === true;
   ctx.text = processQuotes(ctx.text, {
     allowNested: settings.allowNested !== false,

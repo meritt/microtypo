@@ -69,6 +69,32 @@ test('the source owns the ends of two measurements and the prose between them', 
   }
 });
 
+test('foot marks support inches inside speech when the configured rules recognise them', () => {
+  for (const [config, feet, marked, end] of [
+    [{}, '′', '′', '″'],
+    [{ rules: { 'number.prime': false } }, "' ", "' ", '“'],
+    [{}, "' ", '′ ', '″'],
+    [{ rules: { 'number.prime': true } }, '&#8242;', '′', '″'],
+    [{ input: 'xml', rules: { 'number.prime': true } }, '&#x2032;', '′', '″'],
+    [{ rules: { 'number.prime': true, 'quote.inch': false } }, "' ", '′ ', '“']
+  ]) {
+    const e = new MicroTypo(config);
+    const source = `Указано: «Диагональ 2${feet}8 “ у модели «Тайга», высота 1${feet}7”».`;
+    const expected =
+      end === '″'
+        ? `Указано: «Диагональ 2${marked}8″ у модели „Тайга“, высота 1${marked}7″».`
+        : `Указано: «Диагональ 2${marked}8 „у модели „Тайга“, высота 1${marked}7“».`;
+    assert.equal(e.process(source), expected);
+    assert.equal(e.process(expected), expected);
+  }
+  for (const title of ['Модель', 'модель']) {
+    const raw = `Указано: «Строка 8 “ ${title} «Тайга», серия 7”».`;
+    const expected = `Указано: «Строка 8 „${title} „Тайга“, серия 7“».`;
+    assert.equal(microtypo(raw), expected);
+    assert.equal(microtypo(expected), expected);
+  }
+});
+
 test('a visible foot mark identifies a complete inch amount without changing its source spelling', () => {
   for (const [input, left, right] of [
     ['text', '2′8,5', '1′7,5'],
@@ -80,7 +106,9 @@ test('a visible foot mark identifies a complete inch amount without changing its
     ['html', '2&#8242;8,5', '1&#x2032;7,5'],
     ['xml', '2&#8242;8', '1&#x2032;7']
   ]) {
-    const e = new MicroTypo({ input });
+    // With `number.prime` on, the prime is the typographer's own glyph and an entity spelling of it
+    // goes out as the glyph; the quote pass under test changes no spelling by itself.
+    const e = new MicroTypo({ input, rules: { 'number.prime': false } });
     const source = `В журнале: «Ширина ${left} “ у рамы «Сосна», высота ${right}”».`;
     const expected = `В журнале: «Ширина ${left}″ у рамы „Сосна“, высота ${right}″».`;
     assert.equal(e.process(source), expected);
@@ -1033,7 +1061,7 @@ describe('quote.open — a quote after an end tag closes before the end of its b
 
   test('a comma, a paren, a space, and a quote behind a word read as before', () => {
     for (const [source, expected] of [
-      ['<p>"слово <em>x</em>", - сказал он.</p>', '<p>«слово <em>x</em>», — сказал он.</p>'],
+      ['<p>"слово <em>x</em>", - сказал он.</p>', '<p>«слово <em>x</em>», — сказал он.</p>'],
       ['<p>("слово <em>x</em>")</p>', '<p>(«слово <em>x</em>»)</p>'],
       ['<p>"слово <em>x</em>" и</p>', '<p>«слово <em>x</em>» и</p>'],
       ['<p>"слово"!</p>', '<p>«слово»!</p>']
@@ -1737,7 +1765,7 @@ describe('quote.open — neighbours that are not letters', () => {
   test('a closing quote before a sentence mark is not reopened', () => {
     assert.equal(
       microtypo('Указ (п. 3 в ред. Оберона)".', NOP),
-      'Указ (п.\u{00A0}3 в\u{00A0}ред. Оберона)".'
+      'Указ (п.\u{00A0}3\u{00A0}в\u{00A0}ред. Оберона)".'
     );
   });
 
@@ -2117,7 +2145,7 @@ describe('spaced open quotes use the existing significant-content definition', (
       for (const nested of [false, true]) {
         for (const tail of ['', ' слово', '\u00a0слово', '\u00a0<->']) {
           const source = `«„>“»${tail}`;
-          const expected = `${nested ? '«„>“»' : '««>»»'}${tail}`;
+          const expected = `${nested ? '«„>“»' : '««>»»'}${tail.replace('<->', '↔')}`;
           const cfg = {
             input: 'markdown',
             rules: { 'quote.close': close, 'quote.nested': nested }
@@ -2337,7 +2365,7 @@ test('only removable padding can precede the final endpoint of touching titles',
   for (const gap of [' ', '\t', '\u{00A0}']) {
     const source = `Книги: «Клеймо '""Летний сад${gap}».`;
     const directed = `Книги: «Клеймо '»«Летний сад${gap}».`;
-    const expected = `Книги: «Клеймо '»«Летний сад».`;
+    const expected = `Книги: «Клеймо '»«Летний\u{00A0}сад».`;
     assert.equal(microtypo(source), expected);
     assert.equal(microtypo(expected), expected);
     // Collapsing tabs remains active when only quote padding is disabled.
@@ -2808,7 +2836,7 @@ test('a completed title can be followed by a second word with its own closing ma
     ['Поля: „“"Новый «Юг”".', 'Поля: «»«Новый „Юг“».'],
     ['Поля: "Список " Маяк""Юг»".', 'Поля: «Список „Маяк“„Юг“».'],
     ['Поля: «Маяк„“Юг».', 'Поля: «Маяк„“Юг».'],
-    ['Поля: «Площадь 27""Южный вход».', 'Поля: «Площадь 27″"Южный вход».'],
+    ['Поля: «Площадь 27""Южный вход».', 'Поля: «Площадь 27″"Южный\u{00A0}вход».'],
     ['Поля: «Маяк»"ушёл «Юг» рядом.', 'Поля: «Маяк»"ушёл «Юг» рядом.']
   ]) {
     assert.equal(microtypo(source), expected);
@@ -3456,7 +3484,7 @@ test('a mark or a node between the closers of a touching run keeps the nested pa
     [text, '""а»′"\'', "«„а“′»'"],
     [text, '""а»8′"\'', "«„а“8′»'"],
     [text, 'Он сказал ""а»′" и ушёл.', 'Он сказал «„а“′» и ушёл.'],
-    [entities, '&#x22;"а»′&#x22;\'', "&laquo;&bdquo;а&ldquo;′&raquo;'"],
+    [entities, '&#x22;"а»′&#x22;\'', "&laquo;&bdquo;а&ldquo;&#8242;&raquo;'"],
     [xml, '<doc><p>„«голнце"<![CDATA[]]>“</p></doc>', '<doc><p>«„голнце“<![CDATA[]]>»</p></doc>'],
     [
       xml,

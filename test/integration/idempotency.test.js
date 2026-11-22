@@ -259,6 +259,9 @@ describe('idempotency on already-typeset text', () => {
 // first pass; the second pass has to give the first one back.
 const typeset = (s) => s.replaceAll('⍽', '\u{00A0}').replaceAll('⎵', '\u{202F}');
 
+// Initials as `other.strip_nbsp_in_nowrap: false` leaves them: bound inside their wrapper.
+const bound = (s) => s.replace(/([А-Я]\.) ([А-Я]\.) /gu, '$1⍽$2⍽');
+
 function settles(cases, config = {}) {
   for (const [source, expected] of cases) {
     const typo = new MicroTypo(config);
@@ -275,9 +278,9 @@ describe('a particle binds to the word before it on the first pass', () => {
       ['вам ли - нет', 'вам⍽ли⍽— нет'],
       ['Кто бы — нет', 'Кто⍽бы⍽— нет'],
       ['о б —', 'о⍽б⍽—'],
-      ['Вот же НЕ так', 'Вот⍽же⍽НЕ так'],
-      ['жно ли Ж. Кон', 'жно⍽ли⍽Ж. Кон'],
-      ['вот ли ли он', 'вот⍽ли⍽ли он']
+      ['Вот же НЕ так', 'Вот⍽же⍽НЕ⍽так'],
+      ['жно ли Ж. Кон', 'жно⍽ли⍽Ж.⍽Кон'],
+      ['вот ли ли он', 'вот⍽ли⍽ли⍽он']
     ]);
   });
 
@@ -285,8 +288,8 @@ describe('a particle binds to the word before it on the first pass', () => {
     settles([
       ['вам ли «Амбер»', 'вам⍽ли «Амбер»'],
       ['и б „', 'и⍽б «'],
-      ['ь - б ви', 'ь⍽—⍽б ви'],
-      ['к б⍽л евро', 'к⍽б⍽л евро']
+      ['ь - б ви', 'ь⍽—⍽б⍽ви'],
+      ['к б⍽л евро', 'к⍽б⍽л⍽евро']
     ]);
   });
 
@@ -307,13 +310,13 @@ describe('a shortened и т. д. reads as one typed out in full on the first pas
   test('a number after it binds and a dash after it takes the sentence form', () => {
     settles([
       ['и тд 1', 'и⍽т.⍽д.⍽1'],
-      ['и т.д. 5 раз', 'и⍽т.⍽д.⍽5 раз'],
+      ['и т.д. 5 раз', 'и⍽т.⍽д.⍽5⍽раз'],
       ['и тп 15 августа', 'и⍽т.⍽п.⍽15⍽августа'],
       ['и тд — с', 'и⍽т.⍽д. —⍽с'],
       ['в тч - и', 'в⍽т.⍽ч. —⍽и'],
       ['и т. д. 1', 'и⍽т.⍽д.⍽1'],
       ['и т. д. — с', 'и⍽т.⍽д. —⍽с'],
-      ['в тч 5', 'в⍽т.⍽ч. 5'],
+      ['в тч 5', 'в⍽т.⍽ч.⍽5'],
       ['и тд -', 'и⍽т.⍽д.⍽—']
     ]);
   });
@@ -552,14 +555,14 @@ describe('a comma before a conjunction behind a gap a later rule narrows', () =>
   test('a collapsed run of spaces takes the comma as one space does', () => {
     settles(
       [
-        ['с  но и', 'с, но и'],
-        ['а  а и', 'а, а и'],
-        ['с но и', 'с, но и'],
-        ['с\tно и', 'с, но и']
+        ['с  но и', 'с, но⍽и'],
+        ['а  а и', 'а, а⍽и'],
+        ['с но и', 'с, но⍽и'],
+        ['с\tно и', 'с, но⍽и']
       ],
       comma
     );
-    settles([['а  а и', 'а, а и']], { ...comma, input: 'html' });
+    settles([['а  а и', 'а, а⍽и']], { ...comma, input: 'html' });
   });
 
   test('a run bound after a short word takes it as an authored no-break space does', () => {
@@ -567,15 +570,15 @@ describe('a comma before a conjunction behind a gap a later rule narrows', () =>
 
     settles(
       [
-        ['с  но и', 'с,⍽но и'],
-        ['с⍽но и', 'с,⍽но и']
+        ['с  но и', 'с,⍽но⍽и'],
+        ['с⍽но и', 'с,⍽но⍽и']
       ],
       uncollapsed
     );
   });
 
   test('without the rule the gap is only collapsed', () => {
-    settles([['с  но и', 'с⍽но и']]);
+    settles([['с  но и', 'с⍽но⍽и']]);
   });
 });
 
@@ -660,7 +663,7 @@ describe('an em dash written as an XML reference reads back as the dash', () => 
         ['<r>Да! — сказал</r>', '<r>Да! —⍽сказал</r>'],
         ['<r>— Привет</r>', '<r>—⍽Привет</r>'],
         ['<r>Стоит 5 руб. — всё</r>', '<r>Стоит 5⍽₽⍽— всё</r>'],
-        ['<r>5 – 7 дней</r>', '<r>5–7 дней</r>']
+        ['<r>5 – 7 дней</r>', '<r>5–7⍽дней</r>']
       ],
       xml
     );
@@ -780,7 +783,7 @@ describe('a time beside a grouped number or a phone', () => {
   test('a time standing apart still closes up', () => {
     settles([
       ['в 2: 43 утра', 'в⍽2:43 утра'],
-      ['в 2 : 43 и 100 человек', 'в⍽2:43 и⍽100 человек'],
+      ['в 2 : 43 и 100 человек', 'в⍽2:43 и⍽100⍽человек'],
       ['в 10 : 30 : 15 и 08 : 59', 'в⍽10:30:15 и⍽08:59']
     ]);
   });
@@ -1055,8 +1058,8 @@ describe('initials', () => {
       ['пр.Ш. П', 'пр.⍽Ш.⍽П', 'пр.⍽Ш.⍽П', {}],
       [
         'П.Г.Фл',
-        '<p><span style="white-space:nowrap;">П. Г. Фл</span></p>',
-        '<p><span style="white-space:nowrap;">П. Г. Фл</span></p>',
+        '<p><span style="white-space:nowrap;">П.⍽Г.⍽Фл</span></p>',
+        '<p><span style="white-space:nowrap;">П.⍽Г.⍽Фл</span></p>',
         { html: true, rules: { 'other.*': false } }
       ]
     ]) {
@@ -1125,28 +1128,28 @@ describe('an abbreviation before a number or a word a unit binds', () => {
   const UNIT_CASES = [
     ['с.0 px', 'с.⍽0⍽px', { input: 'markdown' }],
     ['с.7 Б', 'с.⍽7⍽Б', { input: 'yaml' }],
-    ['с.5 <a>ч т</a>', 'с.⍽5⍽<a>ч т</a>', { input: 'html' }],
-    ['с.3 ч зм', 'с.&nbsp;3&nbsp;ч зм', { entities: '1' }],
+    ['с.5 <a>ч т</a>', 'с.⍽5⍽<a>ч⍽т</a>', { input: 'html' }],
+    ['с.3 ч зм', 'с.&nbsp;3&nbsp;ч&nbsp;зм', { entities: '1' }],
     ['<doc><note>гл.5 м</note></doc>', '<doc><note>гл.⍽5⍽м</note></doc>', { input: 'xml' }],
     ['с.8 см.х', 'с.&nbsp;8&nbsp;см. х', { entities: '1' }],
     ['с.1 Л', 'с.⍽1⍽Л', { input: 'markdown' }],
     ['п.3 т', 'п.⍽3⍽т', { input: 'html' }],
-    ['с.7 кг пи', 'с.&nbsp;7&nbsp;кг пи', { entities: true }],
+    ['с.7 кг пи', 'с.&nbsp;7&nbsp;кг&nbsp;пи', { entities: true }],
     ['гл.1 Т.И.Це', 'гл.&nbsp;1&nbsp;Т.&nbsp;И.&nbsp;Це', { entities: 1 }],
     ['с.9 *px* Пл', 'с.&nbsp;9&nbsp;*px* Пл', { entities: 1, input: 'markdown' }],
     ['с.6 ч.⍽', 'с.&nbsp;6&nbsp;ч.&nbsp;', { entities: true, input: 'markdown' }],
     ['гл.1 м', 'гл.⍽1⍽м', {}],
     ['с.8 см.е', 'с.&nbsp;8&nbsp;см. е', { entities: true, input: 'markdown' }],
-    ['с.8 мм сс', 'с.&nbsp;8&nbsp;мм сс', { entities: '1', input: 'markdown' }],
+    ['с.8 мм сс', 'с.&nbsp;8&nbsp;мм&nbsp;сс', { entities: '1', input: 'markdown' }],
     ['с.0 Л', 'с.⍽0⍽Л', { input: 'html' }],
     ['с.5 т', 'с.⍽5⍽т', { input: 'html' }],
-    ['с.6 т сы', 'с.&nbsp;6&nbsp;т сы', { entities: true }],
+    ['с.6 т сы', 'с.&nbsp;6&nbsp;т&nbsp;сы', { entities: true }],
     ['гл.5\tт', 'гл.⍽5⍽т', {}],
     ['<doc><p>с.5 ч</p></doc>', '<doc><p>с.⍽5⍽ч</p></doc>', { input: 'xml' }],
     ['с.9 м', 'с.⍽9⍽м', { input: 'frontmatter' }],
     ['с.1 Л', 'с.&nbsp;1&nbsp;Л', { entities: 'on', input: 'markdown' }],
     ['с.9 т', 'с.⍽9⍽т', { input: 'html' }],
-    ['с.1 г ыш', 'с.&nbsp;1&nbsp;г ыш', { entities: true, input: 'html' }],
+    ['с.1 г ыш', 'с.&nbsp;1&nbsp;г&nbsp;ыш', { entities: true, input: 'html' }],
     ['с.1\tч', 'с.&nbsp;1&nbsp;ч', { entities: 'on' }]
   ];
 
@@ -1180,7 +1183,7 @@ describe('an abbreviation before a number or a word a unit binds', () => {
 
   test('a postal index with a glued г and a plain reference read as before', () => {
     settles([
-      ['125009г. Москва', '125009 г.⍽Москва'],
+      ['125009г. Москва', '125009⍽г.⍽Москва'],
       ['см. рис. 5', 'см.⍽рис.⍽5'],
       ['стр. 5 кг', 'стр.⍽5⍽кг']
     ]);
@@ -1612,7 +1615,7 @@ describe('a closer with no quotation open behind a weak neighbour', () => {
     settles([
       [';»ж', ';«ж'],
       [";&raquo;'", ";«'"],
-      ['Привет,»сказал он', 'Привет, «сказал он']
+      ['Привет,»сказал он', 'Привет, «сказал⍽он']
     ]);
     settles([[';&raquo;с', ';«с']], { input: 'html' });
     settles(
@@ -1645,7 +1648,7 @@ describe('a closer with no quotation open behind a weak neighbour', () => {
     settles([
       ['а;» б', 'а;" б'],
       ['«а;» б', '«а;» б'],
-      ['«Привет,»сказал он', '«Привет,»сказал он'],
+      ['«Привет,»сказал он', '«Привет,»сказал⍽он'],
       ['а:».«', 'а:".«']
     ]);
   });
@@ -1675,7 +1678,7 @@ describe('a closer first among the quotes of its paragraph, where an opener is m
     );
     settles([
       ['«а» »"б" в»', '«а» «„б“ в»'],
-      ['«а» »"б в', '«а» ««б в']
+      ['«а» »"б в', '«а» ««б⍽в']
     ]);
     settles([['«а» »"б" в»', '«а» «"б» в"']], { rules: { 'quote.open': false } });
   });
@@ -1698,8 +1701,8 @@ describe('a straight quote left undecided where a quote opens', () => {
 describe('a straight quote spaced behind an ellipsis typed as dots', () => {
   test('closes as behind the ellipsis character', () => {
     settles([
-      ['"Ну... " — сказал он', '«Ну…»⍽— сказал он'],
-      ['"Ну… " — сказал он', '«Ну…»⍽— сказал он']
+      ['"Ну... " — сказал он', '«Ну…»⍽— сказал⍽он'],
+      ['"Ну… " — сказал он', '«Ну…»⍽— сказал⍽он']
     ]);
     settles(
       [
@@ -1784,8 +1787,8 @@ describe('whitespace at the edges of a document', () => {
       ['003 гг.\n', '003⍽гг.', '003⍽гг.', {}],
       [
         '---\ntitle: test\n---\n\n\n1997год.',
-        '---\ntitle: test\n---\n\n\n1997 год.',
-        '---\ntitle: test\n---\n\n\n1997 год.',
+        '---\ntitle: test\n---\n\n\n1997⍽год.',
+        '---\ntitle: test\n---\n\n\n1997⍽год.',
         { input: 'frontmatter' }
       ],
       [
@@ -1840,7 +1843,7 @@ describe('stable baseline initials', () => {
   });
 
   test('N-gap', () => {
-    settles([['М.⍽Д. Иванов', '<p><span style="white-space:nowrap;">М. Д. Иванов</span></p>']], {
+    settles([['М.⍽Д. Иванов', '<p><span style="white-space:nowrap;">М.⍽Д.⍽Иванов</span></p>']], {
       html: true,
       rules: {
         'other.*': false
@@ -1849,17 +1852,17 @@ describe('stable baseline initials', () => {
   });
 
   test('N-adjacent-short', () => {
-    settles([['А.Б.Ян В.Г.Юн', 'А.⍽Б.⍽Ян⍽В.⍽Г.⍽Юн']], {});
+    settles([['А.Б.Ян В.Г.Юн', 'А.⍽Б.⍽Ян⍽В.⍽Г.⍽Юн']]);
   });
 
   test('N-adjacent-line', () => {
-    settles([['А.Б.Ян В.Г.\nЮн', 'А.⍽Б.⍽Ян⍽В.⍽Г.⍽Юн']], {});
+    settles([['А.Б.Ян В.Г.\nЮн', 'А.⍽Б.⍽Ян⍽В.⍽Г.⍽Юн']]);
   });
 });
 
 describe('stable baseline triads', () => {
   test('T-phone', () => {
-    settles([['8-800-123-45-67 123', '8-800-123-45-67 123']], {});
+    settles([['8-800-123-45-67 123', '8-800-123-45-67 123']]);
   });
 
   test('T-hyphen', () => {
@@ -1871,7 +1874,7 @@ describe('stable baseline triads', () => {
   });
 
   test('T-sup', () => {
-    settles([['м² 1 000', 'м² 1⎵000']], {});
+    settles([['м² 1 000', 'м² 1⎵000']]);
   });
 
   test('T-sub', () => {
@@ -1919,15 +1922,15 @@ describe('stable baseline postal index', () => {
 
 describe('stable baseline punctuation', () => {
   test('S-nbsp', () => {
-    settles([['а ⍽:tip', 'а ⍽:tip']], {});
+    settles([['а ⍽:tip', 'а ⍽:tip']]);
   });
 
   test('S-decimal', () => {
-    settles([['1.2 :tip', '1.2 :tip']], {});
+    settles([['1.2 :tip', '1.2 :tip']]);
   });
 
   test('S-chain', () => {
-    settles([['1.2?!А', '1.2?!А']], {});
+    settles([['1.2?!А', '1.2?!А']]);
   });
 
   test('S-triadunit', () => {
@@ -2063,6 +2066,17 @@ describe('a colon or a prime after a number an abbreviation or a currency sign e
     ]);
     settles([['в д.8 :а', 'в д.⍽8 :а']], { rules: { 'space.space_after_punctuation': false } });
   });
+
+  test('a prime after a number a currency sign parts is set in the same pass', () => {
+    settles(
+      [
+        ["для ₽81'.", 'для ₽⍽81′.'],
+        ["для ₽81'а.", "для ₽⍽81'а."]
+      ],
+      {}
+    );
+    settles([["для ₽81'.", 'для ₽⍽81′.']]);
+  });
 });
 
 describe('phone and postal boundaries keep their meaning', () => {
@@ -2075,9 +2089,9 @@ describe('phone and postal boundaries keep their meaning', () => {
   });
   test('preserves a postal index across the written city gap', () => {
     settles([
-      ['125009 г. Москва', '125009 г.⍽Москва'],
+      ['125009 г. Москва', '125009⍽г.⍽Москва'],
       ['125009⍽г. Москва', '125009⍽г.⍽Москва'],
-      ['125009г. Москва', '125009 г.⍽Москва'],
+      ['125009г. Москва', '125009⍽г.⍽Москва'],
       ['103811, Москва', '103811, Москва'],
       ['цена 123456 руб.', 'цена 123⎵456⍽₽.']
     ]);
@@ -2087,8 +2101,8 @@ describe('phone and postal boundaries keep their meaning', () => {
 describe('shared boundaries after a period', () => {
   test('formats each word after the shared gap on the first pass', () => {
     settles([
-      ['Е.Опять доц.Плащи', 'Е. Опять доц. Плащи'],
-      ['Р.Калер тов.Слова', 'Р. Калер тов. Слова']
+      ['Е.Опять доц.Плащи', 'Е.⍽Опять доц.⍽Плащи'],
+      ['Р.Калер тов.Слова', 'Р.⍽Калер тов.⍽Слова']
     ]);
   });
 });
@@ -2096,8 +2110,8 @@ describe('shared boundaries after a period', () => {
 describe('prospective period and punctuation boundaries', () => {
   test('uses only enabled readers when the two kinds alternate', () => {
     for (const [period, punctuation, expected] of [
-      [true, true, 'Е. Опять: нет. что'],
-      [true, false, 'Е. Опять:нет.что'],
+      [true, true, 'Е.⍽Опять: нет. что'],
+      [true, false, 'Е.⍽Опять:нет.что'],
       [false, true, 'Е.Опять:нет.что'],
       [false, false, 'Е.Опять:нет.что']
     ]) {
@@ -2237,13 +2251,13 @@ describe('initial wrapping within an existing canonical nowrap', () => {
         [
           [wrap('А.С. Пушкин'), `<p>${wrap('А. С. Пушкин')}</p>`],
           [`автор⍽${wrap('Пушкин А.С.')}`, `<p>${wrap('автор Пушкин А. С.')}</p>`],
-          [`автор⍽${open}А.С. Пушкин`, `<p>${open}автор А. С. Пушкин</p>`],
+          [`автор⍽${open}А.С. Пушкин`, `<p>${open}автор А.⍽С.⍽Пушкин</p>`],
           [`<em>${wrap('А.С. Пушкин')}</em>`, `<p><em>${wrap('А. С. Пушкин')}</em></p>`],
           [wrap('Пушкин А. С.'), `<p>${wrap('Пушкин А. С.')}</p>`]
         ],
         config
       );
-      settles([[`автор⍽${wrap('А.С. Пушкин')}`, `<p>автор⍽${wrap('А. С. Пушкин')}</p>`]], {
+      settles([[`автор⍽${wrap('А.С. Пушкин')}`, `<p>автор⍽${wrap('А.⍽С.⍽Пушкин')}</p>`]], {
         ...config,
         rules: { 'other.strip_nbsp_in_nowrap': false }
       });
@@ -2413,17 +2427,17 @@ describe('emphatic particles read words and measurement units distinctly', () =>
   });
   test('units retain their quantity role while ordinary verbs still join', () => {
     settles([
-      ['5ч ка', '5⍽ч ка'],
-      ['5 ч ка', '5⍽ч ка'],
+      ['5ч ка', '5⍽ч⍽ка'],
+      ['5 ч ка', '5⍽ч⍽ка'],
       ['7м⍽ка', '7⍽м⍽ка'],
-      ['0л де', '0⍽л де'],
-      ['6г ка', '6⍽г ка'],
-      ['9Б ка', '9⍽Б ка'],
-      ['8В ка', '8⍽В ка'],
-      ['5Гц ка', '5⍽Гц ка'],
-      ['.5Гц ка', '.5⍽Гц ка'],
-      [',5Гц ка', ',5⍽Гц ка'],
-      ['5.5Гц ка', '5.5⍽Гц ка'],
+      ['0л де', '0⍽л⍽де'],
+      ['6г ка', '6⍽г⍽ка'],
+      ['9Б ка', '9⍽Б⍽ка'],
+      ['8В ка', '8⍽В⍽ка'],
+      ['5Гц ка', '5⍽Гц⍽ка'],
+      ['.5Гц ка', '.5⍽Гц⍽ка'],
+      [',5Гц ка', ',5⍽Гц⍽ка'],
+      ['5.5Гц ка', '5.5⍽Гц⍽ка'],
       ['5⍽иди ка', '5⍽иди-ка'],
       ['5кВт ка', '5кВт ка'],
       ['5Па ка', '5Па ка'],
@@ -2437,7 +2451,7 @@ describe('emphatic particles read words and measurement units distinctly', () =>
       ['просп.о кась', 'просп.⍽о-кась'],
       ['902годом ка', '902 годом-ка']
     ]);
-    settles([['Б.Чть де', 'Б. Чть де']], { rules: { 'dash.emphatic_particle': false } });
+    settles([['Б.Чть де', 'Б.⍽Чть⍽де']], { rules: { 'dash.emphatic_particle': false } });
     settles(
       [
         ['5  ч ка', '5  ч ка'],
@@ -2460,7 +2474,7 @@ describe('a leading currency releases its quantity before units', () => {
       ['€6 см.с', '€⍽6⍽см. с']
     ]);
     settles([['$6 м', '$6 м']], { rules: { 'abbr.nbsp_currency_prefix': false } });
-    settles([['$6 м', '$⍽6 м']], { rules: { 'abbr.nbsp_unit': false } });
+    settles([['$6 м', '$⍽6⍽м']], { rules: { 'abbr.nbsp_unit': false } });
     settles([
       ['1$6 м', '1⍽$⍽6⍽м'],
       ['6руб м', '6⍽₽ м'],
@@ -2531,7 +2545,7 @@ describe('a triad creator releases genuine quantities before binding readers', (
       ['стр.19924г', 'стр.⍽19 924⍽г'],
       ['с.19924г', 'с.⍽19 924⍽г'],
       ['гл.19924г', 'гл.⍽19 924⍽г'],
-      ['125009г. Москва', '125009 г.⍽Москва'],
+      ['125009г. Москва', '125009⍽г.⍽Москва'],
       ['125009,Москва', '125009, Москва'],
       ['ИНН 7707083893', 'ИНН 7707083893'],
       ['12.12345г', '12.12345г'],
@@ -2603,7 +2617,7 @@ describe('numeric source boundaries survive native inline closing tags', () => {
     );
   });
   test('an XML identifier label reads its own encoded no-break gap', () => {
-    settles([['<doc>индекс⍽1682974 а</doc>', '<doc>индекс&#160;1682974 а</doc>']], {
+    settles([['<doc>индекс⍽1682974 а</doc>', '<doc>индекс&#160;1682974&#160;а</doc>']], {
       input: 'xml',
       entities: true
     });
@@ -2699,9 +2713,9 @@ describe('source edges use their existing format owner before typography', () =>
       }
       settles(
         [
-          [' &unknown;У му', ' &unknown;У му'],
+          [' &unknown;У му', ` &unknown;У${nbsp}му`],
           [' &nbspУ му', ' &nbspУ му'],
-          [' &#xGG;У му', ' &#xGG;У му'],
+          [' &#xGG;У му', ` &#xGG;У${nbsp}му`],
           [' \t\r\n ', '']
         ],
         { entities }
@@ -2738,13 +2752,13 @@ describe('source edges use their existing format owner before typography', () =>
       ],
       { html: true }
     );
-    settles([['⍽У му', 'У му']], { rules: { 'nobr.nbsp_short_word': false } });
+    settles([['⍽У му', 'У⍽му']], { rules: { 'nobr.nbsp_short_word': false } });
   });
   test('Markdown, XML and value edges retain their distinct policies', () => {
     settles(
       [
-        ['⍽У му', '⍽У му'],
-        ['&nbsp;У му', '⍽У му']
+        ['⍽У му', '⍽У⍽му'],
+        ['&nbsp;У му', '⍽У⍽му']
       ],
       { input: 'markdown' }
     );
@@ -2797,7 +2811,7 @@ describe('nowrap owners keep their own canonical context without cleanup', () =>
           ['154-6 августа', `${open}154—6 августа${close}`],
           ['12345-6 августа', '12⎵345–6⍽августа'],
           ['4-6 августан', '4–6⍽августан'],
-          ['4-6 неизвестно', '4–6 неизвестно'],
+          ['4-6 неизвестно', '4–6⍽неизвестно'],
           ['<p>4-6 августа</p>', `<p>${open}4—6 августа${close}</p>`],
           ['<em>4-6 августа</em>', `<em>${open}4—6 августа${close}</em>`],
           [`${open}4-6 августа extra${close}`, `${open}4—6 августа extra${close}`]
@@ -2816,7 +2830,7 @@ describe('nowrap owners keep their own canonical context without cleanup', () =>
           entities,
           rules: { 'date.nowrap_day_range': true }
         });
-        const expected = `<doc>12${entities ? '&#8239;' : gap}345${entities ? '&#8211;' : '–'}6 августа</doc>`;
+        const expected = `<doc>12${entities ? '&#8239;' : gap}345${entities ? '&#8211;' : '–'}6${entities ? '&#160;' : '\u00a0'}августа</doc>`;
         assert.equal(typo.process(`<doc>12${gap}345-6 августа</doc>`), expected);
         assert.equal(typo.process(expected), expected);
       }
@@ -2901,15 +2915,24 @@ describe('a no-break space the engine writes back as an XML reference', () => {
   test('keeps `т. е.` and a pair of initials apart from the number before them', () => {
     settles(
       [
-        ['<doc><item>5 те.</item></doc>', '<doc><item>5 т.&#160;е.</item></doc>'],
-        ['<doc><item>3 В.Р.То</item></doc>', '<doc><item>3 В.&#160;Р.&#160;То</item></doc>'],
+        ['<doc><item>5 те.</item></doc>', '<doc><item>5&#160;т.&#160;е.</item></doc>'],
+        ['<doc><item>3 В.Р.То</item></doc>', '<doc><item>3&#160;В.&#160;Р.&#160;То</item></doc>'],
         ['<doc><item>5 т.&#171;е.</item></doc>', '<doc><item>5&#160;т.&#171;е.</item></doc>'],
         ['<doc><item>3 В.Р.</item></doc>', '<doc><item>3&#160;В.Р.</item></doc>']
       ],
       { input: 'xml', entities: true }
     );
   });
-
+  test('keeps a hyphen before a number a dash or an ellipsis follows', () => {
+    settles(
+      [
+        ['<doc><item>огт -7–</item></doc>', '<doc><item>огт -7&#8211;</item></doc>'],
+        ['<doc><title>-4...</title></doc>', '<doc><title>-4&#8230;</title></doc>'],
+        ['<doc><item>-7&#160;м</item></doc>', '<doc><item>&#8722;7&#160;м</item></doc>']
+      ],
+      { input: 'xml', entities: true, rules: { 'number.minus': true } }
+    );
+  });
   test('keeps the sentence mark after initials or a century range it writes with references', () => {
     settles(
       [
@@ -2925,9 +2948,30 @@ describe('a no-break space the engine writes back as an XML reference', () => {
   });
 });
 
-describe('a number after the dash of a year range', () => {});
+describe('a number after the dash of a year range', () => {
+  test('binds to the word after it in the pass the range gets its dash', () => {
+    settles([['начала 1991-2010 годов', 'начала 1991–2010⍽годов']], {
+      rules: { 'number.*': false }
+    });
+    settles([['код 1991-2010 годах', 'код 1991-2010 годах']], {
+      rules: { 'number.*': false }
+    });
+  });
+});
 
-describe('a hyphen before a number split into triads after it', () => {});
+describe('a hyphen before a number split into triads after it', () => {
+  test('stays a hyphen where an ellipsis follows the whole number, as before the split', () => {
+    settles(
+      [
+        ['-80235...', '-80⎵235…'],
+        ['-12345,5...', '-12⎵345,5…'],
+        ['-80235 руб', '−80⎵235⍽₽'],
+        ['-80 2357…', '−80 2357…']
+      ],
+      { rules: { 'number.minus': true } }
+    );
+  });
+});
 
 describe('native paragraph boundaries serialize in the same pass', () => {
   test('a bare inline-block tail does not acquire another break each time', () => {
@@ -3075,7 +3119,7 @@ describe('a particle behind a dash the dash group left apart', () => {
 
   test('a dash in its em form still leaves the particle alone', () => {
     settles([
-      ['слово — б тн', 'слово⍽—⍽б тн'],
+      ['слово — б тн', 'слово⍽—⍽б⍽тн'],
       ['— б тн', '—⍽б⍽тн']
     ]);
   });
@@ -3133,36 +3177,36 @@ describe('a « glued to a word end closes before the other quotes are planned', 
 describe('a particle after a straight quote standing apart', () => {
   test('the particle does not bind to a quote the quote rules left undecided', () => {
     settles([
-      ['«. " ж в', '«. " ж в'],
-      ['«а, " ли в»', '«а, " ли в»'],
+      ['«. " ж в', '«. " ж⍽в'],
+      ['«а, " ли в»', '«а, " ли⍽в»'],
       ['""" " ж \'', '««» " ж \'']
     ]);
     settles([['«, " ли"д', '«, " ли «д']], { input: 'html' });
-    settles([['а " ж в', 'а " ж в']], { rules: { quote: false } });
+    settles([['а " ж в', 'а " ж⍽в']], { rules: { quote: false } });
   });
 
   test('a particle after a quote that ends a word still binds', () => {
     settles([
-      ['«а» ж в', '«а»⍽ж в'],
-      ['а" ж в', 'а"⍽ж в']
+      ['«а» ж в', '«а»⍽ж⍽в'],
+      ['а" ж в', 'а"⍽ж⍽в']
     ]);
-    settles([['"а" ж в', '"а"⍽ж в']], { rules: { quote: false } });
+    settles([['"а" ж в', '"а"⍽ж⍽в']], { rules: { quote: false } });
   });
 });
 
 describe('an empty nested pair keeps its closing direction before what follows', () => {
   test('the pair stays an empty quotation, as its first output writes it', () => {
     settles([
-      ['""" ж сый"', '«„“⍽ж сый»'],
-      ['«„“⍽ж сый»', '«„“⍽ж сый»'],
+      ['""" ж сый"', '«„“⍽ж⍽сый»'],
+      ['«„“⍽ж сый»', '«„“⍽ж⍽сый»'],
       ['«„“слово»', '«„“слово»']
     ]);
-    settles([['„"" ж сть"', '«„“⍽ж сть»']], { input: 'html' });
+    settles([['„"" ж сть"', '«„“⍽ж⍽сть»']], { input: 'html' });
   });
 
   test('a pair outside a quotation, or with words inside, reads as its own empty or filled pair', () => {
     settles([
-      ['„“⍽ж сый', '«»⍽ж сый'],
+      ['„“⍽ж сый', '«»⍽ж⍽сый'],
       ['«„слово“ ж»', '«„слово“ ж»'],
       ['«„“ слово»', '«„“ слово»']
     ]);
@@ -3216,10 +3260,10 @@ describe('the gap after a straight quote standing apart', () => {
 describe('the т of «т. е.» after a number is no tonne', () => {
   test('an abbreviation set apart from the number stays whole', () => {
     settles([
-      ['5 т.е.', '5 т.⍽е.'],
-      ['5 т. е.', '5 т.⍽е.']
+      ['5 т.е.', '5⍽т.⍽е.'],
+      ['5 т. е.', '5⍽т.⍽е.']
     ]);
-    settles([['0 те.', '0 т.&nbsp;е.']], { entities: true });
+    settles([['0 те.', '0&nbsp;т.&nbsp;е.']], { entities: true });
   });
 
   test('a tonne after a number still binds', () => {
@@ -3233,11 +3277,11 @@ describe('the т of «т. е.» after a number is no tonne', () => {
 
 describe('initials after a number are no volts', () => {
   test('a pair of initials before a surname stays apart from the number', () => {
-    settles([['0 ВД Ко', '0 В.⍽Д.⍽Ко']], {
+    settles([['0 ВД Ко', '0⍽В.⍽Д.⍽Ко']], {
       input: 'markdown',
       rules: { 'nobr.initials_dots': '1' }
     });
-    settles([['0 В. Д. Ко', '0 В.⍽Д.⍽Ко']]);
+    settles([['0 В. Д. Ко', '0⍽В.⍽Д.⍽Ко']]);
   });
 
   test('a volt after a number still binds', () => {
@@ -3273,9 +3317,9 @@ describe('the period of an abbreviation before a question or an exclamation mark
       ['Мы и др.! Великая', 'Мы⍽и⍽др.! Великая'],
       ['Это 1999 г.? Великая', 'Это 1999⍽г.? Великая'],
       ['Это 1990-е гг.? Великая', 'Это 1990-е⍽гг.? Великая'],
-      ['Это XIX в.! Великая', 'Это XIX в.! Великая'],
+      ['Это XIX в.! Великая', 'Это XIX⍽в.! Великая'],
       ['300 г. до н. э.! Великая', '300⍽г. до⍽н.⍽э.! Великая'],
-      ['Купил 5 шт.? Великая', 'Купил 5 шт.? Великая'],
+      ['Купил 5 шт.? Великая', 'Купил 5⍽шт.? Великая'],
       ['Яблоки и т. д.!! Великая', 'Яблоки и⍽т.⍽д.! Великая']
     ]);
     settles(
@@ -3291,7 +3335,7 @@ describe('the period of an abbreviation before a question or an exclamation mark
       [
         [
           '<doc><p>Это 1999 г.? Да, XIX в.!</p></doc>',
-          '<doc><p>Это 1999&#160;г.? Да, XIX в.!</p></doc>'
+          '<doc><p>Это 1999&#160;г.? Да, XIX&#160;в.!</p></doc>'
         ]
       ],
       { input: 'xml', entities: true }
@@ -3306,6 +3350,45 @@ describe('the period of an abbreviation before a question or an exclamation mark
       ['Это И. И. Иванов.?', 'Это⍽И.⍽И.⍽Иванов.'],
       ['Он ушёл.! Великая', 'Он⍽ушёл. Великая']
     ]);
+  });
+
+  test('a currency written as its sign leaves the mark to the sentence, as the word kept it', () => {
+    settles([
+      ['Стоит 5 руб.! Великая', 'Стоит 5⍽₽! Великая'],
+      ['Стоит 5 р.?', 'Стоит 5⍽₽?'],
+      ['Стоит 5 долл.? Великая', 'Стоит 5⍽$? Великая'],
+      ['Стоит 5 руб.!! Великая', 'Стоит 5⍽₽! Великая'],
+      ['Стоит 5 руб. Великая', 'Стоит 5⍽₽. Великая'],
+      ['Продано 5 тыс. шт.! Великая', 'Продано 5⍽тыс.⍽шт.! Великая']
+    ]);
+    settles(
+      [
+        ['Стоит 5 руб.! Великая', 'Стоит 5⍽руб.! Великая'],
+        ['Стоит 5 млн руб.? Великая', 'Стоит 5⍽млн⍽руб.? Великая']
+      ],
+      { rules: { 'abbr.currency': false } }
+    );
+    settles([['Стоит 5 тыс. руб.! Великая', 'Стоит 5⍽тыс.⍽руб.! Великая']], {});
+  });
+
+  test('the mark behind an abbreviation stays where a wrapper ends inside it', () => {
+    const span = '<span style="white-space:nowrap;">';
+    settles(
+      [
+        ['Гост0г.!', `<p>${span}ГОСТ 0</span>г.!</p>`],
+        ['ГОСТ 0 г.! Великая', `<p>${span}ГОСТ 0 г</span>.! Великая</p>`],
+        ['Р.С.Пе⍽и др.! Да', `<p>${span}Р. С. Пе</span>⍽${span}и др.</span>! Да</p>`]
+      ],
+      { html: true }
+    );
+    settles([[`<p>${span}Пе и</span> др.!</p>`, `<p>${span}Пе и др</span>.!</p>`]], {
+      html: true,
+      input: 'html'
+    });
+    settles([['и пр.т.ч.!', `${span}и пр. т</span>.ч.!`]], {
+      html: true,
+      input: 'markdown'
+    });
   });
 });
 
@@ -3365,10 +3448,10 @@ describe('phone numbers one after another', () => {
 describe('a year glued to the word год right after another one', () => {
   test('the second year gets its space on the first pass too', () => {
     settles([
-      ['710год 707год', '710 год 707 год'],
-      ['в 1990году, 2000году.', 'в⍽1990 году, 2000 году.']
+      ['710год 707год', '710⍽год 707⍽год'],
+      ['в 1990году, 2000году.', 'в⍽1990⍽году, 2000⍽году.']
     ]);
-    settles([['946год 892год', '946 год 892 год']], { input: 'markdown' });
+    settles([['946год 892год', '946⍽год 892⍽год']], { input: 'markdown' });
   });
 });
 
@@ -3502,7 +3585,7 @@ describe('a gap before a comma glued to an opening quote', () => {
 
 describe('a year glued to the word год after a tab', () => {
   test('gets its space on the first pass, as after a space', () => {
-    settles([['а\t930год', 'а⍽930 год']], {
+    settles([['а\t930год', 'а⍽930⍽год']], {
       input: 'markdown',
       rules: { 'space.collapse_spaces': false }
     });
@@ -3512,9 +3595,9 @@ describe('a year glued to the word год after a tab', () => {
 describe('a number glued to the word год after a currency sign', () => {
   test('gets its space on the first pass, as behind the space that sign gets', () => {
     settles([
-      ['₽758год', '₽⍽758 год'],
-      ['$1999год', '$⍽1999 год'],
-      ['₽ 758год', '₽⍽758 год']
+      ['₽758год', '₽⍽758⍽год'],
+      ['$1999год', '$⍽1999⍽год'],
+      ['₽ 758год', '₽⍽758⍽год']
     ]);
   });
 });
@@ -3610,7 +3693,10 @@ describe('a word bound to a no-break wrapper by a no-break space', () => {
           ]
         ];
         settles(sample, config);
-        settles(sample, { ...config, rules: { 'other.strip_nbsp_in_nowrap': false } });
+        settles(
+          sample.map(([source, want]) => [source, bound(want)]),
+          { ...config, rules: { 'other.strip_nbsp_in_nowrap': false } }
+        );
       }
       settles(
         [
@@ -3687,6 +3773,40 @@ describe('a currency word behind a no-break space', () => {
       html: true,
       input: 'html'
     });
+  });
+
+  test('turns into its sign behind a run of spaces and no-break spaces, as behind two spaces', () => {
+    settles([
+      ['2 ⍽руб', '2⍽₽'],
+      ['2⍽ руб.', '2⍽₽.'],
+      ['5 ⍽€', '5⍽€'],
+      ['5 ⍽долл. США', '5⍽долл. США'],
+      ['2  руб', '2⍽₽'],
+      ['5 ⍽рубероида', '5⍽рубероида']
+    ]);
+    settles([['2 ⍽руб', '2⍽₽']]);
+  });
+
+  test('turns into its sign behind the end of an inline element the amount ends', () => {
+    const NOWRAP_CLOSE = '</span>';
+    settles(
+      [
+        ['+7-999-123-45-67⍽Р', `<p>${NOWRAP_OPEN}+7-999-123-45-67${NOWRAP_CLOSE}⍽₽</p>`],
+        ['+7-999-123-45-67 руб', `<p>${NOWRAP_OPEN}+7-999-123-45-67${NOWRAP_CLOSE}⍽₽</p>`]
+      ],
+      { html: true, input: 'html' }
+    );
+    settles(
+      [
+        ['<b>5</b> руб.', '<p><b>5</b>⍽₽.</p>'],
+        [
+          `${NOWRAP_OPEN}ГОСТ 7${NOWRAP_CLOSE} долл. США`,
+          `<p>${NOWRAP_OPEN}ГОСТ 7 долл${NOWRAP_CLOSE}. США</p>`
+        ],
+        ['<b>5 </b>руб', '<p><b>5 </b>руб</p>']
+      ],
+      { html: true, input: 'html' }
+    );
   });
 });
 
@@ -3899,14 +4019,30 @@ describe('an unmatched closer spaced on both sides behind a word', () => {
   });
 });
 
-describe('the last group of a phone number the engine groups', () => {});
+describe('the last group of a phone number the engine groups', () => {
+  test('takes no unit, currency code or prime it would not take before the grouping', () => {
+    settles(
+      [
+        ['+7(789)1118244 А', '+7⍽789⍽111-82-44 А'],
+        ['+7(788)7690929 EUR', '+7⍽788⍽769-09-29 EUR'],
+        ["+7(253)8809066'", "+7⍽253⍽880-90-66'"],
+        ['+7 789 111-82-44 А', '+7⍽789⍽111-82-44 А'],
+        ['44 А и 5 EUR', '44⍽А и⍽5⍽EUR'],
+        ["5' 10″", '5′ 10″']
+      ],
+      { input: 'plain' }
+    );
+  });
+});
 
 describe('initials a location abbreviation binds before the wrapper', () => {
-  test('stay apart by a plain space inside the wrapper when nothing strips no-break spaces', () => {
+  // Only initials before a surname are bound by `nbsp_single_initial`; with nothing to strip it, the
+  // binding stays inside the wrapper.
+  test('keep inside the wrapper only what their own rules write when nothing strips no-break spaces', () => {
     settles(
       [
         ['Ка Г.Р.', `<p>${nowrap('Ка Г. Р.')}</p>`],
-        ['Г.Р. Ка', `<p>${nowrap('Г. Р. Ка')}</p>`],
+        ['Г.Р. Ка', `<p>${nowrap('Г.⍽Р.⍽Ка')}</p>`],
         ['Ка Ш.Р.', `<p>${nowrap('Ка Ш. Р.')}</p>`],
         ['Иванов И.⍽И.', `<p>${nowrap('Иванов И. И.')}</p>`],
         ['в г. Р. жил', '<p>в г.⍽Р. жил</p>']
@@ -3918,9 +4054,64 @@ describe('initials a location abbreviation binds before the wrapper', () => {
   });
 });
 
-describe('a word glued to тыс. after a number glued to it', () => {});
+describe('a word glued to тыс. after a number glued to it', () => {
+  test('binds on the first pass in XML as in plain text', () => {
+    settles(
+      [
+        ['<doc><p>4тыс.рублей</p></doc>', '<doc><p>4⍽тыс.⍽рублей</p></doc>'],
+        ['<doc><p>4тыс.евро</p></doc>', '<doc><p>4⍽тыс.⍽евро</p></doc>'],
+        ['<doc><p>4тыс.чел.</p></doc>', '<doc><p>4⍽тыс.чел.</p></doc>']
+      ],
+      { input: 'xml' }
+    );
+    settles(
+      [
+        ['4тыс.рублей', '4⍽тыс.⍽рублей'],
+        ['4 тыс.руб.', '4⍽тыс.руб.'],
+        ['4тыс.рублевый', '4⍽тыс. рублевый']
+      ],
+      {}
+    );
+  });
 
-describe('a requisite label a no-break wrapper draws in before its number', () => {});
+  test('binds on the first pass after a number standing apart', () => {
+    settles(
+      [
+        ['8 тыс.рублей.', '8⍽тыс.⍽рублей.'],
+        ['8 тыс.евро и', '8⍽тыс.⍽евро⍽и'],
+        ['8 тыс. рублей.', '8⍽тыс.⍽рублей.'],
+        ['8 тыс.руб.', '8⍽тыс.руб.'],
+        ['8 тыс.рублейка', '8⍽тыс. рублейка']
+      ],
+      {}
+    );
+    settles([['8 тыс.рублей.', '8&nbsp;тыс.&nbsp;рублей.']], {
+      entities: true,
+      input: 'frontmatter'
+    });
+    settles([['8 тыс.рублей.', '8⍽тыс.⍽рублей.']]);
+  });
+});
+
+describe('a requisite label a no-break wrapper draws in before its number', () => {
+  test('keeps the number as typed', () => {
+    settles([['_и_ пр.индекс 41611', `${nowrap('_и_ пр. индекс')} 41611`]], {
+      html: true,
+      input: 'markdown'
+    });
+    settles([['Р.Р.**То**⍽счёт 9471112325', `${nowrap('Р. Р. **То** счёт')} 9471112325`]], {
+      html: true,
+      input: 'markdown'
+    });
+    settles(
+      [
+        ['31.01.04г⍽БИК 9209185056', `<p>${nowrap('31.01.04 г. БИК')} 9209185056</p>`],
+        ['т. е. 41611', `<p>${nowrap('т. е.')} 41⎵611</p>`]
+      ],
+      { html: true }
+    );
+  });
+});
 
 describe('the word after an abbreviated reference or an address label', () => {
   test('см. stays apart only after a number of its own, wrapped later or not', () => {
@@ -4053,7 +4244,17 @@ describe('a date with its year mark inside a no-break wrapper of the text', () =
   });
 });
 
-describe('a currency sign left with no number in front by a unit power or a fraction', () => {});
+describe('a currency sign left with no number in front by a unit power or a fraction', () => {
+  test('binds to the number after it in the same pass', () => {
+    settles([
+      ['5м2⍽€0', '5⍽м²⍽€⍽0'],
+      ['2м2 $3 и 4 $5', '2⍽м² $⍽3 и⍽4⍽$⍽5'],
+      ['А4 €5', 'А4⍽€⍽5'],
+      ['м2 €0', 'м2⍽€⍽0']
+    ]);
+    settles([['5/8рубле 5', '⅝⍽₽⍽5']]);
+  });
+});
 
 describe('a label before a number whose power a currency word was glued to', () => {
   test('binds to the number in the pass that writes the power', () => {
@@ -4110,10 +4311,10 @@ describe('an emphatic particle after a surname with initials', () => {
     settles([
       ['К.С.Бл кась П.', 'К.⍽С.⍽Бл-кась⍽П.'],
       ['А. С. Пушкин де сказал', 'А.⍽С.⍽Пушкин-де⍽сказал'],
-      ['сайт.рф де', 'сайт.рф де'],
+      ['сайт.рф де', 'сайт.рф⍽де'],
       ['К.С.Петров-Водкин', 'К.С.Петров-Водкин']
     ]);
-    settles([['К.С.Бл кась П.', `<p>${nowrap('К. С. Бл-кась')} П.</p>`]], { html: true });
+    settles([['К.С.Бл кась П.', `<p>${nowrap('К. С. Бл-кась П')}.</p>`]], { html: true });
     settles([['В.Д.То⍽ка', nowrap('В. Д. То-ка')]], { html: true, input: 'markdown' });
   });
 });
@@ -4122,10 +4323,23 @@ describe('a short word glued behind a no-break wrapper a later group writes', ()
   test('stays as it was before the wrapper', () => {
     settles(
       [
-        ['3:15-9:05с пр', `<p>${nowrap('3:15–9:05')}с пр</p>`],
+        ['3:15-9:05с пр', `<p>${nowrap('3:15–9:05')}с⍽пр</p>`],
         ['3:15-9:05 с пр', `<p>${nowrap('3:15–9:05')} с⍽пр</p>`],
         ['3:15-9:05(с пр', `<p>${nowrap('3:15–9:05')}(с⍽пр</p>`],
         ['<b>9:05</b>с пр', '<p><b>9:05</b>с⍽пр</p>']
+      ],
+      { html: true }
+    );
+  });
+});
+
+describe('an initial behind a no-break wrapper a later group writes', () => {
+  test('binds no more than it did before the wrapper', () => {
+    settles(
+      [
+        ['3:55-8:30Е. Об', `<p>${nowrap('3:55–8:30')}Е. Об</p>`],
+        ['3:55-8:30 Е.Об', `<p>${nowrap('3:55–8:30')} Е. Об</p>`],
+        ['<b>8:30</b> Е. Обер', '<p><b>8:30</b> Е. Обер</p>']
       ],
       { html: true }
     );
@@ -4143,9 +4357,45 @@ describe('the dash after a standard number', () => {
   });
 });
 
-describe('an extended arrow glued behind a no-break wrapper a later group writes', () => {});
+describe('an extended arrow glued behind a no-break wrapper a later group writes', () => {
+  test('stays as it was before the wrapper', () => {
+    const config = { html: true };
+    settles(
+      [
+        ['и пр.⍽b=> n.На', `<p>${nowrap('и пр. b')}=> n. На</p>`],
+        ['и пр. b => n', `<p>${nowrap('и пр. b')} ⇒ n</p>`],
+        ['и пр.(=> n', '<p>и⍽пр.(⇒ n</p>']
+      ],
+      config
+    );
+  });
+  test('as does a plus-minus sign', () => {
+    settles(
+      [
+        ['нэ.+/-', `<p>${nowrap('н. э.')}+/-</p>`],
+        ['нэ. +/- 5', `<p>${nowrap('н. э.')} ± 5</p>`]
+      ],
+      { html: true }
+    );
+  });
+});
 
-describe('a requisite number after a label a no-break wrapper ends inside', () => {});
+describe('a requisite number after a label a no-break wrapper ends inside', () => {
+  test('keeps its digits as typed', () => {
+    settles([['нэ.⍽р/с 3786968270', `${nowrap('н. э. р')}/с 3786968270`]], {
+      html: true,
+      input: 'frontmatter'
+    });
+    settles([['и пр.арт. 3539555.Д', `${nowrap('и пр. арт')}. 3539555. Д`]], {
+      html: true,
+      input: 'markdown'
+    });
+    settles([
+      ['р/с 3786968270', 'р/с 3786968270'],
+      ['сумма 3786968 руб', 'сумма 3⎵786⎵968⍽₽']
+    ]);
+  });
+});
 
 describe('a mark after a surname glued to its initials', () => {
   test('is spaced in the pass that parts the initials', () => {
@@ -4160,9 +4410,40 @@ describe('a mark after a surname glued to its initials', () => {
   });
 });
 
-describe('initials with a run of gaps between them', () => {});
+describe('initials with a run of gaps between them', () => {
+  test('are read as with one gap', () => {
+    settles([
+      ['д П.⍽⍽Н.Пг', 'д П.⍽Н.⍽Пг'],
+      ['Петров П.⍽⍽Н.', 'Петров⍽П.⍽Н.'],
+      ['П.⍽⍽Н. Гост 5', 'П.⍽Н.⍽Гост 5'],
+      ['Т.⍽⍽И.Дя :a', 'Т.⍽И.⍽Дя: a']
+    ]);
+    settles([['д П.⍽⍽Н.Пг', `<p>д ${nowrap('П. Н. Пг')}</p>`]], {
+      html: true
+    });
+  });
+});
 
-describe('a number after a comma a paragraph start parts', () => {});
+describe('a number after a comma a paragraph start parts', () => {
+  test('binds to the word that ends the paragraph or the line in the same pass', () => {
+    settles(
+      [
+        [',5 ы', '<p>, 5⍽ы</p>'],
+        [',5 у', '<p>, 5 у</p>'],
+        ['ГОСТ6,4 и Э', `<p>${nowrap('ГОСТ 6')}, 4⍽и⍽Э</p>`]
+      ],
+      { html: true, input: 'html' }
+    );
+    settles([[',5 ы\nб', '<p>, 5⍽ы<br>\nб</p>']], { html: true });
+    settles(
+      [
+        [',5 ы', ',5 ы'],
+        ['это 6,4 кг и 5 ы', 'это 6,4⍽кг и⍽5⍽ы']
+      ],
+      {}
+    );
+  });
+});
 
 describe('a digit run with two more dotted groups after it', () => {
   test('is a dotted identifier the triads leave whole', () => {
@@ -4192,7 +4473,22 @@ describe('a gap before marks that end in a comma glued to the next word', () => 
   });
 });
 
-describe('an abbreviation glued to the second of the initials a surname parts', () => {});
+describe('an abbreviation glued to the second of the initials a surname parts', () => {
+  test('is bound in the pass that parts the initials, as after spaced ones', () => {
+    const config = {};
+    settles(
+      [
+        ['За М.Т. н.', 'За⍽М.⍽Т.⍽н.'],
+        ['За М. Т. н.', 'За⍽М.⍽Т.⍽н.'],
+        ['Петров М.Т. к. он', 'Петров⍽М.⍽Т.⍽к. он'],
+        ['М.Т. н.', 'М.Т. н.']
+      ],
+      config
+    );
+    settles([['За М.Т. н.', 'За⍽М.⍽Т.⍽н.']], { ...config, input: 'html' });
+    settles([['За М.Т. н.', `<p>${nowrap('За М. Т.')} н.</p>`]], { ...config, html: true });
+  });
+});
 
 describe('the mark after initials a no-break wrapper ends beside or inside', () => {
   test('is the sentence mark the initials keep', () => {
@@ -4209,9 +4505,102 @@ describe('the mark after initials a no-break wrapper ends beside or inside', () 
   });
 });
 
-describe('the last word of a paragraph the author left open', () => {});
+describe('the last word of a paragraph the author left open', () => {
+  test('is bound before the blank line the next paragraph starts behind', () => {
+    const config = { html: true, input: 'html' };
+    settles(
+      [
+        ['й м\n<p>', '<p>й⍽м\n\n<p></p>'],
+        ['это слово м\n<p>а', '<p>это слово⍽м\n\n<p>а</p>'],
+        ['й м\n<p>а</p>', '<p>й⍽м</p>\n\n<p>а</p>']
+      ],
+      config
+    );
+    settles([['й м\nа б', '<p>й м<br>\nа⍽б</p>']], { html: true });
+  });
 
-describe('a fraction before a prime written back as a reference', () => {});
+  test('is bound before a line break a block tag stands behind, as before the tag itself', () => {
+    const config = { html: true, input: 'html' };
+    settles(
+      [
+        ['й т\n</div>', '<p>й⍽т\n\n</div></p>'],
+        ['<div>й т\n</div>', '<div>й⍽т\n</div>'],
+        ['<div>й т</div>', '<div>й⍽т</div>'],
+        ['й т\n<b>а</b>', '<p>й т<br>\n<b>а</b></p>']
+      ],
+      config
+    );
+    settles([['а м\n<h6>', 'а⍽м\n\n<h6>']], { ...config, render: { paragraphs: false } });
+  });
+
+  test('is bound at the end of a Markdown heading a paragraph follows, as before a blank line', () => {
+    const config = {
+      html: true,
+      input: 'markdown',
+      render: { paragraphs: true }
+    };
+    settles(
+      [
+        ['# о р\nК', '# о⍽р\n<p>К</p>'],
+        ['# о р\n\nК', '# о⍽р\n\n<p>К</p>'],
+        ['текст о р\nК', '<p>текст о р\nК</p>']
+      ],
+      config
+    );
+    settles([['# л О\na', '# л⍽О\n<p>a</p>']], { ...config, input: 'frontmatter' });
+  });
+
+  test('is bound behind the wrapper the engine writes round the word before it', () => {
+    const config = { html: true, input: 'markdown' };
+    settles(
+      [
+        ['Вот АМ к', nowrap('Вот АМ к')],
+        ['Поди.\n\nВот АМ к\n\n-До', `Поди.\n\n${nowrap('Вот АМ к')}\n\n-До`],
+        ['Поди.\n\n_[Вот](/x) АМ к_', 'Поди.\n\n_[Вот](/x)⍽АМ⍽к_']
+      ],
+      config
+    );
+    settles([['Вот АМ к.', `<p>${nowrap('Вот АМ к')}.</p>`]], {
+      html: true
+    });
+    settles([['Вот АМ к', `<p>${nowrap('Вот АМ')}⍽к</p>`]], {
+      html: true,
+      rules: { 'other.strip_nbsp_in_nowrap': false }
+    });
+    settles([['Пишет Иванов Н. С. мне', `<p>Пишет ${nowrap('Иванов Н. С.')} мне</p>`]], {
+      html: true
+    });
+  });
+
+  test('is taken into that wrapper where only the paragraph the engine lays out ends it', () => {
+    const config = { html: true, input: 'html' };
+    settles([['Р.Р.Тн одно<!--', `<p>${nowrap('Р. Р. Тн одно')}</p><!--`]], config);
+    settles([['Р.Р.Тн одно<!--', `<p>${nowrap('Р.⍽Р.⍽Тн⍽одно')}</p><!--`]], {
+      ...config,
+      rules: { 'other.nbsp_in_nowrap': true }
+    });
+    settles([['Р.Р.Тн одно<!--', `<p>${nowrap('Р.⍽Р.⍽Тн')}⍽одно</p><!--`]], {
+      ...config,
+      rules: { 'other.strip_nbsp_in_nowrap': false }
+    });
+  });
+});
+
+describe('a fraction before a prime written back as a reference', () => {
+  test('stays as typed, as before the prime itself', () => {
+    const config = { entities: true, input: 'xml' };
+    settles(
+      [
+        ['<doc><p>7/8»</p><item></item></doc>', '<doc><p>7/8&#8243;</p><item></item></doc>'],
+        ['<doc><p>7/8&#8243;</p></doc>', '<doc><p>7/8&#8243;</p></doc>'],
+        ['<doc><p>7/8&amp;</p></doc>', '<doc><p>&#8542;&amp;</p></doc>'],
+        ['<doc><p>7/8 дюйма</p></doc>', '<doc><p>&#8542;&#160;дюйма</p></doc>']
+      ],
+      config
+    );
+    settles([['7/8»', '7/8″']]);
+  });
+});
 
 describe('an emphatic particle behind an opening quote or bracket', () => {
   test('binds the next word on the first pass, as it does after a space', () => {
@@ -4242,7 +4631,7 @@ describe('a hyphenated word behind an opening bracket or quote', () => {
   test('is kept from breaking on the first pass, as it is after a space', () => {
     settles(
       [
-        ['(кто-то т', `<p>(${nowrap('кто-то')} т</p>`],
+        ['(кто-то т', `<p>(${nowrap('кто-то т')}</p>`],
         ['„где-то, и', `<p>«${nowrap('где-то')}, и</p>`],
         ['а-б-в-г т', '<p>а-б-в-г т</p>']
       ],
@@ -4250,8 +4639,8 @@ describe('a hyphenated word behind an opening bracket or quote', () => {
     );
     settles(
       [
-        ['(г-о т', `<p><span style="margin-left:-0.3em;">(</span>${nowrap('г-о')} т</p>`],
-        ['"кто-то т"', `<p><span style="margin-left:-0.44em;">«</span>${nowrap('кто-то')} т»</p>`]
+        ['(г-о т', `<p><span style="margin-left:-0.3em;">(</span>${nowrap('г-о т')}</p>`],
+        ['"кто-то т"', `<p><span style="margin-left:-0.44em;">«</span>${nowrap('кто-то т')}»</p>`]
       ],
       {
         html: true,
@@ -4284,7 +4673,7 @@ describe('an emphatic particle before the end of a no-break wrapper', () => {
       [
         ['24.06.27г⍽т⍽де`', `<p>${nowrap('24.06.27 г. т де')}\`</p>`],
         [`${nowrap('т де')}\``, `<p>${nowrap('т де')}\`</p>`],
-        [`${nowrap('т де')} и`, `<p>${nowrap('т-де')} и</p>`],
+        [`${nowrap('т де')} и`, `<p>${nowrap('т-де и')}</p>`],
         ['24.06.27г т де.', `<p>${nowrap('24.06.27 г.')} т-де.</p>`],
         ['<b>т де</b>`', '<p><b>т⍽де</b>`</p>']
       ],
@@ -4310,7 +4699,7 @@ describe('initials without periods behind a run of spaces', () => {
     });
     settles([
       ['Фа Ж Е', 'Фа⍽Ж⍽Е'],
-      ['Фа\n\nЖ Е', 'Фа\n\nЖ Е']
+      ['Фа\n\nЖ Е', 'Фа\n\nЖ⍽Е']
     ]);
   });
 
@@ -4368,7 +4757,20 @@ describe('a postal index before its city behind a no-break space written as a re
   });
 });
 
-describe('a negative number after the end of a block', () => {});
+describe('a negative number after the end of a block', () => {
+  test('gets its minus in the pass that starts its paragraph', () => {
+    settles(
+      [
+        ['<pre></pre>-9', '<pre></pre>\n\n<p>−9</p>'],
+        ['<p>а</p>-9', '<p>а</p>\n\n<p>−9</p>'],
+        ['<p>а</p> -9', '<p>а</p>\n\n<p>−9</p>'],
+        ['<p>а</p>-9-5', '<p>а</p>\n\n<p>-9-5</p>'],
+        ['<b>а</b>-9', '<p><b>а</b>-9</p>']
+      ],
+      { html: true }
+    );
+  });
+});
 
 describe('a temperature behind the end of a date wrapper', () => {
   test('binds only where the number would start before the wrapper was written', () => {
@@ -4384,7 +4786,17 @@ describe('a temperature behind the end of a date wrapper', () => {
   });
 });
 
-describe('a year glued to the period of an abbreviation', () => {});
+describe('a year glued to the period of an abbreviation', () => {
+  test('is parted from its word in the pass that binds the abbreviation', () => {
+    settles([['пр.917год', 'пр.⍽917⍽год']]);
+    settles([['{"":"пр.917год"}', '{"":"пр.⍽917⍽год"}']], { input: 'json' });
+    settles([
+      ['пр.917год', 'пр.⍽917⍽год'],
+      ['т.1917годом', 'т.1917 годом'],
+      ['1.917год', '1.917год']
+    ]);
+  });
+});
 
 describe('a capital year mark closing a period', () => {
   test('is no initial: the house number after it binds in the same pass', () => {
@@ -4397,7 +4809,16 @@ describe('a capital year mark closing a period', () => {
   });
 });
 
-describe('a city after a postal index behind a run of gaps', () => {});
+describe('a city after a postal index behind a run of gaps', () => {
+  test('binds as behind one space', () => {
+    settles([['036623 ⍽г.К', '036623⍽г.⍽К']], { input: 'markdown' });
+    settles([
+      ['036623 ⍽г.К', '036623⍽г.⍽К'],
+      ['036623 г. Москва', '036623⍽г.⍽Москва'],
+      ['123 ⍽г. Москва', '123⍽г. Москва']
+    ]);
+  });
+});
 
 describe('a wrapper a rule writes round the whole text of an element inside a no-break wrapper', () => {
   test('gives way to no-break spaces, as outside the wrapper: the wrappers do not grow', () => {
@@ -4424,7 +4845,7 @@ describe('an address bound behind a date wrapper', () => {
       [
         [
           '07.05.1989  г https://sub.domain.co.uk/?b=2\n15.11.17 7 293 и',
-          `<p>${nowrap('07.05.1989 г.')}⍽https://sub.domain.co.uk/?b=2<br>\n${nowrap('15.11.17')} 7⎵293 и</p>`
+          `<p>${nowrap('07.05.1989 г.')}⍽https://sub.domain.co.uk/?b=2<br>\n${nowrap('15.11.17')} 7⎵293⍽и</p>`
         ]
       ],
       { html: true, input: 'html', render: { autolink: false } }
@@ -4515,5 +4936,142 @@ describe('a word a no-break space glues to a no-break wrapper', () => {
       input: 'markdown',
       rules: { 'space.collapse_spaces': false }
     });
+  });
+});
+
+describe('a number before a word a no-break wrapper starts', () => {
+  const next = { html: true };
+
+  test('binds to it on the first pass, as to the word written without the wrapper', () => {
+    settles(
+      [
+        ['Их 2 ВД Кй к д.', `<p>Их⍽2⍽${nowrap('ВД Кй')} к⍽д.</p>`],
+        ['Их 2 т. е. к д.', `<p>Их⍽2⍽${nowrap('т. е.')} к⍽д.</p>`]
+      ],
+      next
+    );
+    settles([['Их 2 <b>ВД Кй</b> к д.', '<p>Их⍽2⍽<b>ВД⍽Кй</b> к⍽д.</p>']], {
+      ...next,
+      input: 'html'
+    });
+    settles([['Их 2 ВД Кй к д.', 'Их⍽2⍽ВД⍽Кй к⍽д.']]);
+  });
+
+  test('stays apart where the wrapper starts with what the number does not bind to', () => {
+    settles(
+      [
+        ['Их 2 +7 999 123-45-67 к д.', `<p>Их⍽2 ${nowrap('+7 999 123-45-67')} к⍽д.</p>`],
+        ['Их 2 у ВД Кй к д.', `<p>Их⍽2 ${nowrap('у ВД Кй')} к⍽д.</p>`]
+      ],
+      next
+    );
+  });
+
+  test('stays apart from an element the author left open, in output without markup as with it', () => {
+    for (const input of ['html', 'markdown', 'frontmatter']) {
+      settles([['0 <b>в', '0 <b>в']], { input });
+    }
+    settles([['{"a":"5 <s>б"}', '{"a":"5 <s>б"}']], { input: 'json' });
+    settles([['0 <b>в', '<p>0 <b>в</p>']], { ...next, input: 'html' });
+  });
+});
+
+describe('a rule the engine reruns after the no-break wrappers are settled', () => {
+  const next = { html: true, input: 'html' };
+
+  test('leaves a plain space inside a wrapper, as the wrappers settle it', () => {
+    settles(
+      [
+        [`${nowrap('5 лет назад')} ключик`, `<p>${nowrap('5 лет назад')} ключик</p>`],
+        [`${nowrap('5 лет назад')} ключ`, `<p>${nowrap('5 лет назад ключ')}</p>`],
+        [`${nowrap('1979 г. до н. э.')} ключ`, `<p>${nowrap('1979 г. до н. э.')} ключ</p>`]
+      ],
+      next
+    );
+    settles([['<p>С 4-26 ноября было</p>', `<p>${nowrap('С 4—26 ноября было')}</p>`]], {
+      ...next,
+      rules: { 'date.*': true }
+    });
+    settles(
+      [['Мы Запомнить 5-17 марта кто пришли.', `Мы⍽Запомнить ${nowrap('5—17 марта')} кто пришли.`]],
+      { html: true, input: 'markdown', rules: { 'date.*': true } }
+    );
+    settles([['<nobr>5 лет назад</nobr> ключ', '<p><nobr>5 лет назад ключ</nobr></p>']], {
+      ...next,
+      render: { nowrap: 'nobr' }
+    });
+  });
+
+  test('keeps its no-break space where the wrappers keep theirs', () => {
+    settles([[`${nowrap('5 лет назад')} ключ`, `<p>${nowrap('5⍽лет назад')}⍽ключ</p>`]], {
+      ...next,
+      rules: { 'other.strip_nbsp_in_nowrap': false }
+    });
+    settles([[`${nowrap('5 лет назад')} ключ`, `<p>${nowrap('5⍽лет⍽назад⍽ключ')}</p>`]], {
+      ...next,
+      rules: { 'other.nbsp_in_nowrap': true }
+    });
+  });
+});
+
+const wrappersIn = (text) => text.split('<span style="white-space:nowrap;">').length - 1;
+
+describe("a phrase inside the engine's wrapper gets no wrapper of its own", () => {
+  const NOWRAP = '<span style="white-space:nowrap;">';
+  const PHRASES = [
+    'т. к.',
+    'т.н.',
+    'и др.',
+    'и пр.',
+    'ГОСТ 5773-90',
+    '+7 (999) 123 45 67',
+    '8-800-555-35-35',
+    '+7-999-123-45-67'
+  ];
+  const RULES = { 'abbr.nowrap_because': true, 'other.drop_nested_nowrap': false };
+
+  for (const [name, rules] of [
+    ['nested wrappers kept', RULES],
+    ['nested wrappers kept, spaces in a wrapper bound', { ...RULES, 'other.nbsp_in_nowrap': true }]
+  ]) {
+    test(`a word bound to the phrase joins its wrapper and the next passes add none: ${name}`, () => {
+      for (const body of PHRASES) {
+        for (const text of [`а\u{00A0}${body} было`, `<p>а\u{00A0}${body}</p>`]) {
+          const typo = new MicroTypo({ html: true, input: 'html', rules });
+          const once = typo.process(text);
+          const twice = typo.process(once);
+
+          assert.equal(wrappersIn(once), 1, `${text} → ${once}`);
+          assert.equal(twice, once, text);
+          assert.equal(typo.process(twice), twice, text);
+        }
+      }
+    });
+  }
+
+  test('initials after an element inside a wrapper stay in that wrapper', () => {
+    const typo = new MicroTypo({
+      html: true,
+      input: 'html',
+      rules: {
+        'nobr.nowrap_initials': true,
+        'other.drop_nested_nowrap': false,
+        'other.nbsp_in_nowrap': true
+      }
+    });
+    const once = typo.process(`<p>${NOWRAP}О <strong>Тй</strong> А. С. Пушкин слово</span></p>`);
+
+    assert.equal(wrappersIn(once), 1, once);
+    assert.equal(typo.process(once), once);
+  });
+
+  test('the same phrases outside a wrapper get one each', () => {
+    for (const body of PHRASES) {
+      const typo = new MicroTypo({ html: true, input: 'html', rules: RULES });
+      const once = typo.process(`<p>Было ${body} и было</p>`);
+
+      assert.equal(wrappersIn(once), 1, `${body} → ${once}`);
+      assert.equal(typo.process(once), once, body);
+    }
   });
 });

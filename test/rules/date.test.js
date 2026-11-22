@@ -76,9 +76,8 @@ test('a day range reads its dash and month separator in each output spelling', (
         assert.equal(typo.process(document(range)), expected);
       }
       assert.equal(typo.process(expected), expected);
-      assert.equal(typo.process(document('6-8 яблок')), document(`6${en}8 яблок`));
-      const monthGap = input === 'text' ? gap : ' ';
-      assert.equal(number.process(document('6-8 декабря')), document(`6${en}8${monthGap}декабря`));
+      assert.equal(typo.process(document('6-8 яблок')), document(`6${en}8${gap}яблок`));
+      assert.equal(number.process(document('6-8 декабря')), document(`6${en}8${gap}декабря`));
       const result = typo.process(document('6-8 декабря'), { trace: true });
       assert.equal(result.text, expected);
       assert.equal(result.trace.find(({ rule }) => rule === 'date.nowrap_day_range').count, 1);
@@ -142,8 +141,8 @@ describe('г. after a year or a date is the year (A10)', () => {
 
   test('six digits before г. and a capitalised name are a postal index, and г. its city', () => {
     for (const [source, expected] of [
-      ['125009 г. Москва, ул. Ленина', `125009 г.${NBSP}Москва, ул.${NBSP}Ленина`],
-      ['индекс 125009 г. Москва', `индекс 125009 г.${NBSP}Москва`]
+      ['125009 г. Москва, ул. Ленина', `125009${NBSP}г.${NBSP}Москва, ул.${NBSP}Ленина`],
+      ['индекс 125009 г. Москва', `индекс 125009${NBSP}г.${NBSP}Москва`]
     ]) {
       const once = microtypo(source);
 
@@ -154,7 +153,7 @@ describe('г. after a year or a date is the year (A10)', () => {
 
   test('a comma after the index, a glued г, a lowercase word and any other number read as before', () => {
     assert.equal(microtypo('125009, г. Москва'), `125\u{202F}009, г.${NBSP}Москва`);
-    assert.equal(microtypo('125009г. Москва'), `125009 г.${NBSP}Москва`);
+    assert.equal(microtypo('125009г. Москва'), `125009${NBSP}г.${NBSP}Москва`);
     assert.equal(microtypo('125009 г. москва'), `125\u{202F}009${NBSP}г. москва`);
     assert.equal(microtypo('5 г. соли'), `5${NBSP}г. соли`);
     assert.equal(microtypo('1983 г. Москва стала'), `1983${NBSP}г. Москва стала`);
@@ -175,11 +174,11 @@ describe('a date with its year mark settles in one pass', () => {
   test('a glued г is the year mark to every group', () => {
     for (const [source, expected] of [
       ['12.05.20г XX 2', `12.05.20${NBSP}г. XX${NBSP}2`],
-      ['21.10.72г.я о', `21.10.72${NBSP}г. я о`],
+      ['21.10.72г.я о', `21.10.72${NBSP}г. я${NBSP}о`],
       [`30.07.30г${NBSP}P.p.s.н`, `30.07.30${NBSP}г.${NBSP}P.${NBSP}p.${NBSP}s. н`],
       ['29.10.97г ли 2', `29.10.97${NBSP}г.${NBSP}ли 2`],
       ['02.12.01г 02.10.59г(', `02.12.01${NBSP}г. 02.10.59${NBSP}г. (`],
-      ['05.07.41г Ж. Д.Т.Чё', `05.07.41${NBSP}г.${NBSP}Ж. Д.${NBSP}Т.${NBSP}Чё`],
+      ['05.07.41г Ж. Д.Т.Чё', `05.07.41${NBSP}г.${NBSP}Ж.${NBSP}Д.${NBSP}Т.${NBSP}Чё`],
       [`08.03.89г${NBSP}.`, `08.03.89${NBSP}г.`]
     ]) {
       const once = microtypo(source);
@@ -214,6 +213,179 @@ describe('a date with its year mark settles in one pass', () => {
 });
 
 describe('date.year_range', () => {
+  test('formatting through a spaced separator settles on the first pass', () => {
+    const typo = new MicroTypo({ input: 'html' });
+    for (const [source, expected] of [
+      [
+        '«Летопись по 19<em>98 - 20</em>04 гг.».',
+        `«Летопись по${NBSP}19<em>98–20</em>04${NBSP}гг.».`
+      ],
+      [
+        '«Летопись <b>по</b> 1998 – 2004 г<em>г.</em>».',
+        `«Летопись <b>по</b>${NBSP}1998–2004${NBSP}г<em>г.</em>».`
+      ]
+    ]) {
+      assert.equal(typo.process(source), expected);
+      assert.equal(typo.process(expected), expected);
+    }
+  });
+
+  test('a run of source spaces before a split year suffix follows the bare phrase', () => {
+    const typo = new MicroTypo({ input: 'html' });
+    for (const gap of ['  ', '\t \t', '    ', NBSP.repeat(2), ` ${NBSP}\t`]) {
+      const source = `«Архив <b>по</b> 1998 - 2004${gap}г<em>г.</em>».`;
+      const expected = `«Архив <b>по</b>${NBSP}1998–2004${NBSP}г<em>г.</em>».`;
+      assert.equal(typo.process(source), expected);
+      assert.equal(typo.process(expected), expected);
+    }
+    const source = `«Архив по 1998<i>-</i>2004${NBSP.repeat(2)}гг.».`;
+    const expected = `«Архив по${NBSP}1998<i>–</i>2004${NBSP}гг.».`;
+    assert.equal(typo.process(source), expected);
+    assert.equal(typo.process(expected), expected);
+  });
+
+  test('a formatted gap obeys the enabled space and binding rules', () => {
+    const source = `«Архив по 1998 - 2004${NBSP}<b>${NBSP}</b>г<em>г.</em>».`;
+    const next = new MicroTypo({ input: 'html' });
+    const unbound = new MicroTypo({
+      input: 'html',
+      rules: { 'nobr.nbsp_after_number': false }
+    });
+    for (const [typo, expected] of [
+      [next, `«Архив по${NBSP}1998–2004${NBSP}<b></b>г<em>г.</em>».`],
+      [unbound, `«Архив по${NBSP}1998–2004${NBSP}<b>${NBSP}</b>г<em>г</em>».`]
+    ]) {
+      assert.equal(typo.process(source), expected);
+      assert.equal(typo.process(expected), expected);
+    }
+  });
+
+  test('collapsing long gaps keeps the original digits in each author element', () => {
+    const typo = new MicroTypo({ input: 'html' });
+    for (const gap of [' '.repeat(4), '\t '.repeat(8), NBSP.repeat(32)]) {
+      const record = `по${gap}19<em>98${gap}-${gap}20</em>04${gap}гг.`;
+      const linked = `по${gap}19<a href="/docs"><b>98${gap}-${gap}20</b></a><i>04</i>${gap}гг.`;
+      const source = `«Летопись ${record}». «Сведения ${linked}».`;
+      const bare = source.replaceAll(/<[^>]+>/gu, '');
+      const [first, second] = typo.process(bare).split(' «');
+      const expected = [
+        first.replace('1998–2004', '19<em>98–20</em>04'),
+        second.replace('1998–2004', '19<a href="/docs"><b>98–20</b></a><i>04</i>')
+      ].join(' «');
+      assert.equal(typo.process(source), expected);
+      assert.equal(typo.process(expected), expected);
+    }
+  });
+
+  test('a replacement dash stays inside the element that held the author’s glyph', () => {
+    const typo = new MicroTypo({ input: 'html' });
+    for (const dash of [' <i>-</i> ', '\t<i>–</i>\t', '&nbsp;<i>-</i>&nbsp;']) {
+      const source = `«Летопись по 1998${dash}2004 гг.».`;
+      const expected = `«Летопись по${NBSP}1998<i>–</i>2004${NBSP}гг.».`;
+      assert.equal(typo.process(source), expected);
+      assert.equal(typo.process(expected), expected);
+    }
+  });
+
+  test('an uncollapsed separator follows the punctuation of the same bare phrase', () => {
+    for (const [sep, rules] of [
+      [' -', {}],
+      ['- ', {}],
+      [' — ', {}],
+      [' − ', {}],
+      [' - ', { 'dash.en_range': false }]
+    ]) {
+      const typo = new MicroTypo({ input: 'html', rules: { ...rules } });
+      const source = `«Летопись <b>по</b> 1998${sep}2004 г<em>г.</em>».`;
+      const bare = `«Летопись по 1998${sep}2004 гг.».`;
+      const expected = typo.process(bare).replace('по', '<b>по</b>').replace('гг»', 'г<em>г</em>»');
+      assert.equal(typo.process(source), expected);
+      assert.equal(typo.process(expected), expected);
+    }
+  });
+
+  test('arithmetic and protected operands keep their original separators', () => {
+    const typo = new MicroTypo({ input: 'html' });
+    for (const [source, expected] of [
+      ['1998 <em>-</em> 2004 = -6', '1998 <em>-</em> 2004 = -6'],
+      ['по 1998 <em>-</em> 2004 = -6', `по${NBSP}1998 <em>-</em> 2004 = -6`],
+      ['<code>по 1998 - 2004 гг.</code>', '<code>по 1998 - 2004 гг.</code>']
+    ]) {
+      assert.equal(typo.process(source), expected);
+      assert.equal(typo.process(expected), expected);
+    }
+  });
+
+  test('a single formatted interval can start and end anywhere in a year range', () => {
+    const typo = new MicroTypo({ input: 'html' });
+    const phrase = 'по 2020–2023 гг.';
+    const written = `по${NBSP}2020–2023${NBSP}гг.`;
+    for (let from = 0; from < phrase.length; from++) {
+      for (let to = from + 1; to <= phrase.length; to++) {
+        const mark = (text) =>
+          `«Сведения ${text.slice(0, from)}<i>${text.slice(from, to)}</i>${text.slice(to)}».`;
+        const expected = mark(written);
+        assert.equal(typo.process(mark(phrase)), expected, `${from}..${to}`);
+        assert.equal(typo.process(expected), expected);
+      }
+    }
+  });
+
+  test('keeps the two letters and their single period across separate author elements', () => {
+    const typo = new MicroTypo({ input: 'html' });
+    for (const ending of ['г<em>г.</em>', 'гг<em>.</em>']) {
+      const source = `«Сведения <i>по</i> 2020–2023 ${ending}».`;
+      const expected = `«Сведения <i>по</i>${NBSP}2020–2023${NBSP}${ending}».`;
+      assert.equal(typo.process(source), expected);
+      assert.equal(typo.process(expected), expected);
+    }
+  });
+
+  test('nested formatting retains its characters when an absent gap and period are added', () => {
+    const typo = new MicroTypo({ input: 'html' });
+    const source = '«Сведения <em>по</em> 2<a href="/x"><b>020–202</b>3</a><i>гг</i>».';
+    const expected = `«Сведения <em>по</em>${NBSP}2<a href="/x"><b>020–202</b>3</a>${NBSP}<i>гг</i>.».`;
+    assert.equal(typo.process(source), expected);
+    assert.equal(typo.process(expected), expected);
+  });
+
+  test('protected content and block boundaries interrupt the expression', () => {
+    const typo = new MicroTypo({ input: 'html' });
+    for (const [source, expected] of [
+      ['«Сведения <code>по 2020–2023 гг.</code>».', '«Сведения <code>по 2020–2023 гг.</code>».'],
+      ['<p><i>по</i></p><p>2020–2023 г</p>', `<p><i>по</i></p><p>2020–2023${NBSP}г</p>`],
+      [
+        '«Сведения <i>по</i> 2020–2023 г<code>г.</code>».',
+        `«Сведения <i>по</i>${NBSP}2020–2023${NBSP}гг.<code>г.</code>».`
+      ]
+    ]) {
+      assert.equal(typo.process(source), expected);
+      assert.equal(typo.process(expected), expected);
+    }
+  });
+
+  test('a marked-up introducer binds the year suffix and keeps its own period inside a quote', () => {
+    const typo = new MicroTypo({ input: 'html' });
+    for (const [source, expected] of [
+      ['«Сведения по 2020–2023 гг.».', `«Сведения по${NBSP}2020–2023${NBSP}гг.».`],
+      [
+        '«Сведения <span>по</span> 2020–2023 гг.».',
+        `«Сведения <span>по</span>${NBSP}2020–2023${NBSP}гг.».`
+      ],
+      [
+        '&laquo;Сведения <a href="/x">по</a> 2020&ndash;2023&nbsp;гг&raquo;.',
+        `«Сведения <a href="/x">по</a>${NBSP}2020–2023${NBSP}гг.».`
+      ],
+      [
+        '«й <em><b>по</b></em> 2020–2020гг.».',
+        `«й${NBSP}<em><b>по</b></em>${NBSP}2020–2020${NBSP}гг.».`
+      ]
+    ]) {
+      assert.equal(typo.process(source), expected);
+      assert.equal(typo.process(expected), expected);
+    }
+  });
+
   test('the year range and terminal punctuation switches remain independent inside quotes', () => {
     for (const [rules, input, expected] of [
       [
@@ -288,13 +460,16 @@ describe('date.day_month_range', () => {
     // 'в' is NBSP-joined to 'Ребме' by the space group, unrelated here.
     assert.equal(
       microtypo('в Ребме собрали супер-8 камера'),
-      `в${NBSP}Ребме собрали супер-8 камера`
+      `в${NBSP}Ребме собрали супер-8${NBSP}камера`
     );
     assert.equal(microtypo('Рэндом отдал по-2'), 'Рэндом отдал по-2');
     // 'в' before 'Арденском' is NBSP-joined the same way.
-    assert.equal(microtypo('дом-5 сгорел в Арденском лесу'), `дом-5 сгорел в${NBSP}Арденском лесу`);
+    assert.equal(
+      microtypo('дом-5 сгорел в Арденском лесу'),
+      `дом-5${NBSP}сгорел в${NBSP}Арденском${NBSP}лесу`
+    );
     // 'у' is NBSP-joined to 'дороги' the same way.
-    assert.equal(microtypo('изба-7 стояла у дороги'), `изба-7 стояла у${NBSP}дороги`);
+    assert.equal(microtypo('изба-7 стояла у дороги'), `изба-7${NBSP}стояла у${NBSP}дороги`);
   });
   test('day+month range: a bare day-day range is untouched by this rule (number.en_range already converts it)', () => {
     // Left side lacks a "число месяц" run, so this rule never fires; the en-dash comes from number.en_range.

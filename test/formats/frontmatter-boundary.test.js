@@ -33,7 +33,7 @@ test('preserving the boundary allows the body to read its actual source start', 
   const header = '---\ntitle: test\n---\n';
   for (const boundary of ['\n', '\n\n', '\r\n']) {
     for (const [body, typed] of [
-      ['1997год.', '1997 год.'],
+      ['1997год.', '1997 год.'],
       ['Гост 5773-90', 'ГОСТ\u00a05773–90']
     ]) {
       const expected = header + boundary + typed;

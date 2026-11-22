@@ -41,7 +41,14 @@ import {
   quoteBoundaryGlyph
 } from './lib/character-reference.js';
 import { changedRanges, replacementEdits } from './lib/diff.js';
-import { G, unicodeToEntities, unicodeToXmlEntities } from './lib/glyphs.js';
+import {
+  G,
+  NUMERIC_REFERENCE_HEAD,
+  OPTIONAL_GLYPH_RULES,
+  decodeOptionalGlyphs,
+  unicodeToEntities,
+  unicodeToXmlEntities
+} from './lib/glyphs.js';
 import { bindInlineBoundaries } from './lib/inline-boundaries.js';
 import { fileLineStyle, restoreFileEndings, restoreFileTail } from './lib/line-endings.js';
 import { SourceMap, jsonSourceMap, representedMap } from './lib/provenance.js';
@@ -57,6 +64,7 @@ import {
   OPEN,
   PARAGRAPH_OPEN,
   PLACEHOLDER_TOKEN,
+  REFERENCE_HOLE,
   dropParagraphs,
   restoreParagraphs,
   stripReservedPua
@@ -76,6 +84,7 @@ import {
 } from './rule-runner.js';
 import { SOURCE_YEAR_RANGE_RE, YEAR_MARKS } from './rules/date.js';
 import { bindNowrapRules } from './rules/etc.js';
+import { authoredFootAt } from './rules/number.js';
 import {
   bindQuoteBlockEdges,
   bindQuoteLineBlocks,
@@ -91,6 +100,8 @@ import { markdownSources, paragraphEdgeReader } from './rules/text.js';
 import { UNSAFE_PREFIX_RE, validateConfig } from './schemas/config.js';
 
 const trimEdges = (text) => text.trim();
+
+const OPTIONAL_XML_REFERENCE_RE = new RegExp(`${NUMERIC_REFERENCE_HEAD}${REFERENCE_HOLE};`, 'gu');
 
 // MathML is foreign content in HTML, where `<math/>` closes itself as it does in XML.
 const FOREIGN_TAGS = new Set(['math']);
@@ -118,6 +129,9 @@ const DEFAULT_LAYOUT = { style: true, class: false };
 // enabled reader runs once right after that group, whose rules may be off, so it sees every such
 // boundary in the pass that creates it, as a repeated pass does.
 const DEPENDENT_READS = new Map([
+  // A minus written in place of a hyphen starts the number a spaced range reads: `-1 - 1` is then
+  // the `−1 - 1` the range was written for.
+  ['number', [['dash', 'en_range']]],
   // Trimmed gaps and stripped quote padding bring punctuation marks together; a collapsed run of
   // spaces leaves the one gap before a conjunction.
   [
@@ -129,7 +143,7 @@ const DEPENDENT_READS = new Map([
     ]
   ],
   // Units, currency and initials expose the end of an abbreviated reference, numeric notation and a
-  // new word start, `т.е.и т. д.` included, and change what stands before a dash. The word start
+  // new word start, `т.е.и т. д.` and `4г.АО к` included, and change what stands before a dash. The word start
   // `,5л.т «` gets from a unit is a short word before a quote. A unit's power and a fraction leave a
   // currency sign with no number in front, `5 м² € 0`, `⅝ ₽ 5`, so it binds to the number after it.
   [
@@ -139,10 +153,21 @@ const DEPENDENT_READS = new Map([
       ['space', 'space_after_punctuation'],
       ['space', 'nbsp_before_quote'],
       ['abbr', 'nbsp_location'],
+      ['abbr', 'nbsp_organization_extended'],
+      // `т. к.` spaced from `т.к.` ends where a weight's `т.` does, `46-72 т. к.`.
+      ['abbr', 'nbsp_weight_unit'],
+      ['number', 'fraction_extended'],
+      ['number', 'prime'],
       ['number', 'sup'],
       ['number', 'sub'],
       ['abbr', 'nbsp_short_acronym'],
       ['abbr', 'nbsp_currency_prefix'],
+      // A currency sign bound to the number after it starts that number for its own bindings,
+      // `8 ₽ 0 USD`, `8 ₽ 0 тыс. руб.`.
+      ['abbr', 'nbsp_magnitude_spaced'],
+      ['abbr', 'nbsp_count_unit'],
+      ['abbr', 'nbsp_si_unit'],
+      ['abbr', 'nbsp_currency_code'],
       // A currency prefix can replace a thin gap with the word boundary a glued year reads.
       ['space', 'space_after_year'],
       ['dash', 'emphatic_particle'],
@@ -155,6 +180,7 @@ const DEPENDENT_READS = new Map([
   [
     'nobr',
     [
+      ['abbr', 'nowrap_because'],
       ['punctuation', 'comma_before_conjunction'],
       ['nobr', 'nbsp_short_word']
     ]
@@ -174,7 +200,13 @@ const DEPENDENT_READS = new Map([
   // A wrapper's end or a paragraph's start before a comma is neither a decimal digit nor the start
   // of the text; the number after the comma it parts is no decimal part either, `ГОСТ 6</span>, 4 и`.
   // The dash of a year range starts a number bound to the word after it.
-  ['text', [['space', 'space_after_comma']]]
+  [
+    'text',
+    [
+      ['space', 'space_after_comma'],
+      ['nobr', 'nbsp_after_number']
+    ]
+  ]
 ]);
 
 const BOM = '\u{FEFF}';
@@ -1267,7 +1299,7 @@ export class MicroTypo {
         trace: null
       }
     );
-    return this.#entities ? unicodeToEntities(typeset) : typeset;
+    return this.#entities ? unicodeToEntities(typeset, this.#optionalGlyphs()) : typeset;
   }
 
   #typesetWithWorker(
@@ -1310,6 +1342,19 @@ export class MicroTypo {
         bindRuleTrace(state.ctx, ruleTrace);
       }
     }
+  }
+
+  #optionalGlyphs() {
+    let optionalGlyphs = null;
+    for (const [name, id, glyphs] of OPTIONAL_GLYPH_RULES) {
+      if (this.#builtinRuleOn(name, id)) {
+        optionalGlyphs ??= new Set();
+        for (const glyph of glyphs) {
+          optionalGlyphs.add(glyph);
+        }
+      }
+    }
+    return optionalGlyphs;
   }
 
   #attributeWorker(session, checkBudget, format = 'plain') {
@@ -1481,6 +1526,14 @@ export class MicroTypo {
       result = prepareAuthoredQuotes(result, session.ctx, isRuleOn(quote, 'close'), readsInches);
     }
     result = canonicalQuoteRoles(result, quoteTags, checkBudget, session.ctx, nested);
+    const optionalGlyphs = this.#optionalGlyphs();
+    if (optionalGlyphs !== null) {
+      result = decodeOptionalGlyphs(
+        result,
+        optionalGlyphs,
+        destination === 'xml' ? OPTIONAL_XML_REFERENCE_RE : undefined
+      );
+    }
     checkBudget('clearSpecialChars');
 
     if (sourceTrim !== undefined) {
@@ -1500,6 +1553,13 @@ export class MicroTypo {
 
     if (this.#builtinRuleOn('date', 'nowrap_date')) {
       result = session.runStep(this.#groups.get('date'), YEAR_MARKS, result);
+    }
+
+    const phoneStep = effHtml ? this.#builtinRule('nobr', 'nowrap_phone_extended') : null;
+    if (phoneStep !== null) {
+      // Organization binding reads generated wrappers as names. Make the optional phone wrapper
+      // visible before abbr, as it is on a repeated pass; the normal rule then leaves it whole.
+      result = session.runStep(this.#groups.get('nobr'), phoneStep, result);
     }
 
     const etc = this.#groups.get('other');
@@ -1553,13 +1613,24 @@ export class MicroTypo {
       result = this.#safeBlocks.settleIndents(result);
     }
 
+    // Units can expose a document number; text settles paragraph markers and protected tails.
+    for (const [name, id] of [
+      ['abbr', 'nbsp_part'],
+      ['nobr', 'nbsp_last_word']
+    ]) {
+      const step = this.#builtinRule(name, id);
+      if (step !== null) {
+        result = reread(this.#groups.get(name), step, result);
+      }
+    }
+
     // Entity-encoding runs before restore, on rule-produced glyphs only: vault placeholders are
     // opaque, so restored bodies are not re-encoded.
     if (this.#entities) {
       if (destination === 'xml') {
-        result = unicodeToXmlEntities(result);
+        result = unicodeToXmlEntities(result, optionalGlyphs);
       } else if (destination === 'html') {
-        result = unicodeToEntities(result);
+        result = unicodeToEntities(result, optionalGlyphs);
       }
       // destination === 'data-value': suppressed — structured values stay raw Unicode.
     }
@@ -1807,7 +1878,8 @@ export class MicroTypo {
       (rule) => builtinRuleOn('quote', rule),
       BLOCK_RENDER_FORMATS.has(self.#input.format)
         ? (text, at) => self.#safeBlocks.labelAddressBefore(text, at)
-        : null
+        : null,
+      (text, at, visit) => builtinRuleOn('number', 'prime') && authoredFootAt(text, at, visit)
     );
     bindNowrapRules(ctx, builtinRuleOn);
     bindReferenceGlyph(
@@ -1869,7 +1941,11 @@ export class MicroTypo {
           ? {
               markdown,
               yearRange,
-              collapsesSpaces: () => spaceRuleOn('collapse_spaces'),
+              yearGapRules: () => ({
+                range: builtinRuleOn('number', 'en_range'),
+                collapse: spaceRuleOn('collapse_spaces'),
+                bind: builtinRuleOn('nobr', 'nbsp_after_number')
+              }),
               nameOf: (prefix, id) => self.#safeTags.nameOf(prefix, id),
               rawOf: (prefix, id) => self.#safeTags.rawOf(prefix, id),
               restoreSequences: (s) => self.#safeSequences.restore(s),

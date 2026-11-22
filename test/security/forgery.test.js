@@ -608,7 +608,8 @@ describe('custom-group forgery', () => {
       );
 
       const out = typo.process('Корвин помнит Амбер\n\nДворкин чертит Узор');
-      const title = out.match(/title="([^"]*)"/u)?.[1];
+      // Each paragraph binds its last word; the no-break space is not what this test is about.
+      const title = out.match(/title="([^"]*)"/u)?.[1].replaceAll(' ', ' ');
 
       assert.ok(title?.includes('Корвин помнит Амбер'), out);
       assert.ok(title?.includes('Дворкин чертит Узор'), out);

@@ -41,6 +41,38 @@ const HTML = { input: 'html', html: false };
 const WRAPPERS = { input: 'html', html: true };
 const MARKDOWN = { input: 'markdown', html: false };
 
+test('the added rules stay linear on long numeric, word and gap near misses', () => {
+  const config = {};
+  assertLinear('long word', config, (n) => `${'я'.repeat(n)} домx`, 8000);
+  assertLinear('long number', config, (n) => `${'9'.repeat(n)} кВт·x`, 8000);
+  assertLinear('signed gap', config, (n) => `Температура${' '.repeat(n)}x`, 8000);
+  assertLinear('fraction references', { ...config, entities: true }, (n) => '&#8542;. '.repeat(n));
+  assertLinear(
+    'nowrap chain near miss',
+    { ...config, html: true },
+    (n) => `+7-999-123-45-67${'\u{00A0}слово'.repeat(n)} конец`,
+    2000
+  );
+  assertLinear(
+    'mixed alphabet nowrap chain',
+    { ...config, html: true },
+    (n) => `и пр.${'\u{00A0}WoRd\u{00A0}слово'.repeat(n)}\u{00A0}КАК\u{00A0}ТО:`,
+    2000
+  );
+  assertLinear(
+    'colon phrase gap near miss',
+    { ...config, html: true },
+    (n) => `+7-999-123-45-67\u{00A0}почему${'\u{00A0}'.repeat(n)}тоx:`,
+    8000
+  );
+  assertLinear(
+    'inline bindings',
+    { ...config, html: true },
+    (n) => '12 <em>человек</em>, 5 <i>кВт</i>; проф. <b>Иванов</b>. '.repeat(n),
+    500
+  );
+});
+
 test('each word in a tag of its own', () => {
   assertLinear('words in tags', HTML, (n) => `<p>${'<em>слово</em> в '.repeat(n)}доме</p>`);
   assertLinear(

@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 
 import { buildBrowser } from '../../scripts/build-browser.mjs';
 import * as main from '../../src/index.js';
+import { ADDED_RULE_PROSE } from '../tools/fuzz/grammar.mjs';
 
 let dir;
 let bundle;
@@ -92,6 +93,19 @@ test('the bundle executes JSON data rules and exposes reconstructing edits and o
     result,
     new main.MicroTypo(config).process(input, { trace: true, edits: true, changes: true })
   );
+});
+
+test('the bundle typesets the added rules and their references in every output mode', () => {
+  for (const [, text] of ADDED_RULE_PROSE) {
+    for (const html of [false, true]) {
+      for (const entities of [false, true]) {
+        const config = { html, entities };
+        const expected = main.microtypo(text, config);
+        assert.equal(bundle.microtypo(text, config), expected);
+        assert.equal(bundle.microtypo(expected, config), main.microtypo(expected, config));
+      }
+    }
+  }
 });
 
 test('the bundle typesets every format and option as the sources do', async () => {

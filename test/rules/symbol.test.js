@@ -43,7 +43,7 @@ describe('symbol.copyright — only the copyright mark', () => {
   test('(c) before a year or a capitalised word, or after Copyright, becomes ©', () => {
     for (const [src, want] of [
       ['Amber (c) 2024', `Amber ©${NBSP}2024`],
-      ['(c) 2024 Амбер', `©${NBSP}2024 Амбер`],
+      ['(c) 2024 Амбер', `©${NBSP}2024${NBSP}Амбер`],
       ['(c) Амбер', `©${NBSP}Амбер`],
       ['Copyright (c) Амбер', `Copyright ©${NBSP}Амбер`],
       ['copyright (c) amber', `copyright ©${NBSP}amber`],
@@ -245,10 +245,22 @@ describe('symbol.registered — adjacency', () => {
   });
 });
 
-describe('two-way arrows and comparisons stay as typed', () => {
-  test('<->, <=> and <== are not half-converted', () => {
+describe('two-way arrows and comparisons convert whole or stay as typed', () => {
+  test('<->, <=> and => convert whole, <== and <--> stay as typed', () => {
+    for (const [src, want] of [
+      ['a <-> b', 'a ↔ b'],
+      ['a <=> b', 'a ⇔ b'],
+      ['a => b', 'a ⇒ b'],
+      ['a <== b', 'a <== b'],
+      ['a <--> b', 'a <--> b']
+    ]) {
+      assert.equal(microtypo(src), want);
+    }
+  });
+
+  test('with the extended arrows off, they are not half-converted', () => {
     for (const src of ['a <-> b', 'a <=> b', 'a <== b', 'a => b', 'a <--> b']) {
-      assert.equal(microtypo(src), src);
+      assert.equal(microtypo(src, { rules: { 'symbol.arrows_extended': false } }), src);
     }
   });
 

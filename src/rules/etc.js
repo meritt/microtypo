@@ -18,10 +18,17 @@ import { ruleBudgetOf } from '../lib/rule-budget.js';
 import { F } from '../lib/rule-features.js';
 import { sessionMap } from '../lib/session-maps.js';
 import { cycle } from '../lib/strings.js';
-import { CLOSE, OPEN, TRANSPARENT_TAG_KINDS, vaultedReference } from '../protect/placeholders.js';
+import {
+  CLOSE,
+  INLINE_END,
+  OPEN,
+  TRANSPARENT_TAG_KINDS,
+  tagTokens,
+  vaultedReference
+} from '../protect/placeholders.js';
 // Keyed on the full sample, placeholder id and all: a stripped key would reuse a stale regex from
 // another `process()` call.
-import { CITY_GAP } from './abbr.js';
+import { LINE_GAP } from './dash.js';
 import { phoneContextAt, joinedNumericToken } from './number.js';
 
 const compileCache = new Map();
@@ -113,9 +120,8 @@ const ADDRESS_GAP = `(?:[^\\S\\r\\n]|${vaultedReference(G.NBSP)}|${vaultedRefere
 const IDENTIFIER_LABEL = String.raw`(?<![\p{L}\d])(?:ИНН|КПП|ОГРНИП|ОГРН|БИК|СНИЛС|ОКПО|[Сс]ч[её]т|[Рр]\/с|[Кк]\/с|[Ии]ндекс|[Кк]од|[Аа]рт\.)`;
 // `strip_nbsp_in_nowrap` draws only the letters of a label into the wrapper before it, so the end of
 // that wrapper stands inside the label: `н. э. р</span>/с 3786968270`, `и пр. арт</span>. 3539555`.
-const WRAPPER_END = String.raw`<\/${OPEN}[${TRANSPARENT_TAG_KINDS}]\d{1,9}${CLOSE}>`;
 const LABEL_SPLIT_BY_WRAPPER_RE = new RegExp(
-  String.raw`(?<![\p{L}\d])(?:[РрКк]${WRAPPER_END}\/с|[Аа]рт${WRAPPER_END}\.):?${WRITTEN_GAP}{0,2}$`,
+  String.raw`(?<![\p{L}\d])(?:[РрКк]${INLINE_END}\/с|[Аа]рт${INLINE_END}\.):?${WRITTEN_GAP}{0,2}$`,
   'u'
 );
 const DOTTED_SEGMENTS_AHEAD_RE = /\d+\.\d/y;
@@ -188,6 +194,48 @@ function wrapperCloses(text, c, tokens) {
   }
 
   return closes;
+}
+
+function wrapperTokens(ctx, c) {
+  const spans = spanTokenSet(ctx);
+  return spans.has(c.close.slice(2, -1))
+    ? spans
+    : new Set(tagTokens(ctx.tags, 'nobr'));
+}
+
+// Each outermost wrapper, its tags included, through `edit`. It ends at the close `wrapperCloses`
+// reads as its own, not at an author's `</span>` inside it, `<span>и</span> пр.`.
+function editWrappers(text, ctx, c, edit) {
+  if (!text.includes(c.open)) {
+    return text;
+  }
+  const tokens = wrapperTokens(ctx, c);
+  const parts = [];
+  const stack = [];
+  let depth = 0;
+  let start = 0;
+  let cursor = 0;
+
+  for (const m of text.matchAll(ANY_TAG_RE)) {
+    if (!tokens.has(m[2])) {
+      continue;
+    }
+
+    if (m[1] !== '/') {
+      const wrapper = m[0] === c.open;
+      stack.push(wrapper);
+      if (wrapper && depth++ === 0) {
+        start = m.index;
+      }
+    } else if (stack.pop() === true && --depth === 0) {
+      const end = m.index + m[0].length;
+      parts.push(text.slice(cursor, start), edit(text.slice(start, end)));
+      cursor = end;
+    }
+  }
+
+  parts.push(text.slice(cursor));
+  return parts.join('');
 }
 
 const cleanupRules = sessionMap();
@@ -280,13 +328,7 @@ function removeNbspInNobr(ctx) {
   ctx.text = cycle(ctx.text, (t) => t.replace(c.m1, pulled), 100, onLimit, ruleBudgetOf(ctx));
 
   if (ctx.text.includes(c.close)) {
-    const spans = spanTokenSet(ctx);
-    const token = c.close.slice(2, -1);
-    const tokens = spans.has(token)
-      ? spans
-      : new Set(
-          ctx.tags.findByTagName('nobr').map(({ prefix, id }) => `${OPEN}${prefix}${id}${CLOSE}`)
-        );
+    const tokens = wrapperTokens(ctx, c);
 
     ctx.text = cycle(
       ctx.text,
@@ -325,7 +367,7 @@ function nbspInNowrapAsSpace(text, ctx) {
 
   const collapses = cleanupRules.get(ctx)?.('space', 'collapse_spaces') === true;
 
-  return text.replace(c.inner, (m) =>
+  return editWrappers(text, ctx, c, (m) =>
     collapses ? m.replace(NBSP_GAP_RE, ' ') : m.replaceAll(G.NBSP, ' ')
   );
 }
@@ -344,9 +386,7 @@ function nobrToNbsp(ctx) {
   if (!c) {
     return;
   }
-  // The full match is transformed rather than a capture group, or the open and close placeholders
-  // would be dropped.
-  ctx.text = ctx.text.replace(c.inner, (m) => m.replaceAll(' ', G.NBSP));
+  ctx.text = editWrappers(ctx.text, ctx, c, (m) => m.replaceAll(' ', G.NBSP));
 }
 
 export const etcGroup = {
@@ -436,7 +476,7 @@ export const etcGroup = {
       // writes them as in XML, too, or a second run would group what the first left as typed.
       // The leading lookahead keeps the lookbehinds, `\p{L}` the costliest, off every non-digit.
       pattern: new RegExp(
-        String.raw`(?=[1-9][0-9]{4})(?<![\p{L}\p{N}<)])(?<![A-Za-z]\.)(?<!^\.)(?<![^\p{L}]\.)(?<!\d-)(?<!\d[ \t]+)(?<!\d[.,])(?<!&#)(?<!${NUMERO_MARK}${WRITTEN_GAP}{0,2})(?<!${IDENTIFIER_LABEL}:?(?:<\/${OPEN}[${TRANSPARENT_TAG_KINDS}]\d{1,9}${CLOSE}>){0,4}${WRITTEN_GAP}{0,2})(?![0-9]{6}(?:,${ADDRESS_GAP}|${CITY_GAP}{0,2}г\.${ADDRESS_GAP})(?:<${OPEN}[${TRANSPARENT_TAG_KINDS}]\d{1,9}${CLOSE}>){0,4}\p{Lu})([0-9]{5,15})(?!\p{N})(?![ \t]+[0-9]{3}(?![0-9]))([^a-zA-Z>(]|$)`,
+        String.raw`(?=[1-9][0-9]{4})(?<![\p{L}\p{N}<)])(?<![A-Za-z]\.)(?<!^\.)(?<![^\p{L}]\.)(?<!\d-)(?<!\d[ \t]+)(?<!\d[.,])(?<!&#)(?<!${NUMERO_MARK}${WRITTEN_GAP}{0,2})(?<!${IDENTIFIER_LABEL}:?(?:${INLINE_END}){0,4}${WRITTEN_GAP}{0,2})(?![0-9]{6}(?:,${ADDRESS_GAP}|${LINE_GAP}{0,2}г\.${ADDRESS_GAP})(?:<${OPEN}[${TRANSPARENT_TAG_KINDS}]\d{1,9}${CLOSE}>){0,4}\p{Lu})([0-9]{5,15})(?!\p{N})(?![ \t]+[0-9]{3}(?![0-9]))([^a-zA-Z>(]|$)`,
         'gu'
       ),
       replacement: (m, ctx) => {

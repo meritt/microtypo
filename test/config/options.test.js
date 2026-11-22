@@ -375,8 +375,12 @@ describe('isOn / isOff', () => {
 });
 
 describe('bundle aliases (end-to-end)', () => {
+  // `nbsp_after_number` binds a number to any word after it, a unit included.
   test('units bundle:false leaves plain space', () => {
-    const out = microtypo('Грейсвандир весит 5 кг', { ...NOP, rules: { units: false } });
+    const out = microtypo('Грейсвандир весит 5 кг', {
+      ...NOP,
+      rules: { units: false, 'nobr.nbsp_after_number': false }
+    });
     assert.ok(out.includes('5 кг'));
     assert.ok(!out.includes(`5${NBSP}кг`));
   });

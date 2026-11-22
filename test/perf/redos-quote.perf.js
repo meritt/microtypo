@@ -140,3 +140,16 @@ test('nested inch-fallback stays fast at default maxInputLength', () => {
   const ms = performance.now() - start;
   assert.ok(ms < 600, `nested inch-fallback payload took ${ms.toFixed(0)}ms (expected < 600ms)`);
 });
+
+// Every closer here stands where an opener stands, with a straight quote glued behind it: the walk
+// turns it and asks what the opening rule writes for that quote. Asked on a copy of the paragraph
+// made for each closer, that is a reading of the paragraph per closer.
+test('closers turned into openers with a straight quote behind them scale ~linearly', () => {
+  const typo = new MicroTypo({ maxInputLength: 5_000_000, maxProcessingMs: 0 });
+  const ratio = growth((k) => typo.process(' »"а»»'.repeat(k)), 4_000, 1);
+
+  assert.ok(
+    ratio < 8,
+    `quadratic turn of a wrong-way closer: 4x the input scaled ${ratio.toFixed(1)}x (expected < 8)`
+  );
+});

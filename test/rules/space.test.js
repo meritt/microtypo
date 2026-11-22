@@ -10,6 +10,58 @@ const HTML = { html: true, render: { paragraphs: false } };
 
 const ent = (text) => new MicroTypo({ ...FLAT, entities: true }).process(text);
 
+test('an emphatic particle binds the next Russian word inside an initials wrapper', () => {
+  const config = { input: 'markdown', html: true };
+  for (const [source, expected] of [
+    [
+      'Подготовил-де Борис ТЗ заранее, но забыл его отправить.',
+      'Подготовил-де\u00a0<span style="white-space:nowrap;">Борис ТЗ</span> заранее, но\u00a0забыл его отправить.'
+    ],
+    [
+      'Подготовил-де **Борис [ТЗ](/x) заранее**, но забыл его отправить.',
+      'Подготовил-де\u00a0**Борис\u00a0[ТЗ](/x) заранее**, но\u00a0забыл его отправить.'
+    ],
+    ['Подготовил-де Борис заранее.', 'Подготовил-де\u00a0Борис заранее.'],
+    [
+      'Подготовил Борис ТЗ заранее.',
+      'Подготовил <span style="white-space:nowrap;">Борис ТЗ</span> заранее.'
+    ],
+    [
+      'Подготовил-де <span style="white-space:nowrap;">7</span> бумаг.',
+      'Подготовил-де <span style="white-space:nowrap;">7</span> бумаг.'
+    ]
+  ]) {
+    assert.equal(microtypo(source, config), expected);
+    assert.equal(microtypo(expected, config), expected);
+  }
+  const source = 'Подготовил-де Борис ТЗ заранее.';
+  for (const [rule, expected] of [
+    [
+      'nobr.nbsp_after_particle',
+      'Подготовил-де <span style="white-space:nowrap;">Борис ТЗ</span> заранее.'
+    ],
+    ['nobr.nowrap_initials', 'Подготовил-де\u00a0Борис\u00a0ТЗ заранее.']
+  ]) {
+    const off = { ...config, rules: { [rule]: false } };
+    assert.equal(microtypo(source, off), expected);
+    assert.equal(microtypo(expected, off), expected);
+  }
+});
+
+test('a wrapper with its own leading gap keeps the particle outside that gap', () => {
+  for (const [pad, normalized] of [
+    [' ', ' '],
+    ['\t', ' '],
+    ['\n', '\n']
+  ]) {
+    const source = `Сказал-де <span style="white-space:nowrap;">${pad}Борис ТЗ</span> заранее.`;
+    const expected = `<p>Сказал-де <span style="white-space:nowrap;">${normalized}Борис ТЗ</span> заранее.</p>`;
+    const config = { input: 'html', html: true };
+    assert.equal(microtypo(source, config), expected);
+    assert.equal(microtypo(expected, config), expected);
+  }
+});
+
 // `html: false` skips the text group, so the nowrap tag and the nbsp rewrite layer in through
 // separate `applyOptions()` calls.
 function plainNoWrap() {
@@ -47,13 +99,49 @@ describe('IP no-wrap', () => {
   });
 });
 
-describe('space.space_after_year', () => {});
+describe('space.space_after_year', () => {
+  test('a currency gap before a glued year settles in one pass', () => {
+    // With math on, `$a - y$` is a formula; the currency sign is what this test reads.
+    const typo = new MicroTypo({ input: { format: 'markdown', math: false } });
+    for (const [source, expected] of [
+      ['$\u2009772год', '$\u00a0772\u00a0год'],
+      ['€\u202f1785годом', '€\u00a01785\u00a0годом'],
+      ['$a - y$\u20091772году', `$a${NBSP}— y$${NBSP}1772${NBSP}году`]
+    ]) {
+      assert.equal(typo.process(source), expected);
+      assert.equal(typo.process(expected), expected);
+    }
+  });
+
+  test('year spacing observes the currency and number bindings independently', () => {
+    const source = '$\u2009772год';
+    for (const [rules, expected] of [
+      [{ 'abbr.nbsp_currency_prefix': false }, source],
+      [{ 'space.space_after_year': false }, `$${NBSP}772год`],
+      [{ 'nobr.nbsp_after_number': false }, `$${NBSP}772 год`]
+    ]) {
+      const typo = new MicroTypo({ rules: { ...rules } });
+      assert.equal(typo.process(source), expected);
+      assert.equal(typo.process(expected), expected);
+    }
+  });
+
+  test('a grouping gap and a protected formula retain their original roles', () => {
+    const typo = new MicroTypo({
+      input: { format: 'markdown', math: true }
+    });
+    for (const source of ['12\u202f345год', '$a - y$\u20091772году', '`$\u2009772год`']) {
+      assert.equal(typo.process(source), source);
+      assert.equal(typo.process(typo.process(source)), source);
+    }
+  });
+});
 
 describe('short-word gluing and paragraph breaks', () => {
   test('trailing short word stays in its paragraph', () => {
     const html = microtypo('Корвин шёл. и\n\nАмбер ждал.', { html: true });
     assert.match(html, /шёл\.\s*и<\/p>/u);
-    assert.match(html, /<p>Амбер ждал\./u);
+    assert.match(html, /<p>Амбер\u{00A0}ждал\./u);
   });
 
   test('blank-line separator survives', () => {
@@ -219,7 +307,7 @@ describe('indent at the start of a line', () => {
   test('a rule reading the start of a line reads it behind the indent', () => {
     assert.equal(siteText('Пролог.\n    - Реплика'), `Пролог.\n    —${NBSP}Реплика`);
     assert.equal(siteText('Пролог.\n    в доме'), `Пролог.\n    в${NBSP}доме`);
-    assert.equal(siteText('    1997год.'), '    1997 год.');
+    assert.equal(siteText('    1997год.'), `    1997${NBSP}год.`);
   });
 
   test('a line reads the same behind an indent as without one', () => {
@@ -437,7 +525,7 @@ describe('space.trim_before_punctuation', () => {
   test('the trim still joins two marks that survive together', () => {
     assert.equal(
       microtypo('Корвин крикнул: что? ! потом ушёл'),
-      'Корвин крикнул: что?! потом ушёл'
+      `Корвин крикнул: что?! потом${NBSP}ушёл`
     );
   });
 
@@ -532,6 +620,22 @@ describe('nobr.nbsp_particle — the right edge', () => {
     assert.equal(microtypo('ну же, иди'), `ну${NBSP}же, иди`);
     assert.equal(microtypo('как бы не так'), `как${NBSP}бы не${NBSP}так`);
     assert.equal(microtypo('а - б'), `а${NBSP}— б`);
+  });
+});
+
+describe('nobr.nbsp_short_word — a fraction is a number', () => {
+  test('a short word binds to the fraction the engine writes as it does to the digits', () => {
+    for (const [src, want] of [
+      ['в 1/3 случаев', `в${NBSP}⅓${NBSP}случаев`],
+      ['на 3/8 дюйма', `на${NBSP}⅜${NBSP}дюйма`],
+      ['до 1/2 стакана', `до${NBSP}½${NBSP}стакана`],
+      ['в ¼ случаев', `в${NBSP}¼${NBSP}случаев`]
+    ]) {
+      const once = microtypo(src);
+
+      assert.equal(once, want);
+      assert.equal(microtypo(once), once);
+    }
   });
 });
 

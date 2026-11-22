@@ -1,9 +1,19 @@
-import { writtenContentEndLookahead } from '../lib/boundaries.js';
+import {
+  CONTENT_END_LOOKAHEAD,
+  CONTENT_START_GROUP,
+  writtenContentEndLookahead
+} from '../lib/boundaries.js';
 import { keptReferenceTo } from '../lib/character-reference.js';
 import { G } from '../lib/glyphs.js';
 import { nowrap } from '../lib/nowrap-context.js';
 import { F } from '../lib/rule-features.js';
 import { CLOSE, OPEN, TRANSPARENT_TAG_KINDS } from '../protect/placeholders.js';
+
+const ROMAN_CENTURIES = new Set(
+  ['', 'X', 'XX', 'XXX'].flatMap((tens) =>
+    ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'].map((ones) => tens + ones)
+  )
+);
 
 // A date with its year mark, `12.05.20г` or `12.05.2020 г.`. Only the mark is taken, with a period
 // set apart from it (`г .`), which is the mark's own: the space around it is looked at and left as
@@ -68,6 +78,18 @@ export const dateGroup = {
   title: 'Даты и дни',
   classes: { nowrap: 'white-space:nowrap;' },
   rules: [
+    {
+      id: 'nbsp_century',
+      requires: F.SPACE,
+      requiresAny: F.DIGIT | F.LATIN,
+      description: 'Привязка римского или арабского номера века к обозначению',
+      pattern: new RegExp(
+        `${CONTENT_START_GROUP}([1-9]\\d?|[IVX]{1,8})[ \\t${G.NBSP}]+(век(?:а|е|у|ом)?|в\\.)${CONTENT_END_LOOKAHEAD}`,
+        'gu'
+      ),
+      replacement: (m) =>
+        ROMAN_CENTURIES.has(m[2]) || Number(m[2]) > 0 ? `${m[1]}${m[2]}${G.NBSP}${m[3]}` : m[0]
+    },
     {
       id: 'year_range',
       requires: F.DIGIT | F.DASH | F.SPACE,

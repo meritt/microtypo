@@ -27,8 +27,12 @@ describe('fractions', () => {
     assert.equal(microtypo('3/4"', P), '3/4″');
   });
 
-  test('unknown fraction is untouched', () => {
-    assert.equal(microtypo('5/8', P), '5/8');
+  test('an eighth converts to its glyph', () => {
+    assert.equal(microtypo('5/8', P), '⅝');
+  });
+
+  test('a fraction with no glyph is untouched', () => {
+    assert.equal(microtypo('5/7', P), '5/7');
   });
 
   test('a fraction glued into a longer number is untouched', () => {
@@ -85,6 +89,57 @@ describe('multiplication sign', () => {
   test('× without digit context is never collapsed', () => {
     assert.equal(u('колода A × B'), '<p>колода A × B</p>');
     assert.equal(u('A×B'), '<p>A×B</p>');
+  });
+
+  test('sets every separator in a dimension chain before XML serialization', () => {
+    const engine = new MicroTypo({ input: 'xml', entities: true });
+    for (const [source, expected] of [
+      ['6х7х9', '6&#215;7&#215;9'],
+      ['-6×7х9', '&#8722;6&#215;7&#215;9'],
+      ['−6х7x9', '&#8722;6&#215;7&#215;9'],
+      ['6 x 7 × 9х10', '6&#215;7&#215;9&#215;10'],
+      ['6&#xD7;7х9', '6&#xD7;7&#215;9'],
+      ['6х7&#215;9', '6&#215;7&#215;9'],
+      ['a6x7', 'a6x7'],
+      ['alpha × beta', 'alpha &#215; beta'],
+      ['6х<b>7</b>х9', '6х<b>7</b>х9']
+    ]) {
+      const document = `<doc><p>Размер формы ${expected} см.</p></doc>`;
+      assert.equal(engine.process(`<doc><p>Размер формы ${source} см.</p></doc>`), document);
+      assert.equal(engine.process(document), document);
+    }
+    const source = '<doc><p>Размер формы 6х7х9 см.</p></doc>';
+    const off = new MicroTypo({ input: 'xml', entities: true, rules: { 'number.times': false } });
+    assert.equal(off.process(source), source);
+  });
+
+  test('a dimension chain uses the full operands and the visible edges of its container', () => {
+    const e = new MicroTypo({ input: 'xml', entities: true });
+    for (const [source, expected] of [
+      [
+        '<p>6×7х9 см — размеры коробки.</p>',
+        '<p>6&#215;7&#215;9 см&#160;&#8212; размеры коробки.</p>'
+      ],
+      ['<p>6х7х9</p>', '<p>6&#215;7&#215;9</p>'],
+      ['<p><em>6x7x12</em></p>', '<p><em>6&#215;7&#215;12</em></p>'],
+      ['<p>Артикул 6x7x12AB.</p>', '<p>Артикул 6x7x12AB.</p>'],
+      ['<p>Артикул 6x7x2AB.</p>', '<p>Артикул 6x7x2AB.</p>'],
+      ['<p>Артикул 6x7x12<em>AB</em>.</p>', '<p>Артикул 6x7x12<em>AB</em>.</p>'],
+      ['<p>Артикул AB<em>6x7x12</em>.</p>', '<p>Артикул AB<em>6x7x12</em>.</p>'],
+      ['<p>Артикул AB6&#215;7х9.</p>', '<p>Артикул AB6&#215;7х9.</p>'],
+      ['<p>Артикул 6x7x12&#65;B.</p>', '<p>Артикул 6x7x12&#65;B.</p>'],
+      ['<p>Артикул &#65;6x7x12.</p>', '<p>Артикул &#65;6x7x12.</p>'],
+      ['<p>Артикул 6x7x2&#95;B.</p>', '<p>Артикул 6x7x2&#95;B.</p>'],
+      ['<p>Артикул 6x7x2<em>&#x00005F;B</em>.</p>', '<p>Артикул 6x7x2<em>&#x00005F;B</em>.</p>'],
+      ['<p>Артикул &#x61;<em>6x7x12</em>.</p>', '<p>Артикул &#x61;<em>6x7x12</em>.</p>'],
+      ['<p>Артикул 6x7x12&#49;B.</p>', '<p>Артикул 6x7x12&#49;B.</p>'],
+      ['<p>Форма &#40;6x7x12&#41;.</p>', '<p>Форма &#40;6&#215;7&#215;12&#41;.</p>'],
+      ['<p>6 &#x00D7; 7х9.</p>', '<p>6&#x00D7;7&#215;9.</p>']
+    ]) {
+      const doc = `<doc>${expected}</doc>`;
+      assert.equal(e.process(`<doc>${source}</doc>`), doc);
+      assert.equal(e.process(doc), doc);
+    }
   });
 });
 
@@ -332,20 +387,23 @@ describe('units spacing', () => {
 
   // `с` after a digit reads as the preposition far more often than as seconds, so it stays out.
   test('a preposition after a number is not read as a unit', () => {
-    const out = microtypo('Корвин ждал 5 с половиной часов', P);
-
-    assert.ok(out.includes(`5 с${NBSP}половиной`), out);
+    assert.equal(
+      microtypo('Корвин ждал 5 с половиной часов', P),
+      `Корвин ждал 5${NBSP}с${NBSP}половиной часов`
+    );
   });
 
+  // `nbsp_after_number` would bind the word anyway and hide what the unit rules read.
   test('a longer word starting with a unit is untouched', () => {
-    assert.ok(microtypo('прошло 40 лет', P).includes('40 лет'));
-    assert.ok(microtypo('отряд 5 человек', P).includes('5 человек'));
+    const units = { ...P, rules: { ...P.rules, 'nobr.nbsp_after_number': false } };
+    assert.ok(microtypo('прошло 40 лет', units).includes('40 лет'));
+    assert.ok(microtypo('отряд 5 человек', units).includes('5 человек'));
   });
 
   test('the units bundle covers the volume and time rules', () => {
     const out = microtypo('Фиона взяла 2 л воды за 3 ч', {
       ...P,
-      rules: { units: false }
+      rules: { units: false, 'nobr.nbsp_after_number': false }
     });
 
     assert.ok(!out.includes(`2${NBSP}л`), out);
@@ -362,12 +420,12 @@ describe('currency', () => {
   // sentence ends, never mid-sentence.
   test('the abbreviation period is kept at a sentence end', () => {
     assert.equal(entity('Дань 100 руб.'), 'Дань 100&nbsp;&#8381;.');
-    assert.equal(entity('Дань 100 руб. Оберон ждёт.'), 'Дань 100&nbsp;&#8381;. Оберон ждёт.');
+    assert.equal(entity('Дань 100 руб. Оберон ждёт.'), 'Дань 100&nbsp;&#8381;. Оберон&nbsp;ждёт.');
     assert.equal(entity('Дань 100 долл.'), 'Дань 100&nbsp;$.');
   });
 
   test('the abbreviation period is dropped mid-sentence', () => {
-    assert.equal(entity('Дань 100 руб., затем путь'), 'Дань 100&nbsp;&#8381;, затем путь');
+    assert.equal(entity('Дань 100 руб., затем путь'), 'Дань 100&nbsp;&#8381;, затем&nbsp;путь');
     assert.equal(
       entity('Дань 100 руб. и 200 долл. в казну'),
       'Дань 100&nbsp;&#8381; и&nbsp;200&nbsp;$ в&nbsp;казну'
@@ -404,7 +462,7 @@ describe('currency', () => {
   });
 
   test('a руб-prefixed word is not a currency match', () => {
-    assert.equal(entity('100 рубеж'), '100 рубеж');
+    assert.equal(entity('100 рубеж'), '100&nbsp;рубеж');
   });
 
   test('currency bundle converts руб to ₽', () => {
@@ -444,10 +502,10 @@ describe('currency', () => {
 
   test('a currency sign after its amount binds to the next number too, keeping the sum whole', () => {
     for (const [src, want] of [
-      ['3 руб. 20 коп.', `3${NBSP}₽${NBSP}20 коп.`],
-      ['3 руб. 20 коп. и 5 руб.', `3${NBSP}₽${NBSP}20 коп. и${NBSP}5${NBSP}₽.`],
-      ['(168 750 ₽ 00 коп.)', `(168${NNBSP}750${NBSP}₽${NBSP}00 коп.)`],
-      ['Курс 3 € 20 центов', `Курс 3${NBSP}€${NBSP}20 центов`]
+      ['3 руб. 20 коп.', `3${NBSP}₽${NBSP}20${NBSP}коп.`],
+      ['3 руб. 20 коп. и 5 руб.', `3${NBSP}₽${NBSP}20${NBSP}коп. и${NBSP}5${NBSP}₽.`],
+      ['(168 750 ₽ 00 коп.)', `(168${NNBSP}750${NBSP}₽${NBSP}00${NBSP}коп.)`],
+      ['Курс 3 € 20 центов', `Курс 3${NBSP}€${NBSP}20${NBSP}центов`]
     ]) {
       const once = microtypo(src);
 
@@ -455,7 +513,7 @@ describe('currency', () => {
       assert.equal(microtypo(once), once);
     }
     assert.equal(microtypo('3 руб.'), `3${NBSP}₽.`);
-    assert.equal(microtypo('20 коп.'), '20 коп.');
+    assert.equal(microtypo('20 коп.'), `20${NBSP}коп.`);
   });
 
   test('a rerun reads the sign behind a wrapped or XML-encoded amount as the first run did', () => {
@@ -529,10 +587,13 @@ describe('number.thin_space_triads — G8 phone-tail guard', () => {
   // Digits stuck to a word are part of that word: without the guard `ab12 345 конец` reads as
   // `12 345`, and `ab12 345678` comes out two ways over two passes.
   test('digits ending a word are not the leading triad of what follows', () => {
-    for (const src of ['ab12 345 конец', 'ab12 345678']) {
+    for (const [src, want] of [
+      ['ab12 345 конец', `ab12 345${NBSP}конец`],
+      ['ab12 345678', 'ab12 345678']
+    ]) {
       const once = microtypo(src, cfg);
 
-      assert.equal(once, src, `grouped a word tail: ${JSON.stringify(once)}`);
+      assert.equal(once, want, `grouped a word tail: ${JSON.stringify(once)}`);
       assert.equal(microtypo(once, cfg), once);
     }
   });
@@ -584,14 +645,14 @@ describe('number.math — +- guard (BUG-1)', () => {
   });
 
   test('an ASCII fraction still becomes a glyph', () => {
-    assert.equal(microtypo('Корвин увёл 1/2 отряда'), 'Корвин увёл ½ отряда');
+    assert.equal(microtypo('Корвин увёл 1/2 отряда'), `Корвин увёл ½${NBSP}отряда`);
   });
 
   test('a fraction entity decodes to the glyph in both directions', () => {
-    assert.equal(microtypo('Корвин увёл &frac12; отряда'), 'Корвин увёл ½ отряда');
+    assert.equal(microtypo('Корвин увёл &frac12; отряда'), `Корвин увёл ½${NBSP}отряда`);
     assert.equal(
       microtypo('Корвин увёл ½ отряда', { entities: true }),
-      'Корвин увёл &frac12; отряда'
+      'Корвин увёл &frac12;&nbsp;отряда'
     );
   });
 });

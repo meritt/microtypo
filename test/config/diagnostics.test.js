@@ -332,11 +332,30 @@ test('trace supports many changed matches without overflowing a call argument li
   assert.deepEqual(result.trace[0].ranges.at(-1), [149_999, 150_000]);
 });
 
-test('trace drops rejected inline trials', () => {
-  const typo = new MicroTypo({ html: true, render: { paragraphs: false } });
+test('trace drops rejected inline trials and counts a shared nowrap handler as one changing call', () => {
+  // `nbsp_after_number` would bind the number and be the one accepted trial left in the trace.
+  const typo = new MicroTypo({
+    html: true,
+    render: { paragraphs: false },
+    rules: { 'nobr.nbsp_after_number': false }
+  });
   const rejected = typo.process('5 <i>руб.</i>', { trace: true });
   assert.equal(rejected.text, '5 <i>руб.</i>');
   assert.deepEqual(rejected.trace, []);
+  const phones = new MicroTypo({
+    html: true,
+    render: { paragraphs: false },
+    rules: { 'nobr.nowrap_phone_extended': true }
+  });
+  const result = phones.process('+7-999-123-45-67; +7-999-123-45-67', { trace: true });
+  assert.equal(
+    result.text,
+    '<span style="white-space:nowrap;">+7-999-123-45-67</span>; <span style="white-space:nowrap;">+7-999-123-45-67</span>'
+  );
+  const event = result.trace.find(({ rule }) => rule === 'nobr.nowrap_phone_extended');
+  assert.equal(event.kind, 'handler');
+  assert.equal(event.count, 1);
+  assert.ok(event.ranges.length > 1);
 });
 
 test('trace discards a guarded structured replacement without discarding earlier accepted values', () => {
@@ -708,10 +727,12 @@ test('prospective spacing credits only the reader that changes each mark', () =>
     [false, true, 'Е.Опять:нет.что', []],
     [false, false, 'Е.Опять:нет.что', []]
   ]) {
+    // `Е.` before a capital also reads as an initial; that binding is not the spacing under test.
     const typo = new MicroTypo({
       rules: {
         'space.space_after_period': period,
-        'space.space_after_punctuation': punctuation
+        'space.space_after_punctuation': punctuation,
+        'nobr.nbsp_single_initial': false
       }
     });
     const input = 'Е.Опять:нет.что';
@@ -822,4 +843,34 @@ test('trace of a link written over a protected address reaches what the rules be
       ]
     }
   ]);
+});
+
+test('trace of a day range in an author paragraph keeps every range inside the paragraph', () => {
+  const input = '<p>С 4-26 ноября было</p>';
+  const typo = new MicroTypo({
+    html: true,
+    input: 'html',
+    rules: { 'date.*': true }
+  });
+  const result = typo.process(input, { trace: true, edits: true });
+
+  assert.equal(result.text, '<p><span style="white-space:nowrap;">С 4—26 ноября было</span></p>');
+  assert.equal(applyEdits(input, result.edits), result.text);
+  // The day range itself is `4-26`, and every later rule that binds or wraps it covers it whole.
+  assert.deepEqual(result.trace[0], {
+    rule: 'number.en_range',
+    kind: 'regex',
+    count: 1,
+    ranges: [[5, 9]]
+  });
+  assert.ok(result.trace.some(({ rule }) => rule === 'date.nowrap_day_range'));
+
+  for (const { rule, count, ranges } of result.trace) {
+    assert.ok(count > 0, rule);
+
+    for (const [start, end] of ranges) {
+      assert.ok(start >= 0 && start <= end && end <= 21, `${rule} ${start}–${end}`);
+      assert.ok(end <= 5 || start >= 9 || (start <= 5 && end >= 9), `${rule} ${start}–${end}`);
+    }
+  }
 });

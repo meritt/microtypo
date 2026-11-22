@@ -2,7 +2,7 @@
 // rules to blame, count the rules a case exercises. The main thread and every worker build their own
 // session, so a case and what is found in it depend on the seed and the index alone.
 import { createCoverage } from './coverage.mjs';
-import { createDocuments, FORMATS } from './documents.mjs';
+import { createDocuments, FORMATS, withRuleSet } from './documents.mjs';
 import { loadEngine } from './engine.mjs';
 import { createChecker, NAMES } from './invariants.mjs';
 import { loadLexicon } from './lexicon.mjs';
@@ -19,13 +19,20 @@ const editOf = (fingerprint) => /\[.*→.*\]/u.exec(fingerprint ?? '')?.[0] ?? f
 export function groupOf(violation, blame) {
   return [
     NAMES[violation.invariant],
-    violation.kind ?? (violation.invariant === 'idempotence' ? '' : violation.key),
+    violation.kind ??
+      (['idempotence', 'convergence'].includes(violation.invariant) ? '' : violation.key),
     blame.join(' + ') || 'не определён'
   ].join(' | ');
 }
 
 // `onCase(index)` is told of every case begun, with its index in a scan and -1 otherwise.
-export async function createSession({ seed, format = null, coverage = false, onCase = () => {} }) {
+export async function createSession({
+  seed,
+  format = null,
+  ruleSet = 'random',
+  coverage = false,
+  onCase = () => {}
+}) {
   const lexicon = loadLexicon();
   const { MicroTypo, restart, unfiltered } = await loadEngine();
   const checker = createChecker(MicroTypo, restart, unfiltered);
@@ -34,7 +41,8 @@ export async function createSession({ seed, format = null, coverage = false, onC
   const caseAt = (index) => {
     const d = dice(rng(caseSeed(seed, index)));
 
-    return createDocuments(lexicon, d)(format ?? d.pick(FORMATS));
+    const kase = createDocuments(lexicon, d)(format ?? d.pick(FORMATS));
+    return { ...kase, config: withRuleSet(kase.config, ruleSet) };
   };
 
   // Case k of the transparency invariant, or null when the run is limited to a format it skips.
@@ -48,7 +56,8 @@ export async function createSession({ seed, format = null, coverage = false, onC
     return createTransparent(
       lexicon,
       d,
-      checker.typesetPlain
+      checker.typesetPlain,
+      ruleSet
     )(format ?? d.pick(TRANSPARENT_FORMATS));
   };
 

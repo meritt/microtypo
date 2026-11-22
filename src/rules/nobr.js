@@ -13,7 +13,8 @@ import {
   CONTENT_START,
   NOT_AFTER_LONE_QUOTE
 } from '../lib/boundaries.js';
-import { G } from '../lib/glyphs.js';
+import { FRACTION_GLYPHS, G } from '../lib/glyphs.js';
+import { INDEFINITE_COLON_REGEXES, nowrapWithIndefiniteColon } from '../lib/indefinite-pronoun.js';
 import { inlineTagStart } from '../lib/inline-boundaries.js';
 import { TEMPERATURE_SCALES } from '../lib/measurement-units.js';
 import {
@@ -23,14 +24,28 @@ import {
   nowrap
 } from '../lib/nowrap-context.js';
 import { F } from '../lib/rule-features.js';
-import { CLOSE, OPEN, vaultedReference } from '../protect/placeholders.js';
+import {
+  BREAKLINE,
+  CLOSE,
+  INLINE_END,
+  OPEN,
+  PARAGRAPH_CLOSE,
+  PARAGRAPH_OPEN,
+  PARAGRAPH_TAG,
+  vaultedReference
+} from '../protect/placeholders.js';
 import { EMPHATIC_HEAD, EMPHATIC_PARTICLE } from './dash.js';
 import { PARTICLE } from './space.js';
 
-// What a short word glues itself to: an optional second short word, then a word or a digit.
-const SHORT_WORD_TAIL = `([a-zа-яё]{1,2}[ \\t]+)?(?!-+(?![a-zа-яё0-9-]))([a-zа-яё0-9-]{2,}|[0-9])`;
-
+// What a short word glues itself to: an optional second short word, then a word, a digit or a
+// fraction the engine writes for one, `в ⅓` as `в 1/3`. The second may be the `и` that
+// `abbr.nowrap_because` bound to `др.` or `пр.`: `Мы и⍽др.` glues as `Мы и др.` did.
+const SHORT_WORD_TAIL = `([a-zа-яё]{1,2}[ \\t]+|и${G.NBSP}(?=[дп]р\\.))?(?!-+(?![a-zа-яё0-9-]))([a-zа-яё0-9-]{2,}|[0-9${FRACTION_GLYPHS}])`;
+const LAST_WORD = `(?<![\\p{L}\\d_-])([А-ЯЁа-яё]+|>)[ \\t]+([А-ЯЁа-яё]{1,4})`;
 const RUSSIAN_LETTER_RE = /[А-ЯЁа-яё]/u;
+// The re-read after `text` sees the paragraph and line break markers the next pass reads as tags.
+const NUMBER_WORD_END = `(?:${CONTENT_END_LOOKAHEAD}|(?=${PARAGRAPH_CLOSE}|${BREAKLINE}))`;
+const FINAL_PUNCTUATION = `[.!?${G.HELLIP}${G.RAQUO}${G.LDQUO})\\]}]*[ \\t]*`;
 
 const WORD_START_RE = /[\p{L}\p{N}]/uy;
 const ACRONYM_AHEAD_RE = /[A-ZА-ЯЁ]{2}(?=[\s;.?!:("»“]|$)/uy;
@@ -39,6 +54,9 @@ const SHORT_WORD_AHEAD_RE = new RegExp(`[a-zа-яё]{1,2}[ \\t]+${SHORT_WORD_TAI
 // does: `3:15–9:05</span>с пр` glues no more than `9:05с пр` did before `other.en_time_range` wrapped it.
 const SHORT_WORD_LEAD_RE = new RegExp(`[ \\t\\n\\r${CONTENT_OPEN_BRACKETS}>${CLOSE}]`, 'u');
 const TEMPERATURE_LEAD_RE = new RegExp(`[${CONTENT_START}+${G.PLUSMN}]`, 'u');
+const INITIAL_LEAD_RE = new RegExp(`[${CONTENT_START}]`, 'u');
+const INITIAL_GAP_CHAR_RE = new RegExp(`[ \\t${G.NBSP}]`, 'u');
+const DIGIT_RE = /\d/u;
 
 const startsWith = (re, source, at) => {
   re.lastIndex = at;
@@ -132,8 +150,33 @@ export const EXTENDED_PHONE = new RegExp(
   'gu'
 );
 
-const INITIAL_GAP = `[ \\t${G.NBSP}]+`;
+// A word already bound to the number after it labels that one, `гл. 5 гл.⍽7`, not the number in
+// front: bound by a no-break space, spelled as one in XML, or held with it in the engine's wrapper.
+// The number may open a wrapper of its own, `8 Д⍽<span>05.05.29 г.</span>`, and may be a fraction,
+// `⅓ и⍽⅞` as `3 и⍽7`.
+const BOUND_LABEL = '[А-ЯЁа-яё]+\\.?';
+const BOUND_LABEL_AHEAD = `(?!${BOUND_LABEL}(?:${G.NBSP}|${vaultedReference(G.NBSP)})(?:<${OPEN}T\\d{1,9}${CLOSE}>)*[\\d${FRACTION_GLYPHS}])`;
+const WRAPPED_LABEL_RE = new RegExp(`${BOUND_LABEL}[ \\t${G.NBSP}][\\d${FRACTION_GLYPHS}]`, 'uy');
 
+// The engine's no-break wrapper starts the word it holds; no other tag stands between a number and
+// its word.
+function bindNumber(m, ctx) {
+  const [full, number] = m;
+  const source = m.at(-1);
+  const at = m.at(-2) + full.length;
+  if (source[at] === '<') {
+    const body = canonicalNowrapContentStart(ctx, source, at);
+    if (body === -1 || source[body] === '<' || startsWith(WRAPPED_LABEL_RE, source, body)) {
+      return full;
+    }
+  }
+  return `${number}${G.NBSP}`;
+}
+
+const SINGLE_INITIAL = '(?:[А-ЯЁ]|Дж)';
+const INITIAL_GAP = `[ \\t${G.NBSP}]+`;
+const NEXT_INITIAL_RE = new RegExp(`${SINGLE_INITIAL}\\.${INITIAL_GAP}`, 'uy');
+const FAMILY_NAME_RE = new RegExp(`${SURNAME}${CONTENT_END_LOOKAHEAD}`, 'uy');
 const FAMILY_AFTER_GAP_RE = new RegExp(`${INITIAL_GAP}${SURNAME}${CONTENT_END_LOOKAHEAD}`, 'uy');
 
 function surnameBeforeInitials(m, ctx) {
@@ -149,6 +192,43 @@ function surnameBeforeInitials(m, ctx) {
     return m[0];
   }
   return wrapName(m, ctx, `${surname} ${first}. ${second}.`, true);
+}
+
+function bindSingleInitial(m, ctx) {
+  const [full, initial, offset, source] = m;
+  // The end tag of the engine's own wrapper reads as what the wrapper holds last: `8:30</span>Е. Об`
+  // and `8:30</span> Е. Об` bind no more than `8:30Е. Об` and `8:30 Е. Об` did before
+  // `other.en_time_range` wrapped the time.
+  let before = offset - 1;
+  while (INITIAL_GAP_CHAR_RE.test(source[before] ?? '')) {
+    before -= 1;
+  }
+  const held = heldBeforeNowrapEnd(ctx, source, before);
+  if (
+    held !== null &&
+    (before === offset - 1 ? !INITIAL_LEAD_RE.test(held) : DIGIT_RE.test(held))
+  ) {
+    return full;
+  }
+  let at = offset + full.length;
+  for (let count = 0; count <= 3; count++) {
+    if (ctx.html && source[at] === '<') {
+      at = canonicalNowrapContentStart(ctx, source, at);
+      if (at === -1) {
+        break;
+      }
+    }
+    FAMILY_NAME_RE.lastIndex = at;
+    if (FAMILY_NAME_RE.test(source)) {
+      return `${initial}.${G.NBSP}`;
+    }
+    NEXT_INITIAL_RE.lastIndex = at;
+    if (!NEXT_INITIAL_RE.test(source)) {
+      break;
+    }
+    at = NEXT_INITIAL_RE.lastIndex;
+  }
+  return full;
 }
 
 function wrapName(m, ctx, body, addsDots = false) {
@@ -425,6 +505,64 @@ export const nobrGroup = {
         'giu'
       ),
       replacement: (m, ctx) => wrapOwned(m, ctx, `${m[2]}${m[3]}`, m[6])
+    },
+    {
+      id: 'nowrap_phone_extended',
+      requires: F.DIGIT,
+      requiresAny: F.DASH | F.PAREN,
+      description: 'Неразрывные полные российские телефоны с пробелами или дефисами',
+      regexes: [EXTENDED_PHONE, ...INDEFINITE_COLON_REGEXES],
+      handler: (ctx) => nowrapWithIndefiniteColon(ctx, EXTENDED_PHONE, (m) => m[2])
+    },
+    {
+      id: 'nbsp_last_word',
+      requires: F.SPACE,
+      description: 'Привязка последнего русского слова длиной до четырёх букв в абзаце',
+      // A paragraph the author left open ends at the blank line `text` writes before the next one,
+      // which the next pass reads as the `\n\n` it stands for; so does a line break before a block
+      // tag, which `text.breakline` writes as one, and before the paragraph `text.paragraphs` opens
+      // under a Markdown heading, which the next pass reads as that tag.
+      pattern: [
+        `(?:\\n[ \\t]*\\n|$)`,
+        `\\n[ \\t]*$`,
+        `(?:(?:${PARAGRAPH_TAG})?${PARAGRAPH_CLOSE}|<\\/${OPEN}L\\d+${CLOSE}>|${OPEN}H\\d+${CLOSE}${PARAGRAPH_OPEN})`,
+        `[\\r\\n][\\r\\n \\t]*(?:<\\/?${OPEN}L\\d+${CLOSE}>|${PARAGRAPH_OPEN})`
+      ].map((end) => new RegExp(`${LAST_WORD}(?=${FINAL_PUNCTUATION}${end})`, 'gu')),
+      // Behind the end of the engine's wrapper the word before the last is the one it holds.
+      replacement: (m, ctx) => {
+        if (m[1] === '>') {
+          const held = heldBeforeNowrapEnd(ctx, m.at(-1), m.at(-2));
+          if (held === null || !RUSSIAN_LETTER_RE.test(held)) {
+            return m[0];
+          }
+        }
+        return `${m[1]}${G.NBSP}${m[2]}`;
+      }
+    },
+    {
+      id: 'nbsp_after_number',
+      requires: F.SPACE,
+      requiresAny: F.DIGIT | F.FRACTION,
+      projectSpacedYears: 'gaps',
+      description: 'Привязка числа к следующему русскому слову',
+      // A fraction is a number too, `½ стакана` as `1,5 стакана`.
+      pattern: new RegExp(
+        `(?<=^|[${CONTENT_START}])(?<![.,${G.NNBSP}])(?<!\\d-)(?<!${INLINE_END})(\\d+(?:[.,]\\d+|[${FRACTION_GLYPHS}])?|[${FRACTION_GLYPHS}])[ \\t${G.NBSP}]+(?=(?:<${OPEN}T\\d{1,9}${CLOSE}>)*(?![Уу](?:[Ее])?${NUMBER_WORD_END})${BOUND_LABEL_AHEAD}[А-ЯЁа-яё]+${NUMBER_WORD_END})`,
+        'gu'
+      ),
+      replacement: (m, ctx) => bindNumber(m, ctx)
+    },
+    {
+      id: 'nbsp_single_initial',
+      requires: F.PERIOD | F.SPACE,
+      description: 'Привязка одиночного инициала и цепочки инициалов к фамилии',
+      // A capital right after a number is its unit, `220 В. Далее`, not an initial, and so it is after
+      // the end tags of a number set in markup, `<sup>2</sup> А.`.
+      pattern: new RegExp(
+        `(?<=^|[${CONTENT_START}])(?<!\\d(?:${INLINE_END})*${INITIAL_GAP})(${SINGLE_INITIAL})\\.${INITIAL_GAP}`,
+        'gu'
+      ),
+      replacement: bindSingleInitial
     }
   ]
 };

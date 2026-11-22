@@ -9,6 +9,29 @@ const HTML = { html: true, render: { paragraphs: false } };
 
 const ent = (text) => new MicroTypo({ ...FLAT, entities: true }).process(text);
 
+test('an abbreviation keeps the question or exclamation that ends its sentence', () => {
+  for (const mark of ['?', '!']) {
+    for (const [input, normalized] of [
+      ['Стоит 100 у. е.', 'Стоит 100\u{00A0}у.е.'],
+      ['Стоит 1/8уе', 'Стоит ⅛\u{00A0}у.е.'],
+      ['Стоит ½ у.е.', 'Стоит ½ у.е.'],
+      ['Мощность 100 л. с.', 'Мощность 100\u{00A0}л.\u{00A0}с.'],
+      ['Письмо. P. S.', 'Письмо. P.\u{00A0}S.'],
+      ['Их 5 млн.', 'Их\u{00A0}5\u{00A0}млн.'],
+      ['Ждал 5 сек.', 'Ждал 5\u{00A0}сек.']
+    ]) {
+      const expected = normalized + mark;
+      assert.equal(microtypo(input + mark), expected);
+      assert.equal(microtypo(expected), expected);
+    }
+    const wrapped = `<p><span style="white-space:nowrap;">5 в. до н</span>. э.${mark} Великая</p>`;
+    const engine = new MicroTypo({ input: 'html', html: true });
+    assert.equal(engine.process(wrapped), wrapped);
+    assert.equal(engine.process(engine.process(wrapped)), wrapped);
+    assert.equal(microtypo(`Он ушёл.${mark}`), 'Он\u{00A0}ушёл.');
+  }
+});
+
 describe('repeated marks: only one or three', () => {
   test('doubled mark collapses to one', () => {
     assert.equal(microtypo('Корвин!!', FLAT), 'Корвин!');
@@ -51,7 +74,7 @@ describe('collapse repeated separators', () => {
   // a character out of every `..` it met, and a path, a range and a revision range each lost a dot.
   test('a doubled period at a sentence boundary collapses', () => {
     assert.equal(microtypo('Корвин ушёл.. Эрик остался', PLAIN), 'Корвин ушёл. Эрик остался');
-    assert.equal(microtypo('Корвин ушёл..', PLAIN), 'Корвин ушёл.');
+    assert.equal(microtypo('Корвин ушёл..', PLAIN), 'Корвин\u{00A0}ушёл.');
   });
 
   test('a doubled period inside a token keeps both', () => {
@@ -62,7 +85,7 @@ describe('collapse repeated separators', () => {
 
   // `mark_ellipsis` writes this form one rule earlier; collapsing it would undo that.
   test('the question-ellipsis form survives', () => {
-    assert.equal(microtypo('Кто там?...', PLAIN), 'Кто там?..');
+    assert.equal(microtypo('Кто там?...', PLAIN), 'Кто\u{00A0}там?..');
   });
 });
 
@@ -134,7 +157,7 @@ describe('repeated marks in entity mode', () => {
   });
 
   test('tripled bang preserved', () => {
-    assert.equal(ent('Корвин жив!!!'), 'Корвин жив!!!');
+    assert.equal(ent('Корвин&nbsp;жив!!!'), 'Корвин&nbsp;жив!!!');
   });
 
   test('four bangs drop to three', () => {
@@ -244,7 +267,7 @@ describe('punctuation.bracket_spaces spares emoticons', () => {
   test('other emoticon eyes are also spared', () => {
     assert.equal(
       microtypo('Эрик усмехнулся :) Рэндом ждал', PLAIN),
-      'Эрик усмехнулся :) Рэндом ждал'
+      'Эрик усмехнулся :) Рэндом\u{00A0}ждал'
     );
     assert.equal(
       microtypo('Бенедикт кивнул ;) Джулиан отвернулся', PLAIN),

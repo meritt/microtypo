@@ -1,16 +1,22 @@
 import {
   BUILDING_LABEL,
+  CURRENCY_CODE,
   DOCUMENT_LABEL,
+  DOCUMENT_PART,
   DOTTED_INITIAL_PAIR,
   followsCompleteName,
   LABEL_NUMBER_END,
   MAGNITUDE,
   ORGANIZATION,
+  OTHER_ORGANIZATION,
   STREET_LABEL,
+  TITLE,
   currencyUnit,
+  horsepower,
   postscript
 } from '../lib/abbreviation-grammar.js';
 import {
+  BLOCK_WRAPPER_START_GROUP,
   CONTENT_END_LOOKAHEAD,
   CONTENT_START,
   CONTENT_START_GROUP,
@@ -18,6 +24,7 @@ import {
 } from '../lib/boundaries.js';
 import { keptGlyphsAt } from '../lib/character-reference.js';
 import { G } from '../lib/glyphs.js';
+import { INDEFINITE_COLON_REGEXES, nowrapWithIndefiniteColon } from '../lib/indefinite-pronoun.js';
 import {
   LENGTH_UNITS,
   SPEED_UNITS,
@@ -43,10 +50,9 @@ import {
   OPEN,
   TRANSPARENT_BARE_KINDS,
   INLINE_END,
-  TRANSPARENT_TAG_KINDS,
-  vaultedReference
+  TRANSPARENT_TAG_KINDS
 } from '../protect/placeholders.js';
-import { DASH_IN_GAPS, SENTENCE_DASH, SENTENCE_DASH_TAIL } from './dash.js';
+import { DASH_IN_GAPS, LINE_GAP, SENTENCE_DASH, SENTENCE_DASH_TAIL } from './dash.js';
 import { phoneContextAt } from './number.js';
 
 // Inline markup and an opening bracket are transparent to the question below: neither ends a
@@ -90,19 +96,26 @@ function bindUnit(m, ctx) {
   return unboundNumber(m, ctx) ? m[0] : `${m[1]}${m[2]}${G.NBSP}${m[4]}`;
 }
 
+function bindCount(m, ctx) {
+  return unboundNumber(m, ctx) ? m[0] : `${m[1]}${m[2]}${G.NBSP}${m[3]}`;
+}
+
 // `долл. США` is read through Markdown emphasis on `США`, through the end of the no-break wrapper
 // a rerun finds closed after `долл`, `ГОСТ 7 долл</span>. США`, and through the start of the one
 // `other.strip_nbsp_in_nowrap` grows around `США` and the wrapped phrase after it, `долл. <span>США`.
 // The amount and its currency are one pair across a no-break space as across a space: the space
 // inside a no-break wrapper is that no-break space written plainly, and the next pass reads it so.
-// A run of both is one gap too: `nobr.nbsp_after_number` collapses it to one no-break space.
-const CURRENCY_GAP = `[ ${G.NBSP}]*`;
+// A run of both is one gap too, a tab included: `nobr.nbsp_after_number` collapses it to one
+// no-break space.
+const CURRENCY_GAP = `[ \\t${G.NBSP}]*`;
 // The amount is read through the end of an inline element too: in HTML the phone wrapper is written
 // before this group, `67</span>⍽р`, and `other.strip_nbsp_in_nowrap` draws the currency inside it.
-const CURRENCY_AMOUNT = `(\\d(?:<\\/${OPEN}[${TRANSPARENT_TAG_KINDS}]\\d{1,9}${CLOSE}>)?)`;
+const CURRENCY_AMOUNT = `(\\d(?:${INLINE_END})?)`;
+
+const MAGNITUDE_WORD = 'рублей|рубля|рубль|долларов|доллара|доллар|евро|человек';
 
 // `долл. США` keeps its words: the bare `долл.` reading below must not take the pair this one wrote.
-const USD_TAIL = String.raw`(?:<\/${OPEN}[${TRANSPARENT_TAG_KINDS}]\d{1,9}${CLOSE}>)?\.[ *_~]{0,4}(?:<${OPEN}[${TRANSPARENT_TAG_KINDS}]\d{1,9}${CLOSE}>)?США`;
+const USD_TAIL = String.raw`(?:${INLINE_END})?\.[ *_~]{0,4}(?:<${OPEN}[${TRANSPARENT_TAG_KINDS}]\d{1,9}${CLOSE}>)?США`;
 const USD_ABBREVIATION_RE = new RegExp(
   `${CURRENCY_AMOUNT}${CURRENCY_GAP}(долл${USD_TAIL})(?![а-яёa-z])`,
   'giu'
@@ -114,8 +127,7 @@ const GLUED_USA_RE = /^(долл)\.(?=США)/iu;
 // the address it opens: `125009 г. Москва`. The next pass reads the index grouped by
 // `other.split_triads`, `125 009`, and has to see the same index, in XML through the reference the
 // space after `г.` is written as.
-export const CITY_GAP = `(?:[ \\t${G.NBSP}]|${vaultedReference(G.NBSP)})`;
-const CITY_AFTER_RE = new RegExp(`^\\.${CITY_GAP}{0,4}[А-ЯЁA-Z]`, 'u');
+const CITY_AFTER_RE = new RegExp(`^\\.${LINE_GAP}{0,4}[А-ЯЁA-Z]`, 'u');
 const CITY_AFTER_REACH = 40;
 const INDEX_HALF_BEFORE_RE = new RegExp(`(?:^|[^\\p{L}\\d${G.NNBSP}])\\d{3}$`, 'u');
 
@@ -194,12 +206,23 @@ function abbreviatedCurrency(symbol) {
   };
 }
 
+const BECAUSE_PATTERNS = [
+  new RegExp(
+    `${BLOCK_WRAPPER_START_GROUP}([Тт])\\.[ \\t${G.NBSP}]*([кно])\\.${CONTENT_END_LOOKAHEAD}`,
+    'gu'
+  ),
+  new RegExp(
+    `${BLOCK_WRAPPER_START_GROUP}([Ии])[ \\t${G.NBSP}]+(др|пр)\\.${CONTENT_END_LOOKAHEAD}`,
+    'gu'
+  )
+];
+
 // An initial is a capital on its own: the one closing `ЖМ.` or the year mark of `2001Г.` or of a period
 // `1951-2032 Г.` is not, and the wrapper or the `гг.` a later rule writes there would tell the next
 // pass so. It is read through the end of the wrapper `nobr.nowrap_initials` closes behind it, or behind
 // its letter before the period: `Ж</span>. Г.М`.
 const INITIAL_BEFORE_LABEL = new RegExp(
-  `(?<![\\p{L}\\d])(?<!\\d{4}[-${G.MDASH}${G.MINUS}${G.NDASH}]\\d{4}[ ${G.NBSP}]?)[А-ЯЁ](?:<\\/${OPEN}[${TRANSPARENT_TAG_KINDS}]\\d{1,9}${CLOSE}>){0,2}\\.(?:<\\/${OPEN}[${TRANSPARENT_TAG_KINDS}]\\d{1,9}${CLOSE}>){0,2}(?:[ \t${G.NBSP}]|${vaultedReference(G.NBSP)})?$`,
+  `(?<![\\p{L}\\d])(?<!\\d{4}[-${G.MDASH}${G.MINUS}${G.NDASH}]\\d{4}[ ${G.NBSP}]?)[А-ЯЁ](?:${INLINE_END}){0,2}\\.(?:${INLINE_END}){0,2}${LINE_GAP}?$`,
   'u'
 );
 
@@ -254,6 +277,17 @@ function bindOrganization(m, ctx) {
     }
   }
   return `${label}${G.NBSP}`;
+}
+
+// The engine's wrapper already keeps a form with its name, `ГК Мр`, and its end tag starts content
+// only where what it holds last does: `76-29-54</span>АО д` binds no more than `54АО д` did.
+function bindExtendedOrganization(m, ctx) {
+  const [full, lead, label, offset, source] = m;
+  const held = lead === '>' ? heldBeforeNowrapEnd(ctx, source, offset) : null;
+  return (held !== null && !CONTENT_START_RE.test(held)) ||
+    insideCanonicalNowrap(ctx, source, offset + lead.length, offset + full.length)
+    ? full
+    : `${lead}${label}${G.NBSP}`;
 }
 
 function wrapPhrase(m, ctx, body) {
@@ -631,6 +665,103 @@ export const abbrGroup = {
 
           return `${m[1]}${ctx.html ? inner : nowrap(ctx, inner, m.at(-1), start, m.at(-2) + m[0].length)}`;
         }
+      ]
+    },
+    {
+      id: 'nbsp_organization_extended',
+      requires: F.SPACE,
+      description: 'Привязка дополнительных форм организаций к названию',
+      pattern: new RegExp(
+        `${CONTENT_START_GROUP}(${OTHER_ORGANIZATION})[ \\t${G.NBSP}]+(?=[А-ЯЁа-яёA-Za-z"${G.LAQUO}${G.BDQUO}])`,
+        'gu'
+      ),
+      replacement: bindExtendedOrganization
+    },
+    {
+      id: 'nowrap_because',
+      requires: F.PERIOD,
+      description: 'Неразрывные сокращения т. к., т. н., т. о., и др., и пр.',
+      regexes: [...BECAUSE_PATTERNS, ...INDEFINITE_COLON_REGEXES],
+      handler: (ctx) => {
+        nowrapWithIndefiniteColon(ctx, BECAUSE_PATTERNS[0], (m) => `${m[2]}. ${m[3]}.`);
+        nowrapWithIndefiniteColon(ctx, BECAUSE_PATTERNS[1], (m) => `${m[2]} ${m[3]}.`);
+      }
+    },
+    {
+      id: 'nbsp_part',
+      requires: F.DIGIT | F.PERIOD | F.SPACE,
+      description: 'Привязка сокращения части документа к номеру',
+      pattern: new RegExp(
+        `${CONTENT_START_GROUP}(${DOCUMENT_PART})\\.[ \\t${G.NBSP}]+(\\d+(?:${G.NNBSP}\\d{3})*)(?![\\d${G.NNBSP}])${CONTENT_END_LOOKAHEAD}`,
+        'gu'
+      ),
+      replacement: `$1$2.${G.NBSP}$3`
+    },
+    {
+      id: 'nbsp_title',
+      requires: F.SPACE,
+      requiresAny: F.PERIOD | F.DASH,
+      description: 'Привязка титула к слову с заглавной буквы',
+      pattern: new RegExp(
+        `${CONTENT_START_GROUP}((?:${TITLE})\\.|[Дд]-р)[ \\t${G.NBSP}]+(?=[А-ЯЁ][а-яёА-ЯЁ-]*${CONTENT_END_LOOKAHEAD})`,
+        'gu'
+      ),
+      replacement: `$1$2${G.NBSP}`
+    },
+    {
+      id: 'nbsp_currency_code',
+      requires: F.DIGIT | F.SPACE | F.LATIN,
+      description: 'Привязка кодов USD, EUR, RUB к числу',
+      pattern: new RegExp(
+        `${CONTENT_START_GROUP}(?<!${G.NNBSP})(\\d+(?:[.,]\\d+)?)[ \\t${G.NBSP}]+(${CURRENCY_CODE})${CONTENT_END_LOOKAHEAD}`,
+        'gu'
+      ),
+      replacement: bindCount
+    },
+    {
+      id: 'nbsp_si_unit',
+      requires: F.DIGIT | F.SPACE,
+      description: 'Привязка дополнительных единиц и составных сокращений',
+      pattern: new RegExp(
+        `${CONTENT_START_GROUP}(?<!${G.NNBSP})(\\d+(?:[.,]\\d+)?)[ \\t${G.NBSP}]+(кВт·ч|кВт|Вт|А|га|‰|кв\\.[ \\t${G.NBSP}]+м|куб\\.[ \\t${G.NBSP}]+м|${horsepower(`[ \\t${G.NBSP}]+`)})${CONTENT_END_LOOKAHEAD}`,
+        'gu'
+      ),
+      replacement: (m, ctx) =>
+        unboundNumber(m, ctx) ? m[0] : `${m[1]}${m[2]}${G.NBSP}${m[3].replace(/[ \t]+/gu, G.NBSP)}`
+    },
+    {
+      id: 'nbsp_count_unit',
+      requires: F.DIGIT | F.SPACE,
+      description: 'Привязка счётных сокращений к числу',
+      pattern: new RegExp(
+        // A bare `с` before a word is the preposition, `5 с половиной`, the word read through the tags
+        // in front of it: `nbsp_short_word` takes it.
+        `${CONTENT_START_GROUP}(\\d+(?:[.,]\\d+)?)[ \\t${G.NBSP}]+(шт\\.|экз\\.|чел\\.|сек|с(?![ \\t${G.NBSP}]+(?:<${OPEN}[${TRANSPARENT_TAG_KINDS}]\\d{1,9}${CLOSE}>)*[А-ЯЁа-яё])|мес\\.|нед\\.|дн\\.|коп\\.)${CONTENT_END_LOOKAHEAD}`,
+        'gu'
+      ),
+      replacement: bindCount
+    },
+    {
+      id: 'nbsp_magnitude_spaced',
+      requires: F.DIGIT | F.SPACE,
+      description: 'Привязка числа к разрядному сокращению и валюте или счётной единице',
+      // A whole word glued to `тыс.` is parted by `space.space_after_period` only once
+      // `nbsp_magnitude` has set `тыс.` off the number, after this rule: there the period is the gap.
+      // An abbreviation glued to it, `тыс.руб.`, stays one token for that rule and for this one.
+      // Such a word ends `тыс.` as a gap would, so the number is bound to it in the same pass.
+      pattern: [
+        new RegExp(
+          `${CONTENT_START_GROUP}(\\d+(?:[.,]\\d+)?)[ \\t${G.NBSP}]+(тыс\\.|млн|млрд|трлн)(?:${CONTENT_END_LOOKAHEAD}|(?<=\\.)(?=(?:${MAGNITUDE_WORD})${CONTENT_END_LOOKAHEAD}))`,
+          'gu'
+        ),
+        new RegExp(
+          `(\\d${G.NBSP}(?:тыс\\.|млн|млрд|трлн))(?:[ \\t${G.NBSP}]+(руб\\.|чел\\.|шт\\.|экз\\.|${MAGNITUDE_WORD})|(?<=\\.)(${MAGNITUDE_WORD}))${CONTENT_END_LOOKAHEAD}`,
+          'gu'
+        )
+      ],
+      replacement: [
+        bindCount,
+        (m) => (phoneContextAt(m.at(-1), m.at(-2)) === 1 ? m[0] : `${m[1]}${G.NBSP}${m[2] ?? m[3]}`)
       ]
     }
   ]

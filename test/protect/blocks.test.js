@@ -404,10 +404,12 @@ describe('a raw-text element ends at the first closing tag, whatever its own tex
     ];
 
     for (const body of bodies) {
+      // An inline element is a word, so the last word binds to it; a block element takes no binding.
+      const gap = /^<(?:code|textarea|kbd)>/u.test(body) ? '\u{00A0}' : ' ';
       for (const [source, expected] of [
         [`<n E=">${body}`, `<n E=">${body}`],
         [`<n E='>${body}`, `<n E='>${body}`],
-        [`Он <a title=">${body} ушёл`, `Он <a title=">${body} ушёл`],
+        [`Он <a title=">${body} ушёл`, `Он <a title=">${body}${gap}ушёл`],
         [`<n E=">${body} и "а" - б`, `<n E=">${body} и\u{00A0}«а»\u{00A0}— б`],
         [`<n E=">${body}\n\nи "а" - б`, `<n E=">${body}\n\nи\u{00A0}«а»\u{00A0}— б`],
         [`текст ${body} и "а" - б`, `текст ${body} и\u{00A0}«а»\u{00A0}— б`]

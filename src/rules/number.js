@@ -1,19 +1,22 @@
+import { CONTENT_END_LOOKAHEAD, CONTENT_START } from '../lib/boundaries.js';
 import {
   characterReferenceEndingAt,
   keptGlyphAt,
+  keptGlyphsAt,
   keptReferenceGlyph,
   keptReferenceTo,
   readCharacterReferenceAt
 } from '../lib/character-reference.js';
-import { G } from '../lib/glyphs.js';
+import { FRACTION_GLYPHS, G } from '../lib/glyphs.js';
 import {
   inlineTextEnd,
   inlineTextStart,
   nativeTagEnd,
   nativeTagStart
 } from '../lib/inline-boundaries.js';
+import { heldBeforeNowrapEnd } from '../lib/nowrap-context.js';
 import { F } from '../lib/rule-features.js';
-import { OPEN, CLOSE, vaultedReference } from '../protect/placeholders.js';
+import { BLOCK_KIND, OPEN, CLOSE, tagTokens, vaultedReference } from '../protect/placeholders.js';
 import { NUMERIC_DATE_RE } from './date.js';
 import {
   EXTENDED_PHONE,
@@ -62,8 +65,66 @@ function normalizeDimensions([chain, at, source], ctx) {
   // The x of a hexadecimal reference belongs to its original spelling.
   return chain.replaceAll(GAP_RE, '').replaceAll(/(?<=\d)[xх](?=\d)/gu, G.TIMES);
 }
-
+// What keeps a number behind a hyphen from being a negative one: it goes on, or a range, a dash or
+// an ellipsis follows it.
+const NUMBER_STOP = `[\\d${FRACTION_GLYPHS}${G.NDASH}${G.MDASH}${G.MINUS}\\-${G.HELLIP}]|[.,]\\d|\\.\\.`;
+const NUMBER_STOP_RE = new RegExp(`^(?:${NUMBER_STOP})`, 'u');
+const TRIAD_RE = /^\d{3}(?!\d)/u;
 const DECIMAL_NUMBER = '\\d+(?:[.,]\\d+)?';
+const NEGATIVE_NUMBER = `(${DECIMAL_NUMBER}[${FRACTION_GLYPHS}]?|[${FRACTION_GLYPHS}])(?!${NUMBER_STOP})`;
+const MINUS_PATTERNS = [
+  `((?:^|\\n)[ \\t${G.NBSP}]*)`,
+  `([(${G.LAQUO}${G.BDQUO}:][ \\t${G.NBSP}]*)`,
+  `((?<=[А-ЯЁа-яё]{3})[ \\t${G.NBSP}]+)`,
+  // The end of a block starts the text after it, which the next pass finds in a paragraph of its own.
+  `((?:<${OPEN}[TAL]|<\\/${OPEN}${BLOCK_KIND})\\d{1,9}${CLOSE}>[ \\t${G.NBSP}]*)`,
+  `((?<!${CLOSE})(?<!&#\\d{1,7});[ \\t${G.NBSP}]*)`
+].map((start) => new RegExp(`${start}-${NEGATIVE_NUMBER}`, 'gu'));
+const MATH_TAG_RE = /^(?:small|sup|sub)$/u;
+
+function negativeNumbers(ctx) {
+  const mathTags = new Set(tagTokens(ctx.tags, MATH_TAG_RE).map((token) => `<${token}>`));
+  for (const pattern of MINUS_PATTERNS) {
+    ctx.text = ctx.text.replace(pattern, (match, start, number, offset, source) =>
+      mathTags.has(start.trimEnd()) || stopsNumber(source, offset + match.length)
+        ? match
+        : `${start}${G.MINUS}${number}`
+    );
+  }
+}
+
+// Whether what follows a number keeps it from being negative, read past the triads `split_triads`
+// writes into it and through the references the output writes its glyphs as: `-80235...` is
+// `-80⎵235…` on the next pass.
+function stopsNumber(source, at) {
+  let end = at;
+
+  for (;;) {
+    const gap = keptGlyphAt(source, end);
+
+    if (gap.glyph !== G.NNBSP || !TRIAD_RE.test(source.slice(gap.end, gap.end + 4))) {
+      return NUMBER_STOP_RE.test(keptGlyphsAt(source, end, 2));
+    }
+
+    end = gap.end + 3;
+  }
+}
+
+const EXTENDED_FRACTIONS = {
+  '1/3': G.FRAC13,
+  '2/3': G.FRAC23,
+  '1/8': G.FRAC18,
+  '3/8': G.FRAC38,
+  '5/8': G.FRAC58,
+  '7/8': G.FRAC78
+};
+// What goes on with the digits, a prime written back as a reference in XML included.
+const FRACTION_TAIL = `[\\p{L}\\d_/"${G.PRIME}${G.SINGLE_PRIME}]`;
+const FRACTION_TAIL_RE = new RegExp(FRACTION_TAIL, 'u');
+// What goes on before the digits; the end of the engine's wrapper reads as what it holds last,
+// `28 г.</span>1/3`.
+const FRACTION_LEAD = '[\\p{L}\\d_./]';
+const FRACTION_LEAD_RE = new RegExp(FRACTION_LEAD, 'u');
 
 const LETTER_OR_NUMBER_RE = /[\p{L}\p{N}]/u;
 
@@ -195,6 +256,23 @@ const TRIAD_AHEAD_RE = new RegExp(
   'uy'
 );
 
+const FOOT_PATTERN = new RegExp(
+  `(?<=^|[${CONTENT_START}])(?<![.,])(?<!(?:${G.NUMERO}|${vaultedReference(G.NUMERO)})(?:\\s|${vaultedReference(G.NNBSP)}){0,2})(${DECIMAL_NUMBER})'${CONTENT_END_LOOKAHEAD}`,
+  'gu'
+);
+const FOOT_AT = new RegExp(FOOT_PATTERN.source, 'uy');
+
+// The quote pass sees the original spelling before number.prime writes it.
+export function authoredFootAt(text, at, visit) {
+  let start = at;
+  while (start > 0 && /[\d.,]/u.test(text[start - 1])) {
+    visit?.();
+    start--;
+  }
+  FOOT_AT.lastIndex = start;
+  return FOOT_AT.test(text) && FOOT_AT.lastIndex === at + 1 && phoneContextAt(text, start) !== 1;
+}
+
 const AMOUNT_GAP = `[ \\t${G.NBSP}${G.NNBSP}${G.THINSP}]`;
 const AMOUNT_GAP_RE = new RegExp(AMOUNT_GAP, 'u');
 const AMOUNT_PART = new RegExp(`[\\d.,/⁄ \\t${G.NBSP}${G.NNBSP}${G.THINSP}${G.MINUS}-]`, 'u');
@@ -244,7 +322,7 @@ function amountGlyphBefore(text, offset, ctx, visit) {
 
 // Read evidence for the unit without editing any part of the source. A quote
 // interrupts the walk, so separate candidates cannot rescan the same amount.
-export function followsFeet(text, digit, ctx, visit) {
+export function followsFeet(text, digit, ctx, visit, readFoot) {
   const pieces = [];
   let end = digit + 1;
   let tail = end;
@@ -267,7 +345,7 @@ export function followsFeet(text, digit, ctx, visit) {
       }
       return (
         /\d/u.test(before?.glyph ?? '') &&
-        glyph === G.SINGLE_PRIME &&
+        (glyph === G.SINGLE_PRIME || readFoot?.(text, start, visit) === true) &&
         INCH_AMOUNT.test((text.slice(part.end, tail) + pieces.toReversed().join('')).trim())
       );
     }
@@ -287,6 +365,39 @@ export const numberGroup = {
   title: 'Числа, дроби, математические знаки',
   classes: { nowrap: 'white-space:nowrap;' },
   rules: [
+    {
+      id: 'prime',
+      requires: F.DIGIT | F.APOSTROPHE,
+      changesInlineBoundary: true,
+      description: 'Штрих после числа для футов и угловых минут',
+      pattern: FOOT_PATTERN,
+      // The last group of a phone number measures nothing, as its grouping by `nobr` shows a pass later.
+      replacement: (m) =>
+        phoneContextAt(m.at(-1), m.at(-2)) === 1 ? m[0] : `${m[1]}${G.SINGLE_PRIME}`
+    },
+    {
+      id: 'fraction_extended',
+      requires: F.DIGIT | F.SLASH,
+      description: 'Дополнительные дроби: ⅓ ⅔ ⅛ ⅜ ⅝ ⅞',
+      pattern: new RegExp(`(?<!${FRACTION_LEAD})([12]\\/3|[1357]\\/8)(?!${FRACTION_TAIL})`, 'gu'),
+      replacement: (m, ctx) => {
+        const [full, fraction, offset, source] = m;
+        const end = offset + full.length;
+        const held = heldBeforeNowrapEnd(ctx, source, offset - 1);
+
+        return (held !== null && FRACTION_LEAD_RE.test(held)) ||
+          (source[end] === '&' && FRACTION_TAIL_RE.test(keptGlyphAt(source, end).glyph))
+          ? full
+          : EXTENDED_FRACTIONS[fraction];
+      }
+    },
+    {
+      id: 'minus',
+      requires: F.DASH,
+      description: 'Знак отрицательного числа вне диапазона и вычитания',
+      regexes: [...MINUS_PATTERNS, MATH_TAG_RE],
+      handler: negativeNumbers
+    },
     {
       id: 'time',
       requires: F.DIGIT | F.COLON,

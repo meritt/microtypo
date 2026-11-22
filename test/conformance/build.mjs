@@ -19,6 +19,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { BUNDLE_NAMES, SETTING_SELECTORS } from '../../src/core/options.js';
 import { VERSION } from '../../src/index.js';
 import { DEFAULT_GROUPS } from '../../src/rules/registry.js';
+import { ADDED_RULE_PROSE } from '../tools/fuzz/grammar.mjs';
 import { replay } from './replay.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
@@ -461,6 +462,17 @@ function diagnosticCases() {
     }
   ];
   cases.push({
+    name: 'diagnostics-shared-nowrap-handler',
+    text: '+7-999-123-45-67; +7-999-123-45-67',
+    config: {
+      html: true,
+      render: { paragraphs: false },
+      rules: { 'nobr.nowrap_phone_extended': true }
+    },
+    ops: [],
+    options: { trace: true, edits: true }
+  });
+  cases.push({
     name: 'diagnostics-rejected-inline-trial',
     text: '5 <i>руб.</i>',
     config: { html: true, render: { paragraphs: false } },
@@ -546,7 +558,26 @@ function diagnosticCases() {
 }
 
 const captured = captureSuite();
-const all = [...captured, ...generatedCases(prosePool()), ...formatCases(), ...diagnosticCases()];
+const addedRuleCases = [
+  ...ADDED_RULE_PROSE,
+  ['negative-fractions', '-1/3; (-2/3); -⅛; -½; -1½; 10 - 1/3; 1-1/3'],
+  ['adjacent-phone-colon', '+7-999-123-45-67\u{00A0}как то:+7-999-123-45-67'],
+  ['colon-grammar', 'и пр.\u{00A0}КАК ТО:; +7-999-123-45-67\u{00A0}почему\u{00A0}то:']
+].flatMap(([name, text]) =>
+  [false, true].map((html) => ({
+    name: `added-${name}-${html ? 'html' : 'text'}`,
+    text,
+    config: { html },
+    ops: []
+  }))
+);
+const all = [
+  ...captured,
+  ...generatedCases(prosePool()),
+  ...formatCases(),
+  ...addedRuleCases,
+  ...diagnosticCases()
+];
 const unique = new Map();
 
 for (const c of all) {

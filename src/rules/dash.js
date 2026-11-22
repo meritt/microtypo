@@ -222,6 +222,18 @@ export const dashGroup = {
   title: 'Дефисы и тире',
   rules: [
     {
+      id: 'em_triple_hyphen',
+      requires: F.DASH,
+      description: 'Три дефиса между русскими словами в одной строке → тире',
+      // The word between two runs is the right word of the first and the left word of the second,
+      // `ин --- ин---со`.
+      pattern: new RegExp(
+        `(?<![\\p{L}\\d_])([А-ЯЁа-яё]{2,})[ \\t${G.NBSP}]*---[ \\t${G.NBSP}]*(?=[А-ЯЁа-яё]{2,}(?:${CONTENT_END_LOOKAHEAD}|[ \\t${G.NBSP}]*---))`,
+        'gu'
+      ),
+      replacement: `$1${G.NBSP}${G.MDASH} `
+    },
+    {
       id: 'em_double_hyphen',
       projectSpacedYears: true,
       requires: F.DASH,

@@ -1,7 +1,7 @@
 import { vaultedReference } from '../protect/placeholders.js';
 import { CONTENT_END_LOOKAHEAD } from './boundaries.js';
 import { keptReferenceTo } from './character-reference.js';
-import { G } from './glyphs.js';
+import { FRACTION_GLYPHS, G } from './glyphs.js';
 import { inlineTextEnd } from './inline-boundaries.js';
 import {
   DATA_UNITS,
@@ -132,7 +132,8 @@ export function abbreviationPeriod(inlineEnd) {
     MAGNITUDE,
     'сек|шт|экз|чел|мес|нед|дн|коп|руб|р|долл|евро|В|кВт|Вт|га'
   ].join('|');
-  const number = `\\d${tag}${gap}?`;
+  // A fraction the engine writes ends the number as a digit does, `½ у.е.!`.
+  const number = `[\\d${FRACTION_GLYPHS}]${tag}${gap}?`;
   const forms = [
     `(?:[\\s(]|^|${nbsp})${centuryRange(`[-${G.MDASH}${G.NDASH}]|${vaultedReference(G.NDASH)}`)}${centuryMarker(` |${G.NBSP}|${nbsp}`)}`,
     `(?:\\s|^|[.,;:?!])${SURNAME}${tag}${gap}${dottedInitials(gap, tag)}`,

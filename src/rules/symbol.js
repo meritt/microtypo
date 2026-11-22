@@ -1,9 +1,25 @@
 import { G } from '../lib/glyphs.js';
-import { nowrap } from '../lib/nowrap-context.js';
+import { heldBeforeNowrapEnd, nowrap } from '../lib/nowrap-context.js';
 import { F } from '../lib/rule-features.js';
 import { CLOSE, OPEN, TRANSPARENT_TAG_KINDS } from '../protect/placeholders.js';
 
 const GENERATED_SYMBOLS = new Set([G.COPY, G.REG, G.TRADE]);
+const EXTENDED_ARROWS = { '<->': G.HARR, '=>': G.RIMPL, '<=>': G.HEQUIV };
+const EXTENDED_ARROW_LEAD = `>\\s(${G.LAQUO}${G.BDQUO}`;
+const EXTENDED_ARROW_LEAD_RE = new RegExp(`[${EXTENDED_ARROW_LEAD}]`, 'u');
+const PLUS_MINUS_LEAD = `>\\s(${G.LAQUO}${G.BDQUO}:;`;
+const PLUS_MINUS_LEAD_RE = new RegExp(`[${PLUS_MINUS_LEAD}]`, 'u');
+
+// The end tag of the engine's own wrapper leads a mark only where what the wrapper holds last does:
+// `и пр. b</span>=>` stays as `и пр. b=>` left it before `abbr.nowrap_because` wrapped it, and
+// `н. э.</span>+/-` as `нэ.+/-` before `abbr.nowrap_era` did.
+function unlessWrapperEnd(leadRe, replace) {
+  return (m, ctx) => {
+    const held = heldBeforeNowrapEnd(ctx, m.at(-1), m.at(-2) - 1);
+
+    return held !== null && !leadRe.test(held) ? m[0] : replace(m);
+  };
+}
 
 function hasNextCopyrightToken(source, index) {
   return /^\((?:c|с)\)/iu.test(source.slice(index, index + 3));
@@ -75,6 +91,26 @@ export const symbolGroup = {
   title: 'Специальные символы',
   classes: { nowrap: 'white-space:nowrap;' },
   rules: [
+    {
+      id: 'plus_minus_slash',
+      requires: F.MATH | F.SLASH | F.DASH,
+      description: 'Преобразование +/- в ±',
+      pattern: new RegExp(
+        `(?<=^|[${PLUS_MINUS_LEAD}])\\+\\/-(?=$|[\\s\\d).,;:!?${G.RAQUO}${G.LDQUO}]|<\\/)`,
+        'gu'
+      ),
+      replacement: unlessWrapperEnd(PLUS_MINUS_LEAD_RE, () => G.PLUSMN)
+    },
+    {
+      id: 'arrows_extended',
+      requiresAny: F.MATH | F.DASH,
+      description: 'Дополнительные стрелки: <-> → ↔, => → ⇒, <=> → ⇔',
+      pattern: new RegExp(
+        `(?<=^|[${EXTENDED_ARROW_LEAD}])(<=>|<->|=>)(?=$|[\\s).,;:!?${G.RAQUO}${G.LDQUO}]|<\\/)`,
+        'gu'
+      ),
+      replacement: unlessWrapperEnd(EXTENDED_ARROW_LEAD_RE, (m) => EXTENDED_ARROWS[m[1]])
+    },
     {
       id: 'trademark',
       requires: F.PAREN | F.LATIN,

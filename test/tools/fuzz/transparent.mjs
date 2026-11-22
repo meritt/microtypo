@@ -11,7 +11,7 @@ import { isOn } from '../../../src/core/options.js';
 // engine then gives up for no-break spaces. What the engine rewrites is read off its output for the
 // prose itself.
 import { localizationScanner } from '../../../src/input/localization.js';
-import { generateConfig } from './documents.mjs';
+import { generateConfig, withRuleSet } from './documents.mjs';
 import { createGrammar } from './grammar.mjs';
 
 export const TRANSPARENT_FORMATS = ['text', 'html', 'markdown'];
@@ -265,7 +265,7 @@ const REACH = 2;
 // clause behind — never a quote mark, a dot, a bracket, a digit or a hyphen. Not part of a date or an
 // address, not next to a quote mark, and not within `REACH` of a place where the engine rewrote the
 // text: a rule that rewrites words reads the markup around them as it always did.
-function candidates(text, protect, marks, placeholders = 'off') {
+function candidates(text, protect, marks, placeholders = 'all') {
   const scan = localizationScanner(placeholders);
   const guarded = [...guardedRanges(text, protect), ...(scan?.(text) ?? [])];
   const words = [];
@@ -511,12 +511,12 @@ export function proseOf(kase, plain) {
 
 // `generate(format)` is a case: the wrapped prose as `text`. `plain(config, text)` is the output
 // with `config` and no character references, or null.
-export function createTransparent(lexicon, d, plain) {
+export function createTransparent(lexicon, d, plain, ruleSet = 'random') {
   const { int } = d;
   const g = createGrammar(lexicon, d);
 
   return function generate(format) {
-    const config = generateConfig(d, format);
+    const config = withRuleSet(generateConfig(d, format), ruleSet);
     const markdown = format === 'markdown';
     const ctx = g.context({
       comments: false,
