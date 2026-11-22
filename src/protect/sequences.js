@@ -353,14 +353,15 @@ export class SafeSequences {
   #census(text) {
     const nonce = this.#nonce;
     const counts = [0, 0, 0, 0];
+    WHOLE_RE.lastIndex = 0;
 
-    for (const [, lead, url, email, token] of text.matchAll(WHOLE_RE)) {
-      if (url === nonce) {
+    for (let found; (found = WHOLE_RE.exec(text)) !== null;) {
+      if (found[2] === nonce) {
         counts[0] += 1;
-        counts[1] += lead === undefined ? 1 : 0;
-      } else if (email === nonce) {
+        counts[1] += found[1] === undefined ? 1 : 0;
+      } else if (found[3] === nonce) {
         counts[2] += 1;
-      } else if (token === nonce) {
+      } else if (found[4] === nonce) {
         counts[3] += 1;
       }
     }

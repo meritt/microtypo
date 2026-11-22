@@ -1,4 +1,5 @@
 import { G } from '../lib/glyphs.js';
+import { F } from '../lib/rule-features.js';
 import { OPEN, CLOSE } from '../protect/placeholders.js';
 
 const GAP_RE = /[ \t]+/g;
@@ -20,6 +21,7 @@ export const numberGroup = {
   rules: [
     {
       id: 'time',
+      requires: F.DIGIT | F.COLON,
       description: 'Нормализация времени: 08 : 59 → 08:59, 9:30 не трогаем',
       // Runs before `space.trim_before_punctuation`, so both sides collapse at once.
       pattern: /(?<![\d:])(\d{1,2})\s*:\s*(\d{2})(?:\s*:\s*(\d{2}))?(?![\d:])/g,
@@ -31,6 +33,7 @@ export const numberGroup = {
     },
     {
       id: 'en_range',
+      requires: F.DIGIT | F.DASH,
       description: 'Среднее тире для диапазонов чисел: 100-500 → 100–500',
       // The lookarounds exclude longer digit-dash chains — phones, ISO dates — so only a lone
       // `NNN-NNN` range matches.
@@ -39,6 +42,7 @@ export const numberGroup = {
     },
     {
       id: 'minus_range',
+      requires: F.DIGIT | F.DASH,
       description: 'Минус между диапазоном чисел',
       pattern: /(^|\s)([−-])(\d+)(\.\.\.|…)(\s)?(\+|-|−)?(\d+)/gu,
       replacement: (m) => {
@@ -50,6 +54,7 @@ export const numberGroup = {
     },
     {
       id: 'times',
+      requires: F.DIGIT,
       description: 'x на × в размерных единицах',
       cycled: true,
       pattern: /([^a-zA-Z><]|^)(×)?(?<!\d)(\d+)( *)(x|х|×)( *)(\d+)([^a-zA-Z><]|$)/gu,
@@ -57,6 +62,7 @@ export const numberGroup = {
     },
     {
       id: 'sub',
+      requires: F.DIGIT | F.UNDERSCORE,
       description: 'Нижний индекс',
       // Under `html: false` the consumed `_` marker would vanish and corrupt the input.
       htmlOnly: true,
@@ -69,6 +75,7 @@ export const numberGroup = {
     },
     {
       id: 'sup',
+      requires: F.DIGIT | F.CARET,
       description: 'Верхний индекс',
       htmlOnly: true,
       pattern: /([a-zа-яё0-9])\^(\d{1,3})([^а-яёa-z0-9]|$)/giu,
@@ -80,6 +87,7 @@ export const numberGroup = {
     },
     {
       id: 'fraction',
+      requires: F.DIGIT | F.SLASH,
       description: 'Дроби 1/2, 1/4, 3/4 → символы (кроме дюймов)',
       // Trailing negative lookahead keeps longer numbers (1/24) and inch marks (3/4″) intact.
       pattern: [/(^|\D)1\/2(?![\d"″′])/g, /(^|\D)1\/4(?![\d"″′])/g, /(^|\D)3\/4(?![\d"″′])/g],
@@ -87,6 +95,7 @@ export const numberGroup = {
     },
     {
       id: 'math',
+      requires: F.MATH,
       description: 'Математические знаки: !=, <=, >=, ~=, +-',
       // >= excludes PUA chars so it can't eat a tag-placeholder > (CLOSE precedes it).
       // No == → ≡: it would eat a Markdown setext underline and ==highlight== markers. ≡ needs no
@@ -102,6 +111,7 @@ export const numberGroup = {
     },
     {
       id: 'thin_space_triads',
+      requires: F.DIGIT | F.SPACE,
       description: 'Триады чисел через узкий неразрывный пробел',
       // The lookarounds skip digit-space chains, so phone numbers and IBANs — non-triadic groups —
       // are left whole. The letter guard is the one `split_triads` already carries: digits stuck to a
@@ -130,12 +140,14 @@ export const numberGroup = {
     },
     {
       id: 'nbsp_numero',
+      requires: F.DIGIT | F.NUMERO,
       description: 'Узкий неразрывный пробел между № и числом',
       pattern: /[№]\s*(\d)/gu,
       replacement: `${G.NUMERO}${G.NNBSP}$1`
     },
     {
       id: 'nbsp_section',
+      requires: F.SECTION,
       description: 'Узкий неразрывный пробел между § и числом',
       pattern: /§\s*(\d+|[IVX]+|[a-zа-яё]+)/giu,
       replacement: `${G.SECT}${G.NNBSP}$1`

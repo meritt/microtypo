@@ -9,6 +9,7 @@ export class Vault {
   #byContent = new Map();
   #prefix;
   #restoreRe;
+  #restoreZeroRe;
 
   // Per-vault prefix keeps placeholder kinds distinguishable when they coexist in one text, so every
   // one of them has to be taken exactly once. In use: `T` tags, `A` anchors, `L` block-level tags,
@@ -19,6 +20,9 @@ export class Vault {
   constructor(prefix) {
     this.#prefix = prefix;
     this.#restoreRe = placeholderRegex(prefix);
+    this.#restoreZeroRe = /^[A-Za-z]+$/u.test(prefix)
+      ? new RegExp(`${OPEN}${prefix}0+${CLOSE}`, 'g')
+      : null;
   }
 
   // The same content returns the same placeholder, which rules that build a sample tag and re-scan
@@ -63,6 +67,18 @@ export class Vault {
   restoreAll(text) {
     this.#restoreRe.lastIndex = 0;
     const entries = this.#entries;
+
+    if (entries.length === 0) {
+      return text;
+    }
+    if (
+      entries.length === 1 &&
+      this.#restoreZeroRe !== null &&
+      typeof entries[0] === 'string' &&
+      !entries[0].includes('$')
+    ) {
+      return text.replace(this.#restoreZeroRe, entries[0]);
+    }
 
     return text.replace(this.#restoreRe, (m, id) => {
       const value = entries[Number(id)];

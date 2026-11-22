@@ -4,6 +4,7 @@ import {
   WRAPPER_START_GROUP
 } from '../lib/boundaries.js';
 import { G } from '../lib/glyphs.js';
+import { F } from '../lib/rule-features.js';
 import {
   CLOSE,
   OPEN,
@@ -126,6 +127,7 @@ export const abbrGroup = {
   rules: [
     {
       id: 'nbsp_dpi',
+      requires: F.DIGIT | F.LATIN,
       description: 'Пробел перед сокращениями dpi, lpi',
       pattern: new RegExp(
         `${CONTENT_START_GROUP}(\\d+)( |\\t)*(dpi|lpi)${CONTENT_END_LOOKAHEAD}`,
@@ -136,6 +138,7 @@ export const abbrGroup = {
     // A glued abbreviation must release the number before the unit rules read it: `п.3 т`.
     {
       id: 'nbsp_short_acronym',
+      requires: F.DIGIT | F.PERIOD,
       description: 'Пробел перед сокращениями гл., стр., рис., илл., ст., п.',
       pattern: new RegExp(
         `${CONTENT_START_GROUP}(гл|стр|рис|илл?|ст|п|с)\\.( |\\t)*(\\d+)${CONTENT_END_LOOKAHEAD}`,
@@ -145,6 +148,7 @@ export const abbrGroup = {
     },
     {
       id: 'nbsp_reference',
+      requires: F.PERIOD,
       description: 'Пробел перед сокращениями см., им.',
       pattern: new RegExp(
         `${CONTENT_START_GROUP}(см|им)\\.( |\\t)*([а-яё0-9a-z]+)${CONTENT_END_LOOKAHEAD}`,
@@ -154,6 +158,7 @@ export const abbrGroup = {
     },
     {
       id: 'nbsp_location',
+      requiresAny: F.PERIOD | F.DASH,
       description: 'Пробелы в сокращениях г., ул., пер., д.',
       pattern: [
         // Before a postal index `г.` is the city: case-sensitive, for the capital of its name.
@@ -181,6 +186,7 @@ export const abbrGroup = {
     },
     {
       id: 'nbsp_unit',
+      requires: F.DIGIT,
       description: 'Привязка размерных сокращений (длина, скорость)',
       pattern: [
         unitBind('м|мм|см|дм|км|гм|km|dm|cm|mm'),
@@ -202,6 +208,7 @@ export const abbrGroup = {
     },
     {
       id: 'nbsp_fraction_unit',
+      requires: F.FRACTION | F.SPACE,
       description: 'Неразрывный пробел между дробью и единицей',
       pattern: new RegExp(
         `([${G.FRAC12}${G.FRAC14}${G.FRAC34}])( )(кг|мг|км|мм|см|дм|гм|г|м|т)(?![а-яё])`,
@@ -211,24 +218,28 @@ export const abbrGroup = {
     },
     {
       id: 'nbsp_weight_unit',
+      requires: F.DIGIT,
       description: 'Привязка весовых сокращений',
       pattern: unitBind('г|кг|мг|т'),
       replacement: bindWeight
     },
     {
       id: 'nbsp_volume_unit',
+      requires: F.DIGIT,
       description: 'Привязка мер объёма',
       pattern: unitBind('мл|л'),
       replacement: BIND_UNIT
     },
     {
       id: 'nbsp_time_unit',
+      requires: F.DIGIT,
       description: 'Привязка мер времени',
       pattern: unitBind('мин|ч'),
       replacement: BIND_UNIT
     },
     {
       id: 'nbsp_data_unit',
+      requires: F.DIGIT,
       description: 'Неразрывный пробел перед единицами данных: 7 ГБ, 100 Мбит, 5 ТБ/с',
       // Alternation sorted longest-first so longer units win (Мбит before М).
       pattern: unitBind(
@@ -239,12 +250,15 @@ export const abbrGroup = {
     },
     {
       id: 'nbsp_frequency_unit',
+      requiresAny: F.DIGIT | F.PERIOD | F.COMMA,
       description: 'Неразрывный пробел перед частотами: 100 МГц, 2.4 ГГц',
       pattern: unitBind('(?:к|М|Г|Т)?Гц|(?:k|M|G|T)?Hz', DECIMAL_UNIT),
       replacement: BIND_UNIT
     },
     {
       id: 'nbsp_css_unit',
+      requires: F.LATIN,
+      requiresAny: F.DIGIT | F.PERIOD | F.COMMA,
       description: 'Неразрывный пробел перед CSS-единицами: 16 px, 1.5 em',
       pattern: unitBind(
         'px|pt|pc|em|rem|vh|vw|vmin|vmax|vi|vb|svh|svw|lvh|lvw|dvh|dvw|ch|ex|cap|ic|lh|rlh|fr|deg|rad|grad|turn|s|ms',
@@ -254,6 +268,7 @@ export const abbrGroup = {
     },
     {
       id: 'nbsp_volt',
+      requires: F.DIGIT,
       description: 'Сокращение «вольт»',
       // Lookbehind anchors the digit-run start to keep matching linear (avoids O(n^2) retries).
       pattern: new RegExp(`(?<!\\d)(\\d+)([вВ]| В)${CONTENT_END_LOOKAHEAD}`, 'gu'),
@@ -261,6 +276,7 @@ export const abbrGroup = {
     },
     {
       id: 'nbsp_magnitude',
+      requires: F.DIGIT,
       description: 'Неразрывный пробел между числом и величиной: 23тыс. → 23 тыс.',
       // Closed set only; (?![а-яё]) keeps it off full words like тысяча.
       pattern: /(\d)(млрд|трлн|млн|тыс)(?![а-яё])/giu,
@@ -268,6 +284,7 @@ export const abbrGroup = {
     },
     {
       id: 'nowrap_postscript',
+      requires: F.PERIOD | F.LATIN,
       description: 'P.S., P.P.S.',
       pattern: /(^| |\t|>|\r|\n)(p\. ?)(p\. ?)?(s\.)([^<])/gi,
       replacement: (m, ctx) => {
@@ -279,6 +296,7 @@ export const abbrGroup = {
     },
     {
       id: 'nowrap_etc',
+      requires: F.SPACE,
       description: 'и т. д., и т. п., в т. ч.',
       cycled: true,
       // Shared left boundary, like the measurement rules above, so `(и т. д.)` and `«и т. д.»` bind
@@ -311,12 +329,14 @@ export const abbrGroup = {
     },
     {
       id: 'nowrap_ie',
+      requires: F.PERIOD,
       description: 'т. е.',
       pattern: new RegExp(`${WRAPPER_START_GROUP}([тТ])\\.?[ ]?е\\.`, 'gu'),
       replacement: (m, ctx) => `${m[1]}${ctx.tag(`${m[2]}. е.`, 'span', { class: 'nowrap' })}`
     },
     {
       id: 'nowrap_era',
+      requires: F.PERIOD,
       description: 'до н. э. / н. э.',
       // `н. э.` behind a `до ` the rule left alone is that phrase's end, already in the wrapper the
       // whole phrase stands in.
@@ -328,12 +348,14 @@ export const abbrGroup = {
     },
     {
       id: 'nbsp_honorific',
+      requires: F.DASH | F.SPACE,
       description: 'г-н, г-жа',
       pattern: new RegExp(`${CONTENT_START_GROUP}([гГ])-(н|жа)( |${G.NBSP})`, 'gu'),
       replacement: `$1$2-$3${G.NBSP}`
     },
     {
       id: 'currency',
+      requires: F.DIGIT,
       description: 'Нормализация словесной валюты в символ + неразрывный пробел: 100 руб. → 100 ₽',
       // Spelled-out forms first, so `долларов` is not eaten as `долл.`; the abbreviated forms follow
       // and carry their own period. The trailing `(?![а-яёa-z])` stops a match inside a longer word —
@@ -361,6 +383,7 @@ export const abbrGroup = {
     },
     {
       id: 'nbsp_money_magnitude',
+      requires: F.DIGIT,
       description: 'Денежные сокращения с тыс/млн/млрд + у.е.',
       pattern:
         /(\d)(( |\u{00A0})?(тыс|млн|млрд)\.?( |\u{00A0})?)?( |\u{00A0})?у\.? ?е\.?(?=\s|$)/giu,
@@ -373,6 +396,7 @@ export const abbrGroup = {
     },
     {
       id: 'nbsp_currency_prefix',
+      requires: F.DIGIT | F.MONEY,
       description: 'Привязка валюты к числу спереди: $100 → $ 100',
       // A sign behind a number belongs to it, read through the tags a wrapped number closes and
       // through the no-break space as the reference XML writes it.
@@ -384,12 +408,14 @@ export const abbrGroup = {
     },
     {
       id: 'nbsp_organization',
+      requires: F.SPACE,
       description: 'Привязка форм собственности (ООО, ЗАО, …)',
       pattern: /(?<![a-zA-Zа-яёА-ЯЁ])(ООО|ЗАО|ОАО|НИИ|ПБОЮЛ) (?=[a-zA-Zа-яёА-ЯЁ"«„<])/gu,
       replacement: `$1${G.NBSP}`
     },
     {
       id: 'nowrap_gost',
+      requires: F.DIGIT,
       description: 'ГОСТ + номер (case-insensitive — нормализуем регистр)',
       pattern: [
         /( |\t|\u{00A0}|^)ГОСТ( |\u{00A0})?(\d+(?:\.\d+)*)(([-−—–])(\d+))?(( |\u{00A0})([-—]))?/giu,

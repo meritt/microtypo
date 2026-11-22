@@ -6,6 +6,7 @@ import {
   VOID_TAG_NAMES
 } from '../lib/block-tags.js';
 import { G } from '../lib/glyphs.js';
+import { F } from '../lib/rule-features.js';
 import { count, lineView } from '../lib/strings.js';
 import {
   PARAGRAPH_OPEN,
@@ -1008,6 +1009,7 @@ export const textGroup = {
   rules: [
     {
       id: 'autolink',
+      requires: F.COLON | F.SLASH,
       description: 'Выделение ссылок из текста',
       htmlOnly: true,
       // The body excludes `"'<>` so a URL cannot break out of the href attribute, and the reserved
@@ -1049,6 +1051,7 @@ export const textGroup = {
     },
     {
       id: 'email',
+      requires: F.AT | F.PERIOD,
       description: 'Выделение эл. почты из текста',
       htmlOnly: true,
       // Closing boundary is a lookahead for the same reason as autolink: two addresses parted by one
@@ -1064,6 +1067,7 @@ export const textGroup = {
     },
     {
       id: 'deduplicate_words',
+      requires: F.SPACE,
       description: 'Удаление повторяющихся слов',
       enabled: false,
       // Writes no markup, but runs with the rest of its group, which plain-text output goes without.

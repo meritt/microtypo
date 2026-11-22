@@ -1,5 +1,6 @@
 import { CONTENT_START_GROUP } from '../lib/boundaries.js';
 import { G } from '../lib/glyphs.js';
+import { F } from '../lib/rule-features.js';
 import { collapsesAsRepeat } from './punctmark.js';
 
 // The zone list and URL_REGEX's scheme-less branch answer different questions and cannot share a
@@ -228,6 +229,7 @@ export const spaceGroup = {
   rules: [
     {
       id: 'nbsp_two_letter',
+      requires: F.SPACE,
       description: 'Неразрывный пробел перед 2-символьной аббревиатурой',
       // Both boundaries are lookarounds: consumed, the shared space of an acronym run would strand
       // the middle one.
@@ -236,6 +238,9 @@ export const spaceGroup = {
     },
     {
       id: 'trim_before_punctuation',
+      requires: F.SPACE,
+      requiresAny:
+        F.COMMA | F.COLON | F.PERIOD | F.SEMICOLON | F.QUESTION | F.EXCLAMATION | F.ELLIPSIS,
       description: 'Удаление пробела перед знаками препинания',
       // `(?<!\.\.)` excludes only the `?..` and `!..` suspension marks and not periods in general, so
       // abbreviation trims still fire.
@@ -248,6 +253,7 @@ export const spaceGroup = {
     },
     {
       id: 'space_after_comma',
+      requires: F.COMMA,
       description: 'Пробел после запятой',
       // A gap is matched from its first character only: tried from every one, a long gap with no
       // comma behind it is reread to its end each time.
@@ -259,6 +265,7 @@ export const spaceGroup = {
     },
     {
       id: 'space_after_punctuation',
+      requiresAny: F.COLON | F.PAREN | F.COMMA | F.ELLIPSIS | F.EXCLAMATION | F.QUESTION,
       description: 'Пробел после знаков пунктуации, кроме точки',
       pattern:
         /( |\t|\u{00A0}|^|\n)([a-zа-яё0-9]+)( |\t|\u{00A0})?(:|\)|,|…|(?:!|\?)+)([а-яёa-z])/giu,
@@ -266,6 +273,7 @@ export const spaceGroup = {
     },
     {
       id: 'space_after_period',
+      requires: F.PERIOD,
       description: 'Пробел после точки',
       // Both branches ask the same question, so they hand it to one callback: the gap the long
       // branch tolerates is non-capturing, which puts the host, the zone and the follower in the
@@ -286,18 +294,22 @@ export const spaceGroup = {
     },
     {
       id: 'space_after_ellipsis',
+      requires: F.PERIOD,
+      requiresAny: F.QUESTION | F.EXCLAMATION,
       description: 'Пробел после троеточий с восклицанием/вопросом',
       pattern: /([?!]\.\.)([а-яёa-z])/giu,
       replacement: '$1 $2'
     },
     {
       id: 'collapse_spaces',
+      requires: F.SPACE,
       description: 'Удаление лишних пробельных символов и табуляций',
       pattern: /( |\t)+/g,
       replacement: ' '
     },
     {
       id: 'strip_quote_padding',
+      requires: F.SPACE | F.QUOTE,
       description: 'Удаление пробелов сразу после открывающей и перед закрывающей кавычкой',
       // The gap before a closing quote is matched from its first character only, as in
       // `space_after_comma`.
@@ -306,6 +318,7 @@ export const spaceGroup = {
     },
     {
       id: 'trim_before_percent',
+      requires: F.DIGIT | F.PERCENT,
       description: 'Удаление пробела перед %',
       // Intentional: strict typesetting wants 5 %, but modern Russian web practice glues 5%.
       pattern: /(?<!\d)(\d+)([\t ]+)%/g,
@@ -313,6 +326,7 @@ export const spaceGroup = {
     },
     {
       id: 'nbsp_before_quote',
+      requires: F.SPACE | F.QUOTE,
       description: 'Неразрывный пробел перед открывающей кавычкой',
       // The shared left boundary carries brackets and a newline, so `(в «Амбере»)` and a short word
       // opening a second line lose the same breakable space a bare one does. The quote is only looked
@@ -327,6 +341,7 @@ export const spaceGroup = {
     },
     {
       id: 'nbsp_before_month',
+      requires: F.DIGIT | F.SPACE,
       description: 'Неразрывный пробел в датах перед месяцем',
       pattern:
         /(\d)(\s)+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)([^<]|$)/giu,
@@ -334,24 +349,28 @@ export const spaceGroup = {
     },
     {
       id: 'trim_line_end',
+      requires: F.SPACE,
       description: 'Удаление пробелов в конце текста',
       pattern: /(?<! ) +$/g,
       replacement: ''
     },
     {
       id: 'no_space_after_opening_ellipsis',
+      requires: F.ELLIPSIS,
       description: 'Отсутствие пробела после … после открывающей кавычки',
       pattern: /([«„(])( |\u{00A0})?…( |\u{00A0})?([a-zа-яё])/giu,
       replacement: `$1${G.HELLIP}$4`
     },
     {
       id: 'trim_before_parenthetical_ellipsis',
+      requires: F.ELLIPSIS | F.PAREN,
       description: 'Удаление пробела перед многоточием в конце скобок',
       pattern: /([a-zа-яё0-9])(?: |\t|\u{00A0})+…(\))/giu,
       replacement: `$1${G.HELLIP}$2`
     },
     {
       id: 'space_after_year',
+      requires: F.DIGIT,
       description: 'Пробел после года',
       pattern: /(^| |\u{00A0})([0-9]{3,4})(год([ауе]|ом)?)([^a-zа-яё]|$)/giu,
       replacement: '$1$2 $3$5'

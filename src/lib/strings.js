@@ -1,10 +1,10 @@
 export function cycle(text, fn, maxIter = 100, onLimit, checkBudget) {
   let current = text;
+  checkBudget?.('cycle');
 
   for (let i = 0; i < maxIter; i++) {
-    checkBudget?.('cycle');
-
     const next = fn(current);
+    checkBudget?.('cycle');
 
     if (next === current) {
       return current;

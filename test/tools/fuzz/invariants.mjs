@@ -13,7 +13,8 @@ export const NAMES = {
   protected: 'защищённое байт в байт',
   shape: 'форма документа',
   idempotence: 'идемпотентность',
-  transparent: 'строчная разметка прозрачна'
+  transparent: 'строчная разметка прозрачна',
+  filtering: 'отсев не меняет вывод'
 };
 
 const TRACES = [
@@ -244,7 +245,7 @@ export function silence(format, seconds) {
 // configuration and returns every invariant it breaks. The last instance is kept, since shrinking
 // asks about one configuration many times over. `restart` runs before the first pass, so what a case
 // gives depends on the case alone.
-export function createChecker(MicroTypo, restart) {
+export function createChecker(MicroTypo, restart, unfiltered) {
   let cachedKey = null;
   let cached = null;
 
@@ -296,6 +297,43 @@ export function createChecker(MicroTypo, restart) {
     );
   };
 
+  function checkFiltering({ config, text }) {
+    const run = (withoutFilter) => {
+      try {
+        const typo = engine(config);
+        restart();
+        return {
+          output: withoutFilter ? unfiltered(() => typo.process(text)) : typo.process(text)
+        };
+      } catch (error) {
+        return {
+          error: {
+            name: error?.name,
+            code: error?.code,
+            message: error?.message,
+            details: error?.details
+          }
+        };
+      }
+    };
+
+    const filtered = run(false);
+    const full = run(true);
+    if (isDeepStrictEqual(filtered, full)) {
+      return null;
+    }
+
+    return {
+      invariant: 'filtering',
+      key: 'filtering',
+      fingerprint:
+        typeof filtered.output === 'string' && typeof full.output === 'string'
+          ? firstEdit(filtered.output, full.output)
+          : classes(firstDifference(filtered, full)),
+      detail: firstDifference(filtered, full)
+    };
+  }
+
   // `only` names the one invariant a caller asks about, so shrinking does not pay for the others.
   function check(kase, only = null) {
     if (only === 'transparent') {
@@ -327,6 +365,13 @@ export function createChecker(MicroTypo, restart) {
         }
       } catch {
         // As above.
+      }
+    }
+
+    if (only === null || only === 'filtering') {
+      const violation = checkFiltering(kase);
+      if (violation !== null) {
+        result.violations.push(violation);
       }
     }
 

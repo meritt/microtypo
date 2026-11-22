@@ -23,6 +23,8 @@ import { scanYaml } from './input/yaml.js';
 import { BLOCK_TAG_NAMES, VOID_BLOCK_TAG_NAMES } from './lib/block-tags.js';
 import { changedRanges } from './lib/diff.js';
 import { G, unicodeToEntities, unicodeToXmlEntities } from './lib/glyphs.js';
+import { bindRuleBudget } from './lib/rule-budget.js';
+import { F, featureMask } from './lib/rule-features.js';
 import { edgeWhitespace, leadingIndent, trimBlankLines } from './lib/strings.js';
 import { SafeBlocks, scanHtmlComments, scanLineIndent } from './protect/blocks.js';
 import { TokenBudget } from './protect/forgery.js';
@@ -33,6 +35,7 @@ import { tagSpans } from './protect/tag-spans.js';
 import { assertTagName, SafeTags } from './protect/tags.js';
 import {
   compileRuleGroup,
+  canRunRuleGroup,
   describeRuleGroup,
   isRuleOn,
   runRuleGroup,
@@ -116,6 +119,7 @@ export class MicroTypo {
   #presets;
   #select;
   #processing = false; // reentrancy guard
+  #customProtection = false;
   // Whether a fragment of the current document can carry a reserved character. Only a JSON value
   // can hold one its document does not spell, since `JSON.parse` decodes ``; elsewhere one look
   // at the document spares a structured format the check on every value.
@@ -388,12 +392,14 @@ export class MicroTypo {
   // about who registered the tag.
   addSafeTag(tag) {
     this.#safeBlocks.addTag(tag, { formFeed: this.#input.format !== 'xml' });
+    this.#customProtection = true;
 
     return this;
   }
 
   addSafeBlock({ id, open, close, unsafeRegex = false }) {
     this.#safeBlocks.add({ id, open, close, unsafeRegex });
+    this.#customProtection = true;
 
     return this;
   }
@@ -588,7 +594,6 @@ export class MicroTypo {
 
     this.#processing = true;
 
-    // Small input can still burn CPU, so budget wall-clock between groups.
     const checkBudget = budgetCheck(this.#maxProcessingMs, performance.now());
     let result;
 
@@ -599,6 +604,7 @@ export class MicroTypo {
     try {
       this.#reservedPossible = this.#input.format === 'json' || hasReserved(text);
       result = bom + this.#typeset(text.slice(bom.length), checkBudget);
+      checkBudget('restore');
     } finally {
       this.#processing = false;
     }
@@ -744,9 +750,15 @@ export class MicroTypo {
       return value;
     }
 
+    const core = value.slice(start, end);
+    if (session.canSkipValue(core)) {
+      checkBudget('data-value');
+      return value;
+    }
+
     return (
       value.slice(0, start) +
-      this.#runPipeline(value.slice(start, end), session, checkBudget, {
+      this.#runPipeline(core, session, checkBudget, {
         destination: 'data-value'
       }).trim() +
       value.slice(end)
@@ -982,12 +994,17 @@ export class MicroTypo {
   // `ctx` a handler could clear the credit, credit itself a forged token, or switch tracking off.
   #makeSession(hook, checkBudget) {
     const self = this;
+    const ruleBudget = this.#maxProcessingMs > 0 ? checkBudget : null;
     // What the running custom group may keep, and null while a builtin one runs — those are trusted
     // and neither budgeted nor scrubbed.
     let budget = null;
     // The fragment's lifting of inline markup (see `inline-lift.js`), closed over for the same reason
     // as the accounting: a handler that could reach it could hand a builtin group forged tokens.
     let inline = null;
+    const features =
+      typeof hook !== 'function' && [...this.#groups.values()].every((group) => group.builtin)
+        ? { text: null, mask: 0, previousText: null, previousMask: 0 }
+        : null;
 
     // A wrapper a builtin group minted keeps its place when the markup around it is lifted, and the
     // rule that minted it on the lifted text is checked for crossing the author's tags. A custom
@@ -1130,6 +1147,8 @@ export class MicroTypo {
       checkBudget: checkBudget ?? null
     };
 
+    bindRuleBudget(ctx, ruleBudget);
+
     const keep = (before, after, rerun) => self.#safeSequences.keep(before, after, rerun);
 
     if (BLOCK_RENDER_FORMATS.has(self.#input.format)) {
@@ -1141,6 +1160,24 @@ export class MicroTypo {
 
     return {
       ctx,
+
+      canSkipValue(value) {
+        if (
+          self.#customProtection ||
+          features === null ||
+          (featureMask(value, features) & F.SOURCE) !== 0
+        ) {
+          return false;
+        }
+
+        for (const name of self.#order) {
+          const group = self.#groups.get(name);
+          if (group && canRunRuleGroup(group, value, features, false)) {
+            return false;
+          }
+        }
+        return true;
+      },
 
       // Inline markup is lifted for the rules of a fragment typeset for a document; an XML
       // destination reads its elements by a vocabulary of its own, and stays as it is.
@@ -1176,14 +1213,14 @@ export class MicroTypo {
       runStep(group, step, text) {
         ctx.group = group.view;
 
-        return runStep(step, text, ctx, keep, inline);
+        return runStep(step, text, ctx, keep, inline, features, ruleBudget);
       },
 
       // A custom group's return value is untrusted and is scrubbed against its own input; a builtin
       // group is trusted and skips both the scrub and the accounting.
       runGroup(group, text) {
         if (group.builtin) {
-          return runRuleGroup(group, text, ctx, keep, inline);
+          return runRuleGroup(group, text, ctx, keep, inline, features, ruleBudget);
         }
 
         // One budget per run: opened on the text this group was handed and dropped after it, so no
@@ -1191,7 +1228,7 @@ export class MicroTypo {
         budget = new TokenBudget(text, self.#safeSequences.restoreRegexes);
 
         try {
-          const after = runRuleGroup(group, text, ctx);
+          const after = runRuleGroup(group, text, ctx, null, null, null, ruleBudget);
 
           // A group that minted nothing, handed nothing in and changed nothing has nothing to scrub,
           // and the scrub is six passes over the whole text.

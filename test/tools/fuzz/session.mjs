@@ -27,8 +27,8 @@ export function groupOf(violation, blame) {
 // `onCase(index)` is told of every case begun, with its index in a scan and -1 otherwise.
 export async function createSession({ seed, format = null, coverage = false, onCase = () => {} }) {
   const lexicon = loadLexicon();
-  const { MicroTypo, restart } = await loadEngine();
-  const checker = createChecker(MicroTypo, restart);
+  const { MicroTypo, restart, unfiltered } = await loadEngine();
+  const checker = createChecker(MicroTypo, restart, unfiltered);
   const cover = coverage ? createCoverage(MicroTypo, restart) : null;
 
   const caseAt = (index) => {

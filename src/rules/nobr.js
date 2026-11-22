@@ -1,5 +1,6 @@
 import { CONTENT_END_LOOKAHEAD, CONTENT_OPEN_BRACKETS, CONTENT_START } from '../lib/boundaries.js';
 import { G } from '../lib/glyphs.js';
+import { F } from '../lib/rule-features.js';
 import { CLOSE } from '../protect/placeholders.js';
 import { PARTICLE } from './space.js';
 
@@ -80,6 +81,7 @@ export const nobrGroup = {
   rules: [
     {
       id: 'nbsp_short_word',
+      requires: F.SPACE,
       description: 'Привязка союзов и предлогов к следующему слову',
       // Not `CONTENT_START`: that one starts with `\s`, which matches a non-breaking space, and this
       // rule must not glue across one it already wrote. So the whitespace half stays ASCII-only and
@@ -102,12 +104,14 @@ export const nobrGroup = {
     },
     {
       id: 'nbsp_final_word',
+      requires: F.SPACE | F.PERIOD,
       description: 'Привязка предлогов к предыдущему слову в конце предложения',
       pattern: /((?<![a-zа-яё0-9-])[a-zа-яё0-9-]{3,}) ([a-zа-яё]{1,2})\.( [A-ZА-ЯЁ]|$)/gu,
       replacement: `$1${G.NBSP}$2.$3`
     },
     {
       id: 'nowrap_phone',
+      requires: F.DIGIT,
       description: 'Неразрывные номера телефонов',
       pattern: [
         /([^\d+]|^)(\+?[0-9]{1,3})( |\u{00A0}|\u{2009})([0-9]{3,4}|\([0-9]{3,4}\))( |\u{00A0}|\u{2009})([0-9]{2,3})([-−])([0-9]{2})([-−])([0-9]{2})([^\d]|$)/gu,
@@ -124,6 +128,7 @@ export const nobrGroup = {
     },
     {
       id: 'nowrap_phone_alt',
+      requires: F.DIGIT | F.MATH | F.PAREN,
       description: 'Доп. формат номеров телефонов',
       pattern: /([^\d]|^)\+\s?([0-9]{1})\s?\(([0-9]{3,4})\)\s?(\d{3})(\d{2})(\d{2})([^\d]|$)/gi,
       replacement: (m, ctx) => {
@@ -134,12 +139,14 @@ export const nobrGroup = {
     },
     {
       id: 'nowrap_ip',
+      requires: F.DIGIT | F.PERIOD,
       description: 'Объединение IP-адресов',
       pattern: /(\s|\u{00A0}|^)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/gu,
       replacement: (m, ctx) => `${m[1]}${ipNowrap(ctx, m[2])}`
     },
     {
       id: 'initials_dots',
+      requires: F.SPACE,
       description: 'Простановка точек к инициалам у фамилии',
       enabled: false,
       pattern: [
@@ -155,6 +162,7 @@ export const nobrGroup = {
     },
     {
       id: 'nowrap_initials',
+      requiresAny: F.SPACE | F.PERIOD,
       description: 'Привязка инициалов к фамилиям',
       pattern: [
         /(\s|^|\.|,|;|:|\?|!)([А-ЯЁ])\.(\s)?([А-ЯЁ])\.(\s)?([А-ЯЁ][а-яё]+)(\s|$|\.|,|;|:|\?|!)/gu,
@@ -175,6 +183,7 @@ export const nobrGroup = {
     },
     {
       id: 'nbsp_particle',
+      requires: F.SPACE,
       description: 'Неразрывный пробел перед частицей',
       // At the end of the text, before `!` and before `)` only a lowercase particle after a word
       // binds: `а - б` and `зон А и Б` end in a letter, not the particle.
@@ -199,6 +208,7 @@ export const nobrGroup = {
     },
     {
       id: 'nbsp_after_particle',
+      requires: F.SPACE | F.DASH,
       description: 'Неразрывный пробел после усилительной частицы: Поди-кась так → Поди-кась так',
       // The leading boundary anchors the match start, so the greedy `[а-яё]+` cannot retry from every
       // offset. Both boundaries are only looked at: the word after the gap may be the next particle
@@ -208,12 +218,14 @@ export const nobrGroup = {
     },
     {
       id: 'nbsp_namely',
+      requires: F.SPACE | F.COLON,
       description: 'Неразрывный пробел в "как то"',
       pattern: /как то:/giu,
       replacement: `как${G.NBSP}то:`
     },
     {
       id: 'nbsp_celsius',
+      requires: F.DIGIT | F.DEGREE,
       description: 'Привязка градусов к числу (включая ±, +, − перед числом)',
       // A temperature is a measurement like any other, so it shares the boundary sets and `(20 °C)`
       // gets the non-breaking space a bare `20 °C` does. `+` and `±` are extra here — a signed
@@ -227,6 +239,7 @@ export const nobrGroup = {
     },
     {
       id: 'nowrap_hyphen_short',
+      requires: F.DASH,
       description: 'Пятисимвольные слова с дефисом в неразрывные блоки',
       enabled: false,
       cycled: true,
@@ -236,6 +249,7 @@ export const nobrGroup = {
     },
     {
       id: 'nowrap_hyphen',
+      requires: F.DASH,
       description: 'Отмена переноса слова с дефисом',
       enabled: false,
       cycled: true,

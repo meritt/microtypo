@@ -1,5 +1,6 @@
 import { CONTENT_END_LOOKAHEAD, CONTENT_START_GROUP } from '../lib/boundaries.js';
 import { G } from '../lib/glyphs.js';
+import { F } from '../lib/rule-features.js';
 import { CLOSE, OPEN, TRANSPARENT_TAG_KINDS, vaultedReference } from '../protect/placeholders.js';
 
 // The trailing boundary is a lookahead, so there is nothing to put back on the right. The leading
@@ -141,6 +142,7 @@ export const dashGroup = {
   rules: [
     {
       id: 'em_double_hyphen',
+      requires: F.DASH,
       description: 'Двойной дефис → тире (как в markdown/AsciiDoc)',
       // The closing boundary is a lookahead: consuming the space would eat the one the next `--`
       // needs as its own opening boundary, so `-- -- --` would convert every other one.
@@ -152,6 +154,7 @@ export const dashGroup = {
     },
     {
       id: 'en_range',
+      requires: F.DIGIT | F.DASH,
       description: 'Диапазон чисел с пробелами вокруг дефиса: «12 - 19» → «12–19»',
       // Runs before em, so `dash.em` cannot take `12 - 19` for a text em dash.
       pattern: EN_RANGE_RE,
@@ -172,6 +175,7 @@ export const dashGroup = {
     },
     {
       id: 'em',
+      requires: F.DASH,
       description: 'Тире после слов, кавычек, скобочек, пунктуации',
       pattern: [EM_AFTER_CONTENT_RE, EM_GLUED_RE],
       replacement: [
@@ -190,12 +194,14 @@ export const dashGroup = {
     },
     {
       id: 'em_line_start',
+      requires: F.DASH,
       description: 'Тире после переноса строки',
       pattern: new RegExp(`(\\n|\\r|^|${TAG_GT}|${CLOSE})[${AUTHORED_DASH}](\\t| )`, 'gu'),
       replacement: `$1${G.MDASH}${G.NBSP}`
     },
     {
       id: 'em_after_sentence',
+      requires: F.DASH,
       description: 'Тире после знаков восклицания, троеточия и прочее',
       // The separators are runs, and both are discarded: requiring exactly one would make the binding
       // wait for `space.collapse_spaces`, four groups later, so the same document came out two ways.
@@ -215,12 +221,14 @@ export const dashGroup = {
     // `[из за]` lose the same space a bare `кто то` does.
     {
       id: 'compound_preposition',
+      requires: F.SPACE,
       description: 'Дефис между из-за, из-под',
       pattern: hyphenJoin('из', 'за|под', { lead: '' }),
       replacement: joinHyphen
     },
     {
       id: 'indefinite_pronoun',
+      requires: F.SPACE,
       description: 'Дефисы в обезличенных местоимениях',
       // The shared trailing set carries a colon, and claiming it would take `как то:` — the
       // enumeration idiom written apart, which `nobr.nbsp_namely` owns and which `dash`, two groups
@@ -236,6 +244,7 @@ export const dashGroup = {
     },
     {
       id: 'hyphenated_particle',
+      requires: F.SPACE,
       description: 'Кое-как, кой-кого, всё-таки',
       pattern: [
         hyphenJoin(
@@ -249,6 +258,7 @@ export const dashGroup = {
     },
     {
       id: 'emphatic_particle',
+      requires: F.SPACE,
       description: 'Дефис с усилительными частицами ка, кась, тка, тко, де',
       pattern: hyphenJoin('[а-яё]+', 'кась|тка|тко|ка|де', { lead: '', trail: '' }),
       replacement: joinHyphen

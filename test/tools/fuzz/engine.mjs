@@ -1,4 +1,4 @@
-// The engine the fuzzer runs: a copy of src/ with two hooks, loaded from a temporary directory.
+// The engine the fuzzer runs: a copy of src/ with hooks, loaded from a temporary directory.
 //
 // - The nonce placeholders carry comes from a seeded generator restarted before every check, not
 //   from Web Crypto. A leaked placeholder is typeset by what its nonce happens to hold, so with a
@@ -17,11 +17,23 @@ const SRC = join(import.meta.dirname, '../../../src');
 export const TRACE = Symbol.for('microtypo.fuzz.trace');
 const RANDOM = Symbol.for('microtypo.fuzz.random');
 const RESTART = Symbol.for('microtypo.fuzz.restart');
+const UNFILTERED = Symbol.for('microtypo.fuzz.unfiltered');
 
 const PATCHES = [
   [
+    'engine.js',
+    '      canSkipValue(value) {\n',
+    (anchor) =>
+      `${anchor}        if (globalThis[Symbol.for('microtypo.fuzz.unfiltered')]) return false;\n`
+  ],
+  [
+    'lib/rule-features.js',
+    'export function hasRequiredFeatures(rule, text, features) {\n',
+    (anchor) => `${anchor}  if (globalThis[Symbol.for('microtypo.fuzz.unfiltered')]) return true;\n`
+  ],
+  [
     'rule-runner.js',
-    '    ctx.text = keep === null ? output : keep(input, output, (t) => rule.apply(t, ctx));\n',
+    '    ctx.text = next;\n',
     (anchor) =>
       [
         anchor.trimEnd(),
@@ -102,6 +114,15 @@ export async function loadEngine() {
 
     return {
       MicroTypo,
+      unfiltered(run) {
+        const previous = globalThis[UNFILTERED];
+        globalThis[UNFILTERED] = true;
+        try {
+          return run();
+        } finally {
+          globalThis[UNFILTERED] = previous;
+        }
+      },
       restart() {
         state = START;
         globalThis[RESTART]();

@@ -1,4 +1,5 @@
 import { G } from '../lib/glyphs.js';
+import { F } from '../lib/rule-features.js';
 import { CLOSE, OPEN, TRANSPARENT_TAG_KINDS } from '../protect/placeholders.js';
 
 const GENERATED_SYMBOLS = new Set([G.COPY, G.REG, G.TRADE]);
@@ -73,18 +74,21 @@ export const symbolGroup = {
   rules: [
     {
       id: 'trademark',
+      requires: F.PAREN | F.LATIN,
       description: '(tm) → ™',
       pattern: /\(tm\)/gi,
       replacement: G.TRADE
     },
     {
       id: 'registered',
+      requires: F.PAREN | F.LATIN,
       description: '(R) → ®',
       pattern: REGISTERED_RE,
       replacement: G.REG
     },
     {
       id: 'copyright',
+      requiresAny: F.PAREN | F.COPYRIGHT,
       description: '(c) → ©',
       // © is its own canonical form, so an authored glyph reaches this rule as itself. Convert first,
       // space second, or the spacing decision has to be spelled once against the shorthand and once
@@ -97,6 +101,7 @@ export const symbolGroup = {
     },
     {
       id: 'apostrophe',
+      requires: F.APOSTROPHE,
       description: 'Правильный апостроф',
       pattern: /(\s|^|>|’)([a-zа-яё]{1,})'{1,2}([a-zа-яё]+)/giu,
       replacement: `$1$2${G.RSQUO}$3`,
@@ -104,12 +109,14 @@ export const symbolGroup = {
     },
     {
       id: 'fahrenheit',
+      requires: F.DIGIT | F.LATIN,
       description: 'Градусы по Фаренгейту',
       pattern: /(?<!\d)([0-9]+)F($|\s|\.|,|;|:|\u{00A0}|\?|!)/gu,
       replacement: (m, ctx) => `${ctx.tag(`${m[1]} ${G.DEG}F`, 'span', { class: 'nowrap' })}${m[2]}`
     },
     {
       id: 'arrows',
+      requires: F.DASH,
       description: 'Преобразование -> в → и <- в ←',
       pattern: [/([^<-]|^)->/g, /<-(?![->])/g],
       replacement: [`$1${G.RARR}`, G.LARR]

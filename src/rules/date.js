@@ -1,4 +1,5 @@
 import { G } from '../lib/glyphs.js';
+import { F } from '../lib/rule-features.js';
 
 // A date with its year mark, `12.05.20г` or `12.05.2020 г.`. Only the mark is taken, with a period
 // set apart from it (`г .`), which is the mark's own: the space around it is looked at and left as
@@ -11,6 +12,8 @@ const DATE_YEAR_RE =
 // The engine settles the mark before every group, past inline markup as the group's rules read.
 export const YEAR_MARKS = {
   id: 'settle_year_marks',
+  budgetStage: 'group:date',
+  requires: F.DIGIT | F.PERIOD | F.CYRILLIC,
   apply: (text) => text.replace(DATE_YEAR_RE, `$1${G.NBSP}г.`)
 };
 
@@ -20,6 +23,7 @@ export const dateGroup = {
   rules: [
     {
       id: 'year_range',
+      requires: F.DIGIT | F.DASH | F.SPACE,
       description: 'Тире и неразрывные пробелы в периодах дат',
       pattern:
         /(с|по|период|середины|начала|начало|конца|конец|половины|в|между|\([cс]\)|©)(\s+)(\d{4})([-—−–])(\d{4})(( |\u{00A0})?(г\.г\.|гг\.|гг|г\.|г)(?![а-яёa-z]))?/giu,
@@ -36,6 +40,7 @@ export const dateGroup = {
     },
     {
       id: 'month_range',
+      requires: F.DASH,
       description: 'Среднее тире между периодами месяцев',
       pattern:
         /(?<![а-яёa-z])((январ|феврал|сентябр|октябр|ноябр|декабр)([ьяюе]|[её]м)|(апрел|июн|июл)([ьяюе]|ем)|(март|август)([ауе]|ом)?|ма[йяюе]|маем)-((январ|феврал|сентябр|октябр|ноябр|декабр)([ьяюе]|[её]м)|(апрел|июн|июл)([ьяюе]|ем)|(март|август)([ауе]|ом)?|ма[йяюе]|маем)(?![а-яёa-z])/giu,
@@ -43,6 +48,7 @@ export const dateGroup = {
     },
     {
       id: 'day_month_range',
+      requires: F.DIGIT | F.DASH | F.SPACE,
       description: 'Среднее тире между полными датами «число месяц»',
       pattern:
         /(\d{1,2}\s(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря))-(\d{1,2}\s(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря))/giu,
@@ -50,6 +56,7 @@ export const dateGroup = {
     },
     {
       id: 'nowrap_day_range',
+      requires: F.DIGIT | F.DASH | F.SPACE,
       description: 'Тире и неразрывные периоды дней',
       enabled: false,
       pattern:
@@ -62,6 +69,7 @@ export const dateGroup = {
     },
     {
       id: 'nowrap_date',
+      requires: F.DIGIT | F.PERIOD,
       description: 'Привязка года к дате',
       pattern: [
         DATE_YEAR_RE,
@@ -78,6 +86,7 @@ export const dateGroup = {
     },
     {
       id: 'nbsp_year_suffix',
+      requires: F.DIGIT | F.PERIOD,
       description: 'Пробел между годом и сокращением г.',
       pattern: /(^| |\u{00A0}|"|«)([0-9]{3,4})[ ]?(г\.)([^a-zа-яё]|$)/giu,
       replacement: `$1$2${G.NBSP}$3$4`

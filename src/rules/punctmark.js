@@ -1,4 +1,5 @@
 import { G } from '../lib/glyphs.js';
+import { F } from '../lib/rule-features.js';
 
 const BRACKET_SPACE_RE = /[ \t\u{00A0}]/u;
 const WORD_RE = /[a-zа-яё0-9]/iu;
@@ -112,6 +113,7 @@ export const punctmarkGroup = {
   rules: [
     {
       id: 'comma_before_conjunction',
+      requires: F.SPACE,
       description: 'Расстановка запятых перед а, но',
       enabled: false,
       pattern: /([a-zа-яё])(\s|\u{00A0})(но|а)(\s|\u{00A0})/gu,
@@ -119,6 +121,7 @@ export const punctmarkGroup = {
     },
     {
       id: 'repeat_limit',
+      requiresAny: F.EXCLAMATION | F.QUESTION,
       description: 'Повтор !/?: допустимы только 1 или 3 (!!→!, !!!→!!!, !!!!→!!!)',
       // Backref \1+ matches same-char runs only, so mixed ?! survives intact.
       pattern: /([!?])\1+/g,
@@ -126,6 +129,7 @@ export const punctmarkGroup = {
     },
     {
       id: 'collapse_repeated',
+      requiresAny: F.COMMA | F.COLON | F.SEMICOLON,
       description: 'Лишние запятые, двоеточия, точки с запятой',
       // :: is intentionally kept (IPv6, ::before, std::vector); only 3+ colons collapse.
       cycled: true,
@@ -134,30 +138,35 @@ export const punctmarkGroup = {
     },
     {
       id: 'ellipsis',
+      requires: F.PERIOD,
       description: 'Три и более точек → многоточие',
       pattern: /\.{3,}/g,
       replacement: G.HELLIP
     },
     {
       id: 'mark_ellipsis',
+      requires: F.ELLIPSIS,
       description: 'Многоточие после ? или ! теряет точку: ?… → ?..',
       pattern: new RegExp(`([?!])${G.HELLIP}`, 'gu'),
       replacement: '$1..'
     },
     {
       id: 'swap_exclamation_question',
+      requires: F.EXCLAMATION | F.QUESTION,
       description: 'Перестановка !? → ?!',
       pattern: /([a-zа-яё0-9])(?: |\t|\u{00A0})?!\?(\s|$|<)/giu,
       replacement: '$1?!$2'
     },
     {
       id: 'drop_terminal_garbage',
+      requiresAny: F.EXCLAMATION | F.QUESTION | F.PERIOD,
       description: 'Удаление мусорных хвостов пунктуации после терминального знака',
       pattern: [/([!?])(?:[,;]+[!?]+)+/g, new RegExp(`\\.${G.RAQUO}\\.`, 'g')],
       replacement: ['$1', `${G.RAQUO}.`]
     },
     {
       id: 'collapse_doubled',
+      requiresAny: F.PERIOD | F.EXCLAMATION | F.QUESTION,
       description: 'Сдвоенные знаки препинания → одиночные',
       // The pairs these three and `mark_ellipsis` rewrite are also asked about from outside, through
       // `collapsesAsRepeat` above: a group that runs later must not glue a pair together that this
@@ -178,18 +187,21 @@ export const punctmarkGroup = {
     },
     {
       id: 'trim_bracket_terminal_punct',
+      requires: F.PAREN,
       description: 'Удаление случайной пунктуации перед закрывающей скобкой',
       regexes: [BRACKET_SPACE_RE, WORD_RE, REFERENCE_TAIL_RE],
       handler: (ctx) => trimBracketPunct(ctx.text)
     },
     {
       id: 'bracket_spaces',
+      requires: F.PAREN | F.SPACE,
       description: 'Лишние пробелы внутри скобок',
       pattern: [/(?<![:;=])(\()( |\t)+/g, /(?<![ \t])( |\t)+(\))/g],
       replacement: ['$1', '$2']
     },
     {
       id: 'space_before_bracket',
+      requires: F.PAREN,
       description: 'Пробел перед открывающей скобочкой',
       // A word of Latin letters and digits before `(` is a call or a name, `printf(x)`, and an
       // empty pair is a call whatever word it follows. A `(c)` glued to a word is no copyright mark,

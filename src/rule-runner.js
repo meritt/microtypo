@@ -1,5 +1,7 @@
 import { applyRule, beginGroup, endGroup, mayLift } from './inline-lift.js';
 import { deepFreeze } from './lib/deep-freeze.js';
+import { executeRule } from './lib/rule-budget.js';
+import { hasRequiredFeatures } from './lib/rule-features.js';
 import { cycle } from './lib/strings.js';
 
 const MAX_CYCLE_ITER = 100;
@@ -13,6 +15,7 @@ export function compileRuleGroup(groupDef, name) {
 
   const compiled = {
     name,
+    budgetStage: `group:${name}`,
     title: groupDef.title || name,
     raw: snapshotRaw(groupDef),
     compiledRules,
@@ -66,7 +69,7 @@ function compileRule(rule, groupName) {
   const { id } = rule;
 
   const wrapped = cycled
-    ? (text, ctx) =>
+    ? (text, ctx, checkBudget) =>
         cycle(
           text,
           (t) => apply(t, ctx),
@@ -76,15 +79,18 @@ function compileRule(rule, groupName) {
               ctx.onCycleLimit(id, n);
             }
           },
-          ctx.checkBudget
+          checkBudget
         )
     : apply;
 
   return {
     id,
+    budgetStage: `group:${groupName}`,
     defaultEnabled: rule.enabled !== false,
     description: rule.description ?? '',
     htmlOnly: Boolean(rule.htmlOnly),
+    requires: rule.requires ?? 0,
+    requiresAny: rule.requiresAny ?? 0,
     apply: wrapped
   };
 }
@@ -140,20 +146,48 @@ function makeApplyFn(rule, groupName) {
     replacements = Array(patterns.length).fill(rule.replacement);
   }
 
-  const compiledPatterns = patterns.map(ensureGlobal);
+  const steps = patterns.map((pattern, index) => {
+    const re = ensureGlobal(pattern);
+    const replacement = replacements[index];
+
+    if (typeof replacement === 'string' || replacement == null) {
+      return (result) => {
+        if (typeof result === 'string') {
+          re.lastIndex = 0;
+          if (!re.test(result)) {
+            return result;
+          }
+          re.lastIndex = 0;
+        }
+        return result.replace(re, replacement ?? '');
+      };
+    }
+
+    if (typeof replacement !== 'function') {
+      return (result) => result.replace(re, replacement ?? '');
+    }
+
+    return (result, ctx) => {
+      if (typeof result === 'string') {
+        re.lastIndex = 0;
+        if (!re.test(result)) {
+          return result;
+        }
+        re.lastIndex = 0;
+      }
+      return result.replace(re, (...args) => replacement(args, ctx));
+    };
+  });
+
+  if (steps.length === 1) {
+    return steps[0];
+  }
 
   return (text, ctx) => {
     let result = text;
 
-    for (let i = 0; i < compiledPatterns.length; i++) {
-      const re = compiledPatterns[i];
-      const repl = replacements[i];
-
-      if (typeof repl === 'function') {
-        result = result.replace(re, (...args) => repl(args, ctx));
-      } else {
-        result = result.replace(re, repl ?? '');
-      }
+    for (const step of steps) {
+      result = step(result, ctx);
     }
 
     return result;
@@ -169,14 +203,17 @@ function ensureGlobal(re) {
 
 // A step `{ id, apply }` the engine takes on a fragment before its groups, run as a rule of a builtin
 // group. A text with nothing to lift takes it as it is: a custom group may yet add markup to it.
-export function runStep(step, text, ctx, keep, inline) {
+export function runStep(step, text, ctx, keep, inline, features = null, checkBudget = null) {
+  if (features !== null && !hasRequiredFeatures(step, text, features)) {
+    return text;
+  }
   if (inline === null || !mayLift(text, inline)) {
-    return step.apply(text, ctx);
+    return executeRule(step, text, ctx, checkBudget);
   }
 
   const lifted = beginGroup(text, inline, ctx);
 
-  applyRule(lifted, step, ctx, keep, inline);
+  applyRule(lifted, step, ctx, keep, inline, features, checkBudget);
 
   return endGroup(lifted, inline);
 }
@@ -184,12 +221,21 @@ export function runStep(step, text, ctx, keep, inline) {
 // `keep(before, after, rerun)` settles what one rule's change leaves in the text; see
 // `SafeSequences.keep`. `inline` is the fragment's lifting of inline markup, given to builtin groups
 // only: each rule runs on the text without the markup first (see `inline-lift.js`).
-export function runRuleGroup(compiled, text, ctx, keep = null, inline = null) {
+export function runRuleGroup(
+  compiled,
+  text,
+  ctx,
+  keep = null,
+  inline = null,
+  features = null,
+  checkBudget = null
+) {
   ctx.text = text;
   ctx.group = compiled.view;
 
   if (compiled.raw.preParse) {
     compiled.raw.preParse(ctx);
+    checkBudget?.(compiled.budgetStage);
   }
 
   const lifted = inline !== null && keep !== null ? beginGroup(ctx.text, inline, ctx) : null;
@@ -205,14 +251,19 @@ export function runRuleGroup(compiled, text, ctx, keep = null, inline = null) {
     }
 
     if (lifted !== null) {
-      applyRule(lifted, rule, ctx, keep, inline);
+      applyRule(lifted, rule, ctx, keep, inline, features, checkBudget);
+      continue;
+    }
+
+    if (features !== null && !hasRequiredFeatures(rule, ctx.text, features)) {
       continue;
     }
 
     const input = ctx.text;
-    const output = rule.apply(input, ctx);
-
-    ctx.text = keep === null ? output : keep(input, output, (t) => rule.apply(t, ctx));
+    const output = executeRule(rule, input, ctx, checkBudget);
+    const next =
+      keep === null ? output : keep(input, output, (t) => executeRule(rule, t, ctx, checkBudget));
+    ctx.text = next;
   }
 
   if (lifted !== null) {
@@ -240,6 +291,15 @@ export function isRuleOn(compiled, id) {
   const rule = compiled.compiledRules.find((r) => r.id === id);
 
   return rule !== undefined && isRuleEnabled(compiled, rule);
+}
+
+export function canRunRuleGroup(compiled, text, features, html) {
+  return compiled.compiledRules.some(
+    (rule) =>
+      isRuleEnabled(compiled, rule) &&
+      (!rule.htmlOnly || html) &&
+      hasRequiredFeatures(rule, text, features)
+  );
 }
 
 function isRuleEnabled(compiled, rule) {

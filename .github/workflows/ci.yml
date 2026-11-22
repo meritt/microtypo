@@ -20,7 +20,7 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-26.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -58,3 +58,6 @@ jobs:
           file: coverage/lcov.info
           format: lcov
           fail-on-error: false
+
+      - name: Budget
+        run: pnpm test:perf

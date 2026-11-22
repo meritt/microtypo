@@ -1,4 +1,5 @@
 import { G } from '../lib/glyphs.js';
+import { F } from '../lib/rule-features.js';
 import { count } from '../lib/strings.js';
 import { OPEN, CLOSE, TRANSPARENT_TAG_KINDS } from '../protect/placeholders.js';
 import { LINKABLE_SOURCE } from '../protect/sequences.js';
@@ -496,12 +497,14 @@ export const quoteGroup = {
   rules: [
     {
       id: 'around_link',
+      requires: F.QUOTE,
       description: 'Кавычки вынесены за тег <a>',
       pattern: QUOTES_OUTSIDE_A_RE,
       replacement: '"$1$2$3"'
     },
     {
       id: 'open',
+      requires: F.QUOTE,
       description: 'Открывающая кавычка',
       // A handler rather than three patterns: the last step needs to know whether a quotation is open
       // where it stands, and a pattern replacement cannot see the substitutions made beside it.
@@ -524,12 +527,14 @@ export const quoteGroup = {
     },
     {
       id: 'open_cyrillic',
+      requires: F.QUOTE,
       description: 'Приклеенная кавычка у кириллицы → « с пробелом',
       pattern: /([a-zа-яё0-9])"([а-яё])/giu,
       replacement: `$1 ${FIRS_OPEN}$2`
     },
     {
       id: 'close',
+      requires: F.QUOTE,
       description: 'Закрывающая кавычка',
       pattern: [
         // `\"` is defused as a path close only behind a backslash-ASCII run, so ordinary `\"escaped\"`
@@ -607,12 +612,14 @@ export const quoteGroup = {
     },
     {
       id: 'fix_orphan_open',
+      requires: F.QUOTE,
       description: 'Открывающая «, приклеенная к концу слова перед пробелом/концом → закрывающая »',
       pattern: /([a-zа-яё0-9])«(?=\s|$)/giu,
       replacement: `$1${FIRS_CLOSE}`
     },
     {
       id: 'nested',
+      requires: F.QUOTE,
       description: 'Внутренние кавычки-лапки и дюймы',
       // processQuotes is a character-by-character state machine and runs no regex at all.
       regexes: [],

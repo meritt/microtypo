@@ -1,5 +1,7 @@
 import { VOID_TAG_NAMES } from './lib/block-tags.js';
 import { G } from './lib/glyphs.js';
+import { executeRule } from './lib/rule-budget.js';
+import { hasRequiredFeatures } from './lib/rule-features.js';
 import { CLOSE, OPEN } from './protect/placeholders.js';
 
 // Inline markup lifted out of the text a builtin rule reads, so that a rule binding words sees them
@@ -188,6 +190,32 @@ function pair(marks, os, oe, cs, ce) {
   marks.push(open, close);
 }
 
+function mergePieces(left, right) {
+  if (right.length === 0) {
+    return left;
+  }
+  if (left.length === 0) {
+    return right;
+  }
+  const merged = [];
+  let i = 0;
+  let j = 0;
+  while (i < left.length && j < right.length) {
+    if (left[i].start <= right[j].start) {
+      merged.push(left[i++]);
+    } else {
+      merged.push(right[j++]);
+    }
+  }
+  while (i < left.length) {
+    merged.push(left[i++]);
+  }
+  while (j < right.length) {
+    merged.push(right[j++]);
+  }
+  return merged;
+}
+
 const OPENS = 1;
 const CLOSES = 2;
 
@@ -211,19 +239,29 @@ function delimiterRole(c, before, after) {
 // `[start, end)` of the links right inside [from, to), in the order they start.
 function matchEmphasis(text, from, to, skip, marks) {
   const stack = [];
-  const bottom = Array.from({ length: 18 }, () => 0);
+  let bottom = null;
+  const special = /[*_~]/g;
   let h = 0;
+  let startOfSegment = from;
+  let segment = text.slice(from, skip.length === 0 ? to : skip[0][0]);
 
-  for (let i = from; i < to; i++) {
-    if (h < skip.length && skip[h][0] <= i) {
-      i = skip[h][1] - 1;
+  for (;;) {
+    const found = special.exec(segment);
+    if (found === null) {
+      if (h === skip.length) {
+        break;
+      }
+      startOfSegment = skip[h][1];
       h++;
+      segment = text.slice(startOfSegment, h === skip.length ? to : skip[h][0]);
+      special.lastIndex = 0;
       continue;
     }
+    const i = startOfSegment + found.index;
 
     const c = text.codePointAt(i);
 
-    if ((c !== STAR && c !== UNDERSCORE && c !== TILDE) || escaped(text, i, from)) {
+    if (escaped(text, i, from)) {
       continue;
     }
 
@@ -236,13 +274,17 @@ function matchEmphasis(text, from, to, skip, marks) {
     const length = j - i;
     const before = i > 0 ? text.codePointAt(i - 1) : -1;
     const after = j < text.length ? text.codePointAt(j) : -1;
-    i = j - 1;
+    special.lastIndex = j - startOfSegment;
 
     if (c === TILDE && length !== 2) {
       continue;
     }
 
     const role = delimiterRole(c, before, after);
+    if (role === 0) {
+      continue;
+    }
+    bottom ??= Array(18).fill(0);
     const canOpen = (role & OPENS) !== 0;
     const canClose = (role & CLOSES) !== 0;
 
@@ -323,6 +365,7 @@ function markdownMarks(text) {
 
     if (to > from) {
       const links = [];
+      const emphasis = /[*_~]/.test(text.slice(from, to));
 
       findLinks(text, from, to, links);
 
@@ -339,7 +382,9 @@ function markdownMarks(text) {
         }
 
         if (!l.image) {
-          matchEmphasis(text, l.open + 1, l.close, outer.slice(k), marks);
+          if (emphasis) {
+            matchEmphasis(text, l.open + 1, l.close, outer.slice(k), marks);
+          }
           pair(marks, l.open, l.open + 1, l.close, l.end);
         }
 
@@ -347,13 +392,20 @@ function markdownMarks(text) {
         outer.push([l.open, l.end]);
       }
 
-      matchEmphasis(text, from, to, outer, marks);
+      if (emphasis) {
+        matchEmphasis(text, from, to, outer, marks);
+      }
     }
 
     from = to + 1;
   }
 
-  return marks.toSorted((x, y) => x.start - y.start);
+  for (let i = 1; i < marks.length; i++) {
+    if (marks[i - 1].start > marks[i].start) {
+      return marks.toSorted((x, y) => x.start - y.start);
+    }
+  }
+  return marks;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -774,7 +826,13 @@ export function lift(text, cx) {
   }
 
   const units = findUnits(text, items, cx.markdown);
-  let all = units.length === 0 ? items : [...items.filter((item) => !item.unit), ...units];
+  let all =
+    units.length === 0
+      ? items
+      : mergePieces(
+          items.filter((item) => !item.unit),
+          units
+        );
 
   if (cx.markdown) {
     // Both in the order they start: a marker inside a code span is the span's text.
@@ -791,11 +849,7 @@ export function lift(text, cx) {
       }
     }
 
-    all = [...all, ...marks];
-  }
-
-  if (all !== items) {
-    all = all.toSorted((x, y) => x.start - y.start);
+    all = mergePieces(all, marks);
   }
 
   const n = all.length;
@@ -1466,9 +1520,18 @@ export function realign(state, after, cx, words = REACH) {
   const before = state.visible;
   const { pos, toks } = state;
   const n = pos.length;
-  const out = Array.from({ length: n }, () => 0);
   const na = before.length;
   const nb = after.length;
+  if (nb < na && (n === 0 || pos[n - 1] <= nb) && before.startsWith(after)) {
+    let at = nb;
+    while (at < na && isSpace(before.codePointAt(at))) {
+      at++;
+    }
+    if (at === na) {
+      return { visible: after, pos, toks };
+    }
+  }
+  const out = Array(n).fill(0);
   const minted = cx.mints !== null && mintsNew(cx.mints, before, after) ? cx.mints : null;
   let inserted = null;
   // Wrappers minted and recorded open, whose closing tags are still to come.
@@ -1988,14 +2051,16 @@ function putBack(state, spans, cx) {
 // marked-up text.
 const ROUNDS = 4;
 
-function run(state, rule, ctx, keep, cx) {
+function run(state, rule, ctx, keep, cx, checkBudget) {
   const before = state.visible;
 
   cx.mintLog.clear();
   cx.mints = cx.mintLog;
 
   try {
-    return keep(before, rule.apply(before, ctx), (t) => rule.apply(t, ctx));
+    return keep(before, executeRule(rule, before, ctx, checkBudget), (t) =>
+      executeRule(rule, t, ctx, checkBudget)
+    );
   } catch (error) {
     cx.mints = null;
     throw error;
@@ -2005,12 +2070,12 @@ function run(state, rule, ctx, keep, cx) {
 // Runs `rule` on the lifted text and returns the next state. Where the lifted run changed words near
 // lifted markup, the rule runs again with that markup back in the text, as it reads it there without
 // lifting; past a few such places, on the marked-up text.
-export function applyLifted(state, rule, ctx, keep, cx) {
+export function applyLifted(state, rule, ctx, keep, cx, checkBudget = null) {
   cx.mintLog ??= new Set();
   cx.loose = null;
 
   let current = state;
-  let after = run(current, rule, ctx, keep, cx);
+  let after = run(current, rule, ctx, keep, cx, checkBudget);
 
   if (after === current.visible || current.pos.length === 0) {
     cx.mints = null;
@@ -2022,7 +2087,7 @@ export function applyLifted(state, rule, ctx, keep, cx) {
 
   for (let round = 0; next === null && cx.near !== null && round < ROUNDS; round++) {
     current = putBack(current, cx.near, cx);
-    after = run(current, rule, ctx, keep, cx);
+    after = run(current, rule, ctx, keep, cx, checkBudget);
     next =
       current.pos.length === 0 || after === current.visible
         ? { visible: after, pos: current.pos, toks: current.toks }
@@ -2033,20 +2098,25 @@ export function applyLifted(state, rule, ctx, keep, cx) {
   cx.loose = null;
 
   if (next !== null) {
-    return current === state ? next : settle(relift(materialize(next), cx), rule, ctx, keep, cx);
+    return current === state
+      ? next
+      : settle(relift(materialize(next), cx), rule, ctx, keep, cx, checkBudget);
   }
 
   const input = materialize(state);
 
   return settle(
     relift(
-      keep(input, rule.apply(input, ctx), (t) => rule.apply(t, ctx)),
+      keep(input, executeRule(rule, input, ctx, checkBudget), (t) =>
+        executeRule(rule, t, ctx, checkBudget)
+      ),
       cx
     ),
     rule,
     ctx,
     keep,
-    cx
+    cx,
+    checkBudget
   );
 }
 
@@ -2097,7 +2167,7 @@ function sameWords(x, y, minted) {
 // where that changes nothing but white space and its wrappers, it binds through the markup there too.
 // Words it would change again take back only the markup that touches them: how far a reach of words
 // goes depends on how the rules after this one split the words, and a second pass reads them split.
-function settle(state, rule, ctx, keep, cx) {
+function settle(state, rule, ctx, keep, cx, checkBudget) {
   if (state.pos.length === 0) {
     return state;
   }
@@ -2106,7 +2176,7 @@ function settle(state, rule, ctx, keep, cx) {
   let next = null;
 
   for (let round = 0; round <= ROUNDS; round++) {
-    const after = run(current, rule, ctx, keep, cx);
+    const after = run(current, rule, ctx, keep, cx, checkBudget);
 
     cx.near = null;
 
@@ -2203,10 +2273,15 @@ function liftedRun(group, cx) {
 
 // A rule that only runs to write markup — `htmlOnly` — reads the marked-up text it writes into; the
 // markup is lifted again for the next rule that reads the lifted run.
-export function applyRule(group, rule, ctx, keep, cx) {
+export function applyRule(group, rule, ctx, keep, cx, features = null, checkBudget = null) {
   if (rule.htmlOnly) {
     const input = group.marked ?? materialize(group.state);
-    const output = keep(input, rule.apply(input, ctx), (t) => rule.apply(t, ctx));
+    if (features !== null && !hasRequiredFeatures(rule, input, features)) {
+      return;
+    }
+    const output = keep(input, executeRule(rule, input, ctx, checkBudget), (t) =>
+      executeRule(rule, t, ctx, checkBudget)
+    );
 
     group.marked = output;
 
@@ -2217,8 +2292,13 @@ export function applyRule(group, rule, ctx, keep, cx) {
     return;
   }
 
+  const input = group.state?.visible ?? group.marked;
+  if (features !== null && !hasRequiredFeatures(rule, input, features)) {
+    return;
+  }
+
   const state = liftedRun(group, cx);
-  const next = applyLifted(state, rule, ctx, keep, cx);
+  const next = applyLifted(state, rule, ctx, keep, cx, checkBudget);
 
   if (next !== state) {
     group.state = next;

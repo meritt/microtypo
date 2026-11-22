@@ -1,4 +1,6 @@
 import { G } from '../lib/glyphs.js';
+import { ruleBudgetOf } from '../lib/rule-budget.js';
+import { F } from '../lib/rule-features.js';
 import { cycle } from '../lib/strings.js';
 import { CLOSE, OPEN, TAG_PLACEHOLDER_SOURCE, vaultedReference } from '../protect/placeholders.js';
 
@@ -219,7 +221,7 @@ function removeNbspInNobr(ctx) {
     }
   };
 
-  ctx.text = cycle(ctx.text, (t) => t.replace(c.m1, '$1$3$2 '), 100, onLimit, ctx.checkBudget);
+  ctx.text = cycle(ctx.text, (t) => t.replace(c.m1, '$1$3$2 '), 100, onLimit, ruleBudgetOf(ctx));
 
   if (ctx.text.includes(c.close)) {
     const spans = spanTokenSet(ctx);
@@ -241,7 +243,7 @@ function removeNbspInNobr(ctx) {
       },
       100,
       onLimit,
-      ctx.checkBudget
+      ruleBudgetOf(ctx)
     );
   }
 
@@ -273,6 +275,7 @@ export const etcGroup = {
   rules: [
     {
       id: 'acute_accent',
+      requires: F.BACKTICK,
       description: 'Ударение на гласной',
       // `\w` is ASCII-only and misses the Cyrillic letter after the backtick.
       pattern: /([уеыаоэяиюёУЕЫАОЭЯИЮЁ])`(\p{L})/gu,
@@ -280,6 +283,7 @@ export const etcGroup = {
     },
     {
       id: 'sup_word',
+      requires: F.CARET,
       description: 'Надстрочный текст после ^',
       // Under `html: false` the consumed leading space and `^` marker would vanish and glue two words
       // together.
@@ -293,6 +297,7 @@ export const etcGroup = {
     },
     {
       id: 'roman_range_dash',
+      requires: F.LATIN | F.DASH,
       description: 'Среднее тире в диапазоне римских чисел',
       // Runs before en_century_range so the marked form still matches its dash class.
       pattern: /(^|[\s(])([XIV]{1,5})[-−]([XIV]{1,5})(?=[\s).,;:!?]|$)/gu,
@@ -300,6 +305,7 @@ export const etcGroup = {
     },
     {
       id: 'en_century_range',
+      requires: F.LATIN | F.DASH,
       description: 'Тире между диапазоном веков',
       // Trailing letter lookahead stops the single-letter marker from matching into the next word.
       pattern:
@@ -312,6 +318,7 @@ export const etcGroup = {
     },
     {
       id: 'en_time_range',
+      requires: F.DIGIT | F.COLON | F.DASH,
       description: 'Тире и неразрывный пробел в диапазоне времени',
       // Leading boundary is a lookbehind: consuming it strands the second of two glued ranges.
       pattern: /(?<![\d>])(\d{1,2}:\d{2})([-—−–])(\d{1,2}:\d{2})([^\d<]|$)/gu,
@@ -323,6 +330,7 @@ export const etcGroup = {
     },
     {
       id: 'split_triads',
+      requires: F.DIGIT,
       description: 'Триады большого числа через узкий неразрывный пробел',
       // A digit run joined by hyphens to other digit groups is an identifier — an ISBN, a part
       // number — not a quantity, so `978-5-389-12345-6` must not gain a thousands separator. Only a
@@ -355,18 +363,21 @@ export const etcGroup = {
     },
     {
       id: 'drop_nested_nowrap',
+      requires: F.MARKUP,
       description: 'Удаление nowrap-обёртки, вложенной в другую nowrap-обёртку',
       regexes: [SAMPLE_NOBR.marker],
       handler: dropNestedNowrap
     },
     {
       id: 'strip_nbsp_in_nowrap',
+      requires: F.MARKUP,
       description: 'Удаление неразрывных пробелов в nowrap-конструкциях',
       regexes: [SAMPLE_NOBR.m1, SAMPLE_NOBR.m2, SAMPLE_NOBR.inner],
       handler: removeNbspInNobr
     },
     {
       id: 'nbsp_in_nowrap',
+      requires: F.MARKUP,
       description: 'Преобразование nowrap-конструкций в неразрывные пробелы',
       enabled: false,
       regexes: [SAMPLE_NOBR.inner],
