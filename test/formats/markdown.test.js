@@ -17,8 +17,7 @@ const md = { ...base, input: 'markdown' };
 const mdRender = { ...base, input: { format: 'markdown' }, render: { paragraphs: false } };
 const NBSP = '\u{00A0}';
 
-// A CR of its own ends a line as LF and CRLF do, CommonMark §2.1. The output writes LF wherever it
-// rewrites a line ending; a protected construct keeps the bytes it was written with.
+// A CR of its own ends a line as LF and CRLF do, CommonMark §2.1. Files retain their authored endings.
 const toCr = (src) => src.replaceAll('\n', '\r');
 const toCrlf = (src) => src.replaceAll('\n', '\r\n');
 const lf = (src) => src.replace(/\r\n?/g, '\n');
@@ -120,7 +119,7 @@ test('markdown mode preserves hard-break trailing spaces', () => {
 
 test('a hard break keeps its trailing spaces before CRLF and CR too', () => {
   for (const ending of ['\r\n', '\r']) {
-    assert.equal(microtypo(`Корвин  ${ending}Эрик`, md), 'Корвин  \nЭрик');
+    assert.equal(microtypo(`Корвин  ${ending}Эрик`, md), `Корвин  ${ending}Эрик`);
   }
 });
 
@@ -159,7 +158,7 @@ test('markdown mode: spaced thematic break survives the dash rule', () => {
 });
 
 test('markdown mode keeps leading indented-code indentation', () => {
-  assert.equal(microtypo('    Корвин\n    Эрик\n', md), '    Корвин\n    Эрик');
+  assert.equal(microtypo('    Корвин\n    Эрик\n', md), '    Корвин\n    Эрик\n');
 });
 
 test('text mode trims the blank edge lines and keeps the indent as the author laid it out', () => {
@@ -329,7 +328,7 @@ describe('container directives', () => {
         ...base,
         input: 'frontmatter'
       }),
-      `---\ntitle: x\n---\n:::note\nТекст${NBSP}— тире\n:::`
+      `---\ntitle: x\n---\n\n:::note\nТекст${NBSP}— тире\n:::`
     );
   });
 
@@ -411,7 +410,7 @@ describe('a leading YAML or TOML header', () => {
   test('keeps the line endings it was written with', () => {
     assert.equal(
       microtypo('---\r\ntitle: "Амбер - город"\r\n---\r\n\r\nТекст - тире', md),
-      `---\r\ntitle: "Амбер - город"\r\n---\n\nТекст${NBSP}— тире`
+      `---\r\ntitle: "Амбер - город"\r\n---\r\n\r\nТекст${NBSP}— тире`
     );
   });
 
@@ -446,7 +445,7 @@ describe('a leading YAML or TOML header', () => {
         ...base,
         input: 'frontmatter'
       }),
-      `---\ntitle: "Амбер${NBSP}— город"\n---\nТекст${NBSP}— тире`
+      `---\ntitle: "Амбер${NBSP}— город"\n---\n\nТекст${NBSP}— тире`
     );
   });
 });
@@ -997,7 +996,7 @@ describe('scanIndentedCode', () => {
     assert.deepEqual(spanText(src, scanIndentedCode(src)), [
       '    merlin.walk("Амбер")\n\n\n    merlin.walk("Хаос")'
     ]);
-    assert.equal(microtypo(src, md), src.trimEnd());
+    assert.equal(microtypo(src, md), src);
   });
 
   test('blank lines after the last chunk stay outside the block', () => {
@@ -1012,7 +1011,7 @@ describe('scanIndentedCode', () => {
     const src = '>\n>     merlin.walk()\n';
 
     assert.deepEqual(spanText(src, scanIndentedCode(src)), ['    merlin.walk()']);
-    assert.equal(microtypo(src, mdRender), '>\n>     merlin.walk()');
+    assert.equal(microtypo(src, mdRender), '>\n>     merlin.walk()\n');
   });
 
   test('a lazy continuation inside a blockquote is still not code', () => {
@@ -1283,13 +1282,13 @@ describe('CRLF source', () => {
     const src = 'Пролог\r\n\r\n    Корвин - принц\r\n';
 
     assert.deepEqual(spanText(src, scanIndentedCode(src)), ['    Корвин - принц']);
-    assert.equal(microtypo(src, mdRender), 'Пролог\n\n    Корвин - принц');
+    assert.equal(microtypo(src, mdRender), src);
   });
 
   test('a CRLF reference definition is protected', () => {
     const src = '[amber]: http://amber.example "Город"\r\nТекст\r\n';
 
-    assert.equal(microtypo(src, mdRender), '[amber]: http://amber.example "Город"\nТекст');
+    assert.equal(microtypo(src, mdRender), src);
   });
 
   test('a whitespace-only CRLF line carries no indent to vault', () => {
@@ -2138,7 +2137,7 @@ describe('a closed HTML block of kind 1', () => {
   test('a CRLF block keeps its body and its line endings', () => {
     const src = `<pre>\r\n${CODE}\r\n</script>\r\n\r\n${TAIL}`;
 
-    assert.equal(microtypo(src, md), `<pre>\r\n${CODE}\r\n</script>\n\n${TAIL_TYPESET}`);
+    assert.equal(microtypo(src, md), `<pre>\r\n${CODE}\r\n</script>\r\n\r\n${TAIL_TYPESET}`);
   });
 
   test('past its own end tag the line is prose', () => {
@@ -2171,7 +2170,7 @@ describe('a closed HTML block of kind 1', () => {
 
       assert.equal(
         microtypo(src, md),
-        `<pre>${eol}${CODE}${eol}</pre> ${TAIL_TYPESET}\n${TAIL_TYPESET}`
+        `<pre>${eol}${CODE}${eol}</pre> ${TAIL_TYPESET}${eol}${TAIL_TYPESET}`
       );
     }
   });
@@ -2313,7 +2312,7 @@ describe('CR line endings', () => {
     const src = '[ref]:\n  /some-path\n  "Title - text"\n\n[ref]';
 
     assert.equal(sameOnEveryEnding(src), src);
-    assert.equal(microtypo(toCr(src), md), '[ref]:\r  /some-path\r  "Title - text"\n\n[ref]');
+    assert.equal(microtypo(toCr(src), md), toCr(src));
   });
 
   test('every part of a definition may stand on a line of its own', () => {
@@ -2724,10 +2723,10 @@ describe('Markdown with paragraphs and breakline on', () => {
       test(`ends its paragraph or breaks a line of it, ${JSON.stringify(render)}`, () => {
         const liquid = templated('liquid', render);
 
-        assert.equal(settled('{%%}  \n', liquid), '<p>{%%}</p>');
+        assert.equal(settled('{%%}  \n', liquid), '<p>{%%}</p>\n');
         assert.equal(
           settled('{% if x %}  \nтекст - тут\n', liquid),
-          `<p>{% if x %}  \nтекст${NBSP}— тут</p>`
+          `<p>{% if x %}  \nтекст${NBSP}— тут</p>\n`
         );
 
         for (const template of ['liquid', 'jinja']) {
@@ -2742,8 +2741,8 @@ describe('Markdown with paragraphs and breakline on', () => {
     test('beside a template without a hard break or another construct before one', () => {
       const liquid = templated('liquid', { paragraphs: true });
 
-      assert.equal(settled('{% if x %}\n', liquid), '<p>{% if x %}</p>');
-      assert.equal(settled('{% if x %} \n', liquid), '<p>{% if x %}</p>');
+      assert.equal(settled('{% if x %}\n', liquid), '<p>{% if x %}</p>\n');
+      assert.equal(settled('{% if x %} \n', liquid), '<p>{% if x %}</p>\n');
       assert.equal(settled('{% if x %}\\\nтекст', liquid), '<p>{% if x %}\\\nтекст</p>');
 
       for (const line of ['`код`', '<b>слово</b>', 'https://amber.example/a']) {
@@ -2768,9 +2767,9 @@ describe('Markdown with paragraphs and breakline on', () => {
   });
 
   // A hard break ends no paragraph: its spaces behind the last one only end the document.
-  test('white space behind the last paragraph goes with the end of the document', () => {
-    assert.equal(settled('Корвин - принц  \n', BOTH), `<p>Корвин${NBSP}— принц</p>`);
-    assert.equal(settled('Корвин - принц \n', BOTH), `<p>Корвин${NBSP}— принц</p>`);
+  test('trailing spaces go while the final file newline remains', () => {
+    assert.equal(settled('Корвин - принц  \n', BOTH), `<p>Корвин${NBSP}— принц</p>\n`);
+    assert.equal(settled('Корвин - принц \n', BOTH), `<p>Корвин${NBSP}— принц</p>\n`);
     assert.equal(
       settled('Корвин  \n\nРэндом', BOTH),
       microtypo('Корвин  \n\nРэндом', OFF)

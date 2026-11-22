@@ -5,7 +5,17 @@ import { BUNDLE_NAMES, SETTING_SELECTORS } from '../../../src/core/options.js';
 import { DEFAULT_GROUPS } from '../../../src/rules/registry.js';
 import { createGrammar, OUTSIDE_TAG } from './grammar.mjs';
 
-export const FORMATS = ['text', 'html', 'markdown', 'json', 'yaml', 'toml', 'xml', 'frontmatter'];
+export const FORMATS = [
+  'text',
+  'html',
+  'plain',
+  'markdown',
+  'json',
+  'yaml',
+  'toml',
+  'xml',
+  'frontmatter'
+];
 
 const TEMPLATES = ['handlebars', 'mustache', 'twig', 'jinja', 'nunjucks', 'liquid', 'erb'];
 
@@ -52,6 +62,13 @@ export function generateConfig(d, format) {
 
   if (chance(0.2)) {
     input.template = pick(TEMPLATES);
+  }
+
+  if (chance(0.2)) {
+    input.placeholders = pick(['icu', 'printf', 'interpolation', 'all']);
+  }
+  if (['text', 'html', 'markdown', 'frontmatter'].includes(format) && chance(0.15)) {
+    input.pragmas = 'microtypo';
   }
 
   if (['json', 'yaml', 'toml'].includes(format) && chance(0.15)) {
@@ -142,6 +159,10 @@ export function createDocuments(lexicon, d) {
       ]);
 
     return lead + paragraphs.reduce((all, p) => `${all}${join()}${p}`) + tail;
+  }
+
+  function plain(ctx) {
+    return `${pick(['если a<b, то "c" - d', '<code>Корвин - принц</code>', 'значение < предел'])}${nl(ctx)}${text(ctx)}`;
   }
 
   function html(ctx) {
@@ -239,8 +260,11 @@ export function createDocuments(lexicon, d) {
         definition: () =>
           `${e()}${g.guard(ctx, 'md-definition', `[${pick(['ref', 'a-b', '1'])}]: ${g.url()}${chance(0.5) ? ` "${g.word()} - ${g.word()}"` : ''}`, { before: AFTER_BLANK })}`,
         html: () => `<div class="x">${e()}${prose({ ...ctx, markdown: false })}${e()}</div>`,
-        table: () =>
-          `| ${g.word()} | ${g.word()} |${e()}|---|:-:|${e()}| ${g.finish(ctx, g.chunk(ctx))} | ${g.finish(ctx, g.chunk(ctx))} |`,
+        table: () => {
+          const header = `| ${g.word()} | ${g.word()} |${e()}`;
+          const delimiter = `|${pick(['-', '--', '---', ':-', ':-:'])}|${pick(['-', '--', '-:', ':-:'])}|`;
+          return `${header}${g.guard(ctx, 'md-table-delimiter', delimiter, { before: `(?<=${RegExp.escape(header)})`, after: LINE_END })}${e()}| ${g.finish(ctx, g.chunk(ctx))} | ${g.finish(ctx, g.chunk(ctx))} |`;
+        },
         rule: () => pick(['---', '***', '* * *', '___']),
         comment: () => g.guard(ctx, 'comment', `<!-- ${g.word()} - "${g.word()}" -->`),
         container: () => {
@@ -499,16 +523,17 @@ export function createDocuments(lexicon, d) {
     const header = { ...ctx, eol: ' ', data: true };
 
     return weighted([
-      [5, () => `---${eol}${yamlBody(header, eol)}${eol}---${eol}${eol}${body}`],
-      [2, () => `+++${eol}${tomlBody(header, eol)}${eol}+++${eol}${eol}${body}`],
+      [5, () => `---${eol}${yamlBody(header, eol)}${eol}---${eol}${eol.repeat(int(1, 3))}${body}`],
+      [2, () => `+++${eol}${tomlBody(header, eol)}${eol}+++${eol}${eol.repeat(int(1, 3))}${body}`],
       [1, () => body]
     ])();
   }
 
-  const BUILDERS = { text, html, markdown, json, yaml, toml, xml, frontmatter };
+  const BUILDERS = { text, html, plain, markdown, json, yaml, toml, xml, frontmatter };
   const FLAGS = {
     text: { markup: true },
     html: { markup: true },
+    plain: {},
     markdown: { markup: true, markdown: true },
     json: { markup: true },
     yaml: { markup: true },
@@ -532,11 +557,27 @@ export function createDocuments(lexicon, d) {
       ...flags,
       // An ERB tag opens with `<`, which an XML document cannot carry as text.
       template: format === 'xml' && template === 'erb' ? null : template,
-      comments: !structured,
+      placeholders: typeof config.input === 'object' ? config.input.placeholders : 'off',
+      comments: !structured && format !== 'plain',
       eol: structured ? ' ' : eol,
       // A line break inside a construct would end a Markdown heading, list item or table row.
-      lines: format === 'text' || format === 'html'
+      lines: format === 'text' || format === 'html' || format === 'plain'
     });
-    return { format, config, text: g.strip(BUILDERS[format](ctx)), protect: ctx.protect };
+    let source = BUILDERS[format](ctx);
+    if (config.input?.pragmas === 'microtypo') {
+      const start = '<!-- microtypo-ignore-start -->';
+      const end = chance(0.2) ? '' : '<!-- microtypo-ignore-end -->';
+      source += `${nl(ctx)}${g.guard(ctx, 'pragma-region', `${start}${nl(ctx)}Код - "текст"${nl(ctx)}${end}`, { before: OUTSIDE_TAG })}`;
+      if (chance(0.15)) {
+        source = g.guard(ctx, 'pragma-file', `${source}${nl(ctx)}<!-- microtypo-ignore-file -->`);
+      }
+    }
+    if (
+      ['markdown', 'frontmatter', 'json', 'yaml', 'toml', 'xml'].includes(format) &&
+      chance(0.3)
+    ) {
+      source += (typeof eol === 'function' ? eol() : eol).repeat(int(1, 3));
+    }
+    return { format, config, text: g.strip(source), protect: ctx.protect };
   };
 }

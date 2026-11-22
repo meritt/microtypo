@@ -22,19 +22,19 @@ export function cycle(text, fn, maxIter = 100, onLimit, checkBudget) {
 
 // Removes only the edge lines `isBlank` accepts; leading indentation on surviving lines is preserved.
 export function trimBlankLines(text, isBlank) {
-  const lines = text.split('\n');
+  const pieces = text.split(/(\r\n?|\n)/u);
   let start = 0;
-  let end = lines.length - 1;
+  let end = pieces.length - 1;
 
-  while (start < lines.length && isBlank(lines[start])) {
-    start += 1;
+  while (start < pieces.length && isBlank(pieces[start])) {
+    start += 2;
   }
 
-  while (end >= start && isBlank(lines[end])) {
-    end -= 1;
+  while (end >= start && isBlank(pieces[end])) {
+    end -= 2;
   }
 
-  return lines.slice(start, end + 1).join('\n');
+  return pieces.slice(start, end + 1).join('');
 }
 
 function isWhitespaceCode(code) {

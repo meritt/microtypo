@@ -637,9 +637,14 @@ export class SafeBlocks {
     const parts = [];
     let cursor = 0;
 
-    for (const [start, end] of spans) {
+    for (const [start, end, kind] of spans) {
       parts.push(text.slice(cursor, start));
-      parts.push(store(text.slice(start, end)));
+      const body = text.slice(start, end);
+      parts.push(
+        kind === 'tail'
+          ? (showsNothing(body) ? this.#hiddenTailVault : this.#tailVault).store(body)
+          : store(body)
+      );
       cursor = end;
     }
 

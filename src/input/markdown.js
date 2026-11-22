@@ -1026,6 +1026,104 @@ export function scanLinePrefix(source, checkBudget) {
   return spans;
 }
 
+function tableCells(text, start, end, delimiter) {
+  let from = skipSpaces(text, start, end);
+  let to = end;
+
+  while (to > from && (text[to - 1] === ' ' || text[to - 1] === '\t')) {
+    to -= 1;
+  }
+
+  if (from === to) {
+    return 0;
+  }
+
+  let pipes = 0;
+
+  if (text[from] === '|') {
+    pipes += 1;
+    from += 1;
+  }
+
+  let cells = 0;
+  let cell = from;
+
+  for (let at = from; at <= to; at += 1) {
+    if (at + 1 < to && text[at] === '\\') {
+      at += 1;
+      continue;
+    }
+
+    if (at < to && text[at] !== '|') {
+      continue;
+    }
+
+    if (at === to && cell === to && pipes > 0) {
+      break;
+    }
+
+    if (delimiter && !/^[ \t]*:?-+:?[ \t]*$/u.test(text.slice(cell, at))) {
+      return 0;
+    }
+
+    cells += 1;
+    cell = at + 1;
+    pipes += at < to ? 1 : 0;
+  }
+
+  return delimiter && pipes === 0 ? 0 : cells;
+}
+
+export function scanTableDelimiters(source, checkBudget) {
+  if (!source.includes('|')) {
+    return [];
+  }
+
+  const text = lineView(source);
+  const spans = [];
+  const chain = [];
+  let paragraphOpen = false;
+  let header = null;
+  let table = false;
+
+  for (const [start, end] of eachLine(text, 'md-table', checkBudget)) {
+    const line = matchContainers(text, start, end, chain);
+    const continued = line.matched === chain.length;
+    const [content] = skipBlockIndent(text, line.at, end, line.column);
+    const columns = tableCells(text, content, end, true);
+
+    if (
+      !table &&
+      header !== null &&
+      continued &&
+      columns > 0 &&
+      columns === header.columns &&
+      chain.at(-1) === header.parent
+    ) {
+      spans.push([start, end]);
+      table = true;
+      header = null;
+      paragraphOpen = false;
+      continue;
+    }
+
+    const { place, fresh, paragraphOpen: after } = walkLine(text, start, end, chain, paragraphOpen);
+    paragraphOpen = after;
+
+    if (!continued || fresh || !after) {
+      table = false;
+      header = null;
+    }
+
+    header =
+      table || !after
+        ? null
+        : { columns: tableCells(text, place.content, end, false), parent: chain.at(-1) };
+  }
+
+  return spans;
+}
+
 function referenceDestinationEnd(text, i, lineEnd) {
   if (text[i] === '<') {
     let j = i + 1;

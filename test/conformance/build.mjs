@@ -294,8 +294,86 @@ function caseKey(c) {
   ]);
 }
 
+function localizationDocument(format, text) {
+  switch (format) {
+    case 'json':
+      return JSON.stringify({ title: text });
+    case 'yaml':
+      return `title: ${JSON.stringify(text)}\r\n`;
+    case 'toml':
+      return `title = ${JSON.stringify(text)}\r\n`;
+    case 'xml':
+      return `<doc>${escapeXml(text)}</doc>\r\n`;
+    case 'frontmatter':
+      return `---\r\ntitle: ${JSON.stringify(text)}\r\n---\r\n\r\n${text}\r\n`;
+    default:
+      return text;
+  }
+}
+
+function formatCases() {
+  const cases = [];
+  const add = (text, input, html = false) => cases.push({ text, config: { html, input }, ops: [] });
+  const placeholders = {
+    icu: '{name}: {n, plural, one {# день - "текст"} other {# дней - "тексты"}}',
+    printf: '%1$s - "текст", %d и %@',
+    interpolation: `\${user.name} - "текст"`,
+    all: `\${name} {count} %1$s - "текст"`
+  };
+  for (const [mode, text] of Object.entries(placeholders)) {
+    for (const format of [
+      'text',
+      'html',
+      'plain',
+      'markdown',
+      'json',
+      'yaml',
+      'toml',
+      'xml',
+      'frontmatter'
+    ]) {
+      const source = localizationDocument(format, text);
+      for (const html of [false, true]) {
+        add(source, { format, placeholders: mode }, html);
+      }
+    }
+  }
+  for (const format of ['text', 'html', 'markdown', 'frontmatter']) {
+    for (const directive of [
+      'file',
+      'start',
+      'start -->\r\nКод - "текст"\r\n<!-- microtypo-ignore-end'
+    ]) {
+      const text = `Корвин - принц\r\n<!-- microtypo-ignore-${directive} -->\r\nЭрик - король\r\n`;
+      for (const pragmas of ['off', 'microtypo']) {
+        add(text, { format, pragmas });
+      }
+    }
+  }
+  for (const text of [
+    'если a<b, то "c" - d',
+    '<code>Корвин - принц</code>',
+    '<!-- Корвин - принц -->',
+    'Назад <- сюда'
+  ]) {
+    for (const html of [false, true]) {
+      add(text, { format: 'plain' }, html);
+    }
+  }
+  for (const ending of ['\n', '\r\n']) {
+    add(`| Альфа | Бета |${ending}| :- | -: |${ending}| Корвин - принц | Эрик |${ending}`, {
+      format: 'markdown'
+    });
+    add(
+      `---${ending}title: "Корвин - принц"${ending}---${ending}${ending}${ending}Эрик - король${ending}`,
+      { format: 'frontmatter' }
+    );
+  }
+  return cases;
+}
+
 const captured = captureSuite();
-const all = [...captured, ...generatedCases(prosePool())];
+const all = [...captured, ...generatedCases(prosePool()), ...formatCases()];
 const unique = new Map();
 
 for (const c of all) {

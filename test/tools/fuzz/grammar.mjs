@@ -25,6 +25,7 @@ function context({
   xml = false,
   comments = true,
   template = null,
+  placeholders = 'off',
   eol,
   lines
 }) {
@@ -34,6 +35,7 @@ function context({
     xml,
     comments,
     template: template === 'off' ? null : template,
+    placeholders,
     eol,
     lines,
     protect: []
@@ -788,6 +790,28 @@ export function createGrammar(lexicon, d) {
     return guard(ctx, 'template', pick(TEMPLATE_BITS[ctx.template]));
   }
 
+  function localizationBit(ctx) {
+    const mode =
+      ctx.placeholders === 'all' ? pick(['icu', 'printf', 'interpolation']) : ctx.placeholders;
+    if (mode === 'printf') {
+      return guard(ctx, 'printf', pick(['%s', '%1$s', '%@', '%d', '%05d', '%2$.*3$f']));
+    }
+    if (mode === 'interpolation') {
+      return guard(ctx, 'interpolation', pick([`\${name}`, `\${total}`, `\${user.name}`]));
+    }
+    if (chance(0.4)) {
+      return guard(ctx, 'icu', pick(['{name}', '{amount, number, ::currency/USD}']));
+    }
+    const syntax = (part) =>
+      guard(
+        ctx,
+        'icu-syntax',
+        part,
+        part === '#' ? { before: String.raw`(?<=\{n, plural, one \{|\} other \{)` } : {}
+      );
+    return `${syntax('{n, plural, one {')}${syntax('#')} ${word()} - "${word()}"${syntax('} other {')}${syntax('#')} ${word()} - "${word()}"${syntax('}}')}`;
+  }
+
   // A quotation nests up to three levels deep; the inner ones like a short word in front of them.
   function quoted(ctx, depth) {
     const [open, close] = ctx.markup && chance(0.15) ? pick(ENTITY_QUOTES) : weighted(QUOTE_STYLES);
@@ -1007,7 +1031,8 @@ export function createGrammar(lexicon, d) {
       [ctx.markup ? 5 : 0, () => markup(ctx)],
       [ctx.markdown ? 5 : 0, () => markdownInline(ctx)],
       [ctx.xml ? 3 : 0, () => xmlAtom(ctx)],
-      [ctx.template ? 3 : 0, () => templateBit(ctx)]
+      [ctx.template ? 3 : 0, () => templateBit(ctx)],
+      [ctx.placeholders !== 'off' ? 3 : 0, () => localizationBit(ctx)]
     ];
 
     return weighted(choices)();

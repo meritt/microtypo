@@ -1126,21 +1126,21 @@ describe('whitespace at the edges of a document', () => {
     ]);
   });
 
-  test('trimmed document boundaries retain their known next-pass normalization', () => {
+  test('document boundary normalization stays local to each input format', () => {
     for (const [input, first, second, config] of [
       ['⍽о об', 'о об', 'о⍽об', {}],
       ['⍽– А', '– А', '—⍽А', {}],
       ['003 гг.\n', '003 гг.', '003⍽гг.', {}],
       [
         '---\ntitle: test\n---\n\n\n1997год.',
-        '---\ntitle: test\n---\n1997год.',
-        '---\ntitle: test\n---\n1997 год.',
+        '---\ntitle: test\n---\n\n\n1997год.',
+        '---\ntitle: test\n---\n\n\n1997год.',
         { input: 'frontmatter' }
       ],
       [
         '---\ntitle: test\n---\n\nГост 5773-90',
-        '---\ntitle: test\n---\nГост 5773–90',
-        '---\ntitle: test\n---\nГОСТ 5773–90',
+        '---\ntitle: test\n---\n\nГост 5773–90',
+        '---\ntitle: test\n---\n\nГост 5773–90',
         { input: 'frontmatter' }
       ]
     ]) {
@@ -1153,7 +1153,7 @@ describe('whitespace at the edges of a document', () => {
   });
 
   test('preserves the indentation of a Markdown code block', () => {
-    settles([['    код\n', '    код']], { input: 'markdown' });
+    settles([['    код\n', '    код\n']], { input: 'markdown' });
   });
 });
 

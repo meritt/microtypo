@@ -16,7 +16,7 @@ describe('frontmatter input: YAML/TOML header + Markdown body', () => {
 
     assert.equal(
       out,
-      `---\ntitle: "Хроники Амбера${NBSP}— лучшие"\n---\nКорвин помнит Амбер${NBSP}— всегда.`
+      `---\ntitle: "Хроники Амбера${NBSP}— лучшие"\n---\n\nКорвин помнит Амбер${NBSP}— всегда.`
     );
   });
 
@@ -24,7 +24,7 @@ describe('frontmatter input: YAML/TOML header + Markdown body', () => {
     const input = '+++\ntitle = "Corwin - Amber"\n+++\n\nКорвин "в Амбере"';
     const out = microtypo(input, { input: { format: 'frontmatter' } });
 
-    assert.equal(out, `+++\ntitle = "Corwin${NBSP}— Amber"\n+++\nКорвин «в${NBSP}Амбере»`);
+    assert.equal(out, `+++\ntitle = "Corwin${NBSP}— Amber"\n+++\n\nКорвин «в${NBSP}Амбере»`);
   });
 
   test('a header bare scalar is typeset like any other prose value', () => {
@@ -91,7 +91,7 @@ describe('frontmatter input: YAML/TOML header + Markdown body', () => {
     const input = '---\r\ntitle: "Корвин - Эрик"\r\n---\r\n\r\nРэндом - Блейз';
     const out = microtypo(input, { input: { format: 'frontmatter' } });
 
-    assert.equal(out, `---\r\ntitle: "Корвин${NBSP}— Эрик"\r\n---\r\nРэндом${NBSP}— Блейз`);
+    assert.equal(out, `---\r\ntitle: "Корвин${NBSP}— Эрик"\r\n---\r\n\r\nРэндом${NBSP}— Блейз`);
   });
 
   test('a leading UTF-8 BOM is detected and preserved verbatim in the output', () => {
@@ -191,8 +191,8 @@ describe('frontmatter with paragraphs and breakline on', () => {
       const options = { ...on(render), input: { format: 'frontmatter', template: 'liquid' } };
 
       for (const [src, out] of [
-        ['---\na: 1\n---\n{%%}  \n', '---\na: 1\n---\n<p>{%%}</p>'],
-        ['---\na: 1\n---\n{% if x %}\n', '---\na: 1\n---\n<p>{% if x %}</p>'],
+        ['---\na: 1\n---\n{%%}  \n', '---\na: 1\n---\n<p>{%%}</p>\n'],
+        ['---\na: 1\n---\n{% if x %}\n', '---\na: 1\n---\n<p>{% if x %}</p>\n'],
         ['---\na: 1\n---\n{% if x %}  \nтекст', '---\na: 1\n---\n<p>{% if x %}  \nтекст</p>']
       ]) {
         assert.equal(microtypo(src, options), out, JSON.stringify(render));

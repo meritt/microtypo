@@ -47,7 +47,11 @@ test('the bundle typesets every format and option as the sources do', async () =
   const fixtures = new URL('../fixtures/big-text/', import.meta.url);
   const texts = [
     'Корвин сказал: "Амбер \u{E000} - тут" http://amber.example/x и т.д.',
-    '{"title":"Амбер - лучший"}'
+    '{"title":"Амбер - лучший"}',
+    `\${name}: {n, plural, one {# день - текст} other {# дней - тексты}} %1$s`,
+    '<!-- microtypo-ignore-start -->Код - "текст"<!-- microtypo-ignore-end -->\r\nКорвин - принц\r\n',
+    'если a<b, то "c" - d',
+    '| Альфа | Бета |\r\n| :- | -: |\r\n| Корвин - принц | Эрик |\r\n'
   ];
 
   const names = await readdir(fixtures);
@@ -61,7 +65,10 @@ test('the bundle typesets every format and option as the sources do', async () =
     { html: true, entities: true },
     { input: 'html', html: true },
     { input: 'markdown' },
-    { input: 'json' }
+    { input: 'json' },
+    { input: 'plain' },
+    { input: { placeholders: 'all' } },
+    { input: { format: 'markdown', pragmas: 'microtypo' } }
   ];
 
   for (const config of configs) {

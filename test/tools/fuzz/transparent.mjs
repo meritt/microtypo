@@ -1,3 +1,4 @@
+import { isOn } from '../../../src/core/options.js';
 // The invariant «строчная разметка прозрачна»: prose with no markup is typeset, then the same prose
 // with whole words wrapped in inline elements, or in Markdown emphasis and links; with exactly the
 // wrapping taken off again, the second output is the first. Under `html: true` the visible texts are
@@ -9,7 +10,7 @@
 // address — and none whose element would cross one of the engine's no-break wrappers, which the
 // engine then gives up for no-break spaces. What the engine rewrites is read off its output for the
 // prose itself.
-import { isOn } from '../../../src/core/options.js';
+import { localizationScanner } from '../../../src/input/localization.js';
 import { generateConfig } from './documents.mjs';
 import { createGrammar } from './grammar.mjs';
 
@@ -264,8 +265,9 @@ const REACH = 2;
 // clause behind — never a quote mark, a dot, a bracket, a digit or a hyphen. Not part of a date or an
 // address, not next to a quote mark, and not within `REACH` of a place where the engine rewrote the
 // text: a rule that rewrites words reads the markup around them as it always did.
-function candidates(text, protect, marks) {
-  const guarded = guardedRanges(text, protect);
+function candidates(text, protect, marks, placeholders = 'off') {
+  const scan = localizationScanner(placeholders);
+  const guarded = [...guardedRanges(text, protect), ...(scan?.(text) ?? [])];
   const words = [];
 
   for (const m of text.matchAll(WORD_RE)) {
@@ -485,7 +487,12 @@ export function proseOf(kase, plain) {
     return null;
   }
 
-  const starts = new Map(candidates(prose, kase.protect, read.marks).map((w) => [w.start, w.end]));
+  const starts = new Map(
+    candidates(prose, kase.protect, read.marks, kase.config.input?.placeholders).map((w) => [
+      w.start,
+      w.end
+    ])
+  );
 
   for (const [from, to] of spans) {
     if (!RUN_RE.test(prose.slice(from, to)) || !read.fits(from, to)) {
@@ -533,7 +540,13 @@ export function createTransparent(lexicon, d, plain) {
     const text =
       read === null
         ? prose
-        : wrapWords(d, prose, candidates(prose, ctx.protect, read.marks), markdown, read.fits);
+        : wrapWords(
+            d,
+            prose,
+            candidates(prose, ctx.protect, read.marks, config.input?.placeholders),
+            markdown,
+            read.fits
+          );
 
     return { format, config, text, protect: ctx.protect, transparent: true };
   };

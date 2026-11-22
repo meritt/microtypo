@@ -3,6 +3,7 @@ import { normaliseOptions, isOn, canonicalGroupName, wildcardToRegex } from './c
 import { MicroTypoConfigError, MicroTypoInputError, MicroTypoBudgetError } from './errors/index.js';
 import { scanLeadingHeader, splitFrontmatter } from './input/frontmatter.js';
 import { compileSpanSelectors, scanJson, selectValueSpans } from './input/json.js';
+import { localizationScanner } from './input/localization.js';
 import {
   codeSpanReader,
   commentReader,
@@ -11,11 +12,13 @@ import {
   scanFences,
   scanIndentedCode,
   scanLinePrefix,
+  scanTableDelimiters,
   scanLinkDestinations,
   scanMarkdownComments,
   scanReferenceDefinitions,
   scanUnclosedHtmlBlock
 } from './input/markdown.js';
+import { scanPragmas } from './input/pragmas.js';
 import { scannerFor, templateReader } from './input/template.js';
 import { scanToml } from './input/toml.js';
 import { scanDoctype, scanXmlSpacePreserve, validateXml, xmlBlocks } from './input/xml.js';
@@ -23,6 +26,7 @@ import { scanYaml } from './input/yaml.js';
 import { BLOCK_TAG_NAMES, VOID_BLOCK_TAG_NAMES } from './lib/block-tags.js';
 import { changedRanges } from './lib/diff.js';
 import { G, unicodeToEntities, unicodeToXmlEntities } from './lib/glyphs.js';
+import { fileLineStyle, restoreFileEndings, restoreFileTail } from './lib/line-endings.js';
 import { bindRuleBudget } from './lib/rule-budget.js';
 import { F, featureMask } from './lib/rule-features.js';
 import { edgeWhitespace, leadingIndent, trimBlankLines } from './lib/strings.js';
@@ -86,6 +90,7 @@ const BOM = '\u{FEFF}';
 
 // Formats whose document is Markdown source; frontmatter is here because its body is one.
 const BLOCK_RENDER_FORMATS = new Set(['markdown', 'frontmatter']);
+const FILE_FORMATS = new Set(['markdown', 'frontmatter', 'yaml', 'toml', 'json', 'xml']);
 
 const sameList = (a, b) =>
   a === b || (a?.length === b?.length && a.every((value, i) => value === b[i]));
@@ -96,6 +101,8 @@ const sameList = (a, b) =>
 const sameInputConfig = (a, b) =>
   a.format === b.format &&
   a.template === b.template &&
+  a.placeholders === b.placeholders &&
+  a.pragmas === b.pragmas &&
   sameList(a.fields, b.fields) &&
   sameList(a.exclude, b.exclude);
 
@@ -119,6 +126,8 @@ export class MicroTypo {
   #presets;
   #select;
   #processing = false; // reentrancy guard
+  #ignoredFile = false;
+  #pragmaDocument = false;
   #customProtection = false;
   // Whether a fragment of the current document can carry a reserved character. Only a JSON value
   // can hold one its document does not spell, since `JSON.parse` decodes ``; elsewhere one look
@@ -154,7 +163,7 @@ export class MicroTypo {
 
     // Registration order is load-bearing: an earlier block's placeholder hides its content from every
     // later block's regex.
-    if (!markdown) {
+    if (!markdown && this.#input.format !== 'plain') {
       this.#addSafeElements();
     }
 
@@ -220,6 +229,7 @@ export class MicroTypo {
 
       // Indent, blockquote chain and list or heading marker in one span, so `> -` stays a list
       // rather than becoming an em dash and the spaces that set a content column survive.
+      this.#safeBlocks.addScanner('md-table-delimiter', scanTableDelimiters);
       this.#safeBlocks.addScanner('md-line-prefix', scanLinePrefix);
 
       // Two or more trailing spaces before a line ending of any of the three kinds; the zero-width
@@ -279,6 +289,25 @@ export class MicroTypo {
       this.#safeBlocks.addScanner(`tmpl-${this.#input.template}`, scanTemplate);
     }
 
+    if (this.#input.pragmas === 'microtypo' && (html || markdown)) {
+      this.#safeBlocks.addScanner('microtypo-pragma', (text, checkBudget) =>
+        this.#pragmaDocument
+          ? scanPragmas(text, checkBudget, {
+              markdown,
+              restore: (content) => this.#safeBlocks.restore(content),
+              ignoreFile: () => {
+                this.#ignoredFile = true;
+              }
+            })
+          : []
+      );
+    }
+
+    const localization = localizationScanner(this.#input.placeholders);
+    if (localization !== null) {
+      this.#safeBlocks.addScanner('localization', localization);
+    }
+
     // Only an HTML document is markup to its end. Markdown reads an element left open as text unless
     // it opens an HTML block, which `scanUnclosedHtmlBlock` takes; a value of a data format is a
     // fragment, and XML closes every element or is rejected.
@@ -286,7 +315,7 @@ export class MicroTypo {
       this.#safeBlocks.setTail({ opaque: NOTG_RE });
     }
 
-    if (html) {
+    if (html || this.#input.format === 'plain') {
       this.#safeBlocks.setIndents(scanLineIndent);
     }
 
@@ -604,6 +633,12 @@ export class MicroTypo {
     try {
       this.#reservedPossible = this.#input.format === 'json' || hasReserved(text);
       result = bom + this.#typeset(text.slice(bom.length), checkBudget);
+      if (this.#ignoredFile) {
+        result = text;
+      }
+      if (FILE_FORMATS.has(this.#input.format)) {
+        result = restoreFileTail(text, result);
+      }
       checkBudget('restore');
     } finally {
       this.#processing = false;
@@ -620,9 +655,14 @@ export class MicroTypo {
     // Reserved PUA in the input is escaped per fragment in `#runPipeline`, where placeholders live.
     // Snapshot the hook so a rule callback can't swap it mid-process.
     const hook = this.onCycleLimit;
+    this.#ignoredFile = false;
     this.#resetVaults();
 
     const session = this.#makeSession(hook, checkBudget);
+    session.lineStyle =
+      FILE_FORMATS.has(this.#input.format) && this.#input.format !== 'json'
+        ? fileLineStyle(text, checkBudget)
+        : null;
 
     if (this.#input.format === 'json') {
       return this.#processJson(text, session, checkBudget);
@@ -666,7 +706,7 @@ export class MicroTypo {
     // trim.
     const [from, to] = leadingIndent(text);
     const body = this.#runPipeline(text.slice(0, from) + text.slice(to), session, checkBudget, {
-      destination: 'html',
+      destination: this.#input.format === 'plain' ? 'plain' : 'html',
       trim: (s) => s.trim(),
       indents: true
     });
@@ -694,6 +734,7 @@ export class MicroTypo {
       fm.open === '+++'
         ? this.#typesetStructured(fm.header, scanToml, session, checkBudget)
         : this.#typesetStructured(fm.header, scanYaml, session, checkBudget);
+    const boundary = /^(?:[ \t]*(?:\r\n?|\n))+/u.exec(fm.body)?.[0] ?? '';
     const typedBody = this.#runPipeline(fm.body, session, checkBudget, {
       trim: this.#trimBlankLines
     });
@@ -703,6 +744,7 @@ export class MicroTypo {
       text.slice(0, fm.headerStart) +
       typedHeader +
       text.slice(fm.headerStart + fm.header.length, fm.bodyStart) +
+      boundary +
       typedBody
     );
   }
@@ -865,6 +907,7 @@ export class MicroTypo {
   ) {
     const effHtml = destination === 'html' && this.#html;
     session.ctx.html = effHtml;
+    this.#pragmaDocument = destination === 'html';
 
     // Per-call vault frame so an id minted for an earlier scalar can't be referenced by a later one.
     this.#safeSequences.resetFrame();
@@ -884,13 +927,22 @@ export class MicroTypo {
       this.#safeSequences.restore(value)
     );
     checkBudget('safeBlocks.protect');
+    if (this.#ignoredFile) {
+      return text;
+    }
 
-    result = this.#protectNotg(result);
+    if (this.#input.format !== 'plain') {
+      result = this.#protectNotg(result);
+    }
     checkBudget('protectNotg');
 
-    result = this.#safeTags.protect(result);
+    if (this.#input.format !== 'plain') {
+      result = this.#safeTags.protect(result);
+    }
     checkBudget('safeTags.protect');
 
+    const lineSource =
+      FILE_FORMATS.has(this.#input.format) && this.#input.format !== 'json' ? result : null;
     result = clearSpecialChars(result);
     checkBudget('clearSpecialChars');
 
@@ -946,6 +998,10 @@ export class MicroTypo {
       // destination === 'data-value': suppressed — structured values stay raw Unicode.
     }
 
+    if (lineSource !== null) {
+      result = restoreFileEndings(lineSource, result, session.lineStyle, checkBudget);
+    }
+
     result = this.#safeTags.restoreIblocks(result);
 
     result = restoreParagraphs(result);
@@ -955,7 +1011,7 @@ export class MicroTypo {
     // The text group never puts a block in a `<p>` of its own, but a plain `<p>` the author wrapped
     // around one is taken off: HTML forbids a block inside an inline. Only under html:true: without
     // the text group the markup is the author's, and a protected body is still a placeholder here.
-    if (effHtml) {
+    if (effHtml && this.#input.format !== 'plain') {
       result = unwrapBlocks(result);
     }
 

@@ -43,6 +43,7 @@ const MAX_INPUT_LENGTH = 5_000_000;
 const INPUT_FORMATS = new Set([
   'text',
   'html',
+  'plain',
   'markdown',
   'json',
   'xml',
@@ -60,7 +61,9 @@ const INPUT_TEMPLATES = new Set([
   'liquid',
   'erb'
 ]);
-const INPUT_KEYS = new Set(['format', 'fields', 'exclude', 'template']);
+const INPUT_PLACEHOLDERS = new Set(['off', 'icu', 'printf', 'interpolation', 'all']);
+const INPUT_PRAGMAS = new Set(['off', 'microtypo']);
+const INPUT_KEYS = new Set(['format', 'fields', 'exclude', 'template', 'placeholders', 'pragmas']);
 const INPUT_FORMAT_MESSAGE = `expected one of ${[...INPUT_FORMATS].join('|')}`;
 
 function isBooleanish(value) {
@@ -75,7 +78,7 @@ function isStringArray(value) {
 
 function normaliseInput(input, issues) {
   if (input === undefined) {
-    return { format: 'text', template: 'off' };
+    return { format: 'text', template: 'off', placeholders: 'off', pragmas: 'off' };
   }
 
   if (typeof input === 'string') {
@@ -83,13 +86,13 @@ function normaliseInput(input, issues) {
       issues.push(`input: ${INPUT_FORMAT_MESSAGE}`);
     }
 
-    return { format: input, template: 'off' };
+    return { format: input, template: 'off', placeholders: 'off', pragmas: 'off' };
   }
 
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     issues.push('input: expected a string or an object');
 
-    return { format: 'text', template: 'off' };
+    return { format: 'text', template: 'off', placeholders: 'off', pragmas: 'off' };
   }
 
   for (const key of Object.keys(input)) {
@@ -108,7 +111,16 @@ function normaliseInput(input, issues) {
     issues.push(`input.template: expected one of ${[...INPUT_TEMPLATES].join('|')}`);
   }
 
-  const normalised = { format, template };
+  const placeholders = input.placeholders ?? 'off';
+  if (!INPUT_PLACEHOLDERS.has(placeholders)) {
+    issues.push(`input.placeholders: expected one of ${[...INPUT_PLACEHOLDERS].join('|')}`);
+  }
+  const pragmas = input.pragmas ?? 'off';
+  if (!INPUT_PRAGMAS.has(pragmas)) {
+    issues.push(`input.pragmas: expected one of ${[...INPUT_PRAGMAS].join('|')}`);
+  }
+
+  const normalised = { format, template, placeholders, pragmas };
 
   if (input.fields !== undefined) {
     if (isStringArray(input.fields)) {
