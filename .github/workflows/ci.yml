@@ -224,6 +224,14 @@ jobs:
             exit 1
           fi
           sha256sum --check --strict SHA256SUMS
+          if answer="$(gh api "repos/$GH_REPO/releases/tags/$REF" --silent 2>&1)"; then
+            for asset in *; do
+              gh release verify-asset "$REF" "$asset"
+            done
+          elif [[ "$answer" != *'HTTP 404'* ]]; then
+            echo "::error::release state for the tag is unknown"
+            exit 1
+          fi
 
       - name: Attest
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
