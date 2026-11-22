@@ -129,6 +129,10 @@ const undeclared = [];
 
 for (const group of GROUPS) {
   for (const rule of group.rules) {
+    if (rule.requiresPattern instanceof RegExp) {
+      regexes.push([`${group.title}/${rule.id}/requiresPattern`, rule.requiresPattern]);
+    }
+
     if (rule.handler && rule.regexes === undefined) {
       undeclared.push(`${group.title}/${rule.id}`);
       continue;

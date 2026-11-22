@@ -2712,7 +2712,7 @@ describe('Markdown with paragraphs and breakline on', () => {
     );
     assert.equal(
       settled('Корвин <!-- коммент\n\nещё --> и\nдальше\n\nТекст', BOTH),
-      'Корвин <!-- коммент\n\nещё --> и\nдальше\n\n<p>Текст</p>'
+      '<p>Корвин <!-- коммент</p>\n\n<p>ещё --> и<br>\nдальше</p>\n\n<p>Текст</p>'
     );
   });
 

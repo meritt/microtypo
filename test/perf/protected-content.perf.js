@@ -23,6 +23,21 @@ test('trimming a lifted suffix keeps markup at the same visible boundary', () =>
 const SCENES = [
   ['reference labels', { input: 'markdown' }, (n) => '[a][b] '.repeat(n).trim()],
   [
+    'adjacent reference and destination links',
+    { input: 'markdown' },
+    (n) => '[в доме](/x)[у моря][берег] '.repeat(n)
+  ],
+  [
+    'simple links followed by a nested scope',
+    { input: 'markdown' },
+    (n) => `${'[a][b] '.repeat(n)}[[в доме][b]][c]`
+  ],
+  [
+    'escaped brackets and image references',
+    { input: 'markdown' },
+    (n) => '\\[слово][метка] ![в доме][берег] '.repeat(n)
+  ],
+  [
     'references with emphasis elsewhere',
     { input: 'markdown' },
     (n) => `${'[a][b] '.repeat(n)}*в доме*`

@@ -3,6 +3,7 @@ import { BLOCK_TAG_NAMES, VOID_BLOCK_TAG_NAMES } from '../lib/block-tags.js';
 import { NAME_START, TAG_NAME_RE, isTagNameStart } from '../lib/tag-name.js';
 import { OPEN, CLOSE, TAG_VAULT_KINDS } from './placeholders.js';
 import {
+  COMMENT_OPEN,
   DOCUMENT_READING,
   FRAGMENT_READING,
   selfClosing,
@@ -68,6 +69,7 @@ export class SafeTags {
   // `DOCUMENT_READING` for an HTML document, `FRAGMENT_READING` for anything else; `tagEnd` says what
   // the two change.
   #reading;
+  #readComments;
   #tagVault = new Vault('T');
   #anchorVault = new Vault('A');
   #blockVault = new Vault('L');
@@ -89,8 +91,9 @@ export class SafeTags {
 
   #heads = new Map(NAMED_KINDS.map((prefix) => [prefix, []]));
 
-  constructor({ document = true } = {}) {
+  constructor({ document = true, readComments = null } = {}) {
     this.#reading = document ? DOCUMENT_READING : FRAGMENT_READING;
+    this.#readComments = readComments;
   }
 
   reset() {
@@ -124,6 +127,7 @@ export class SafeTags {
     const parts = [];
     let cursor = 0;
     let ends = null;
+    let readComment;
 
     for (let lt = text.indexOf('<'); lt !== -1; lt = text.indexOf('<', lt + 1)) {
       const at = text[lt + 1] === '/' ? lt + 2 : lt + 1;
@@ -131,6 +135,12 @@ export class SafeTags {
 
       if (!isTagNameStart(first) && first !== PLACEHOLDER_START) {
         continue;
+      }
+      if (this.#readComments !== null && text.startsWith(COMMENT_OPEN, lt)) {
+        readComment ??= this.#readComments(text);
+        if (readComment(lt) === -1) {
+          continue;
+        }
       }
 
       const gt = ends === null ? tagEnd(text, at, this.#reading) : ends[at];

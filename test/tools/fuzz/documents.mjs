@@ -10,6 +10,7 @@ export const FORMATS = [
   'html',
   'plain',
   'markdown',
+  'mdx',
   'json',
   'yaml',
   'toml',
@@ -138,6 +139,124 @@ export function createDocuments(lexicon, d) {
   const prose = (ctx) => g.finish(ctx, g.paragraph(ctx));
   const line = (ctx) => g.finish(ctx, g.sentence(ctx));
   const nl = (ctx) => g.nl(ctx);
+
+  function formatsII(format, config) {
+    const input = typeof config.input === 'object' ? { ...config.input } : { format };
+    config.input = input;
+    const ctx = g.context({ eol: pick(['\n', '\r\n']), lines: false });
+    const sentence = () => `${g.word()} - ${g.word()} и "${g.word()}"`;
+    const guard = (kind, source) => g.guard(ctx, kind, source);
+    const e = nl(ctx);
+    let source;
+    const expectedProse = [];
+    const reviewProse = () => {
+      config.html = false;
+      config.entities = false;
+      config.presets = true;
+      config.rules = {};
+      expectedProse.push({ source: 'Корвин - принц', expected: 'Корвин\u00a0— принц' });
+    };
+    const attributeShapes = [];
+    if (format === 'mdx') {
+      input.math = chance(0.5);
+      const review = chance(0.4);
+      const expression = pick(
+        review
+          ? [
+              '{(() => { if (ok) {} else /}}/.test(x); return "А - б"; })()}',
+              '{(() => { label: {} /}}/.test(x); return "А - б"; })()}',
+              '{(async () => { for await (const x of xs) /}}/.test(x); return "А - б"; })()}',
+              '{(() => { const x = function() {} / 2; return "А - б"; })()}',
+              '{(() => { const value = class {} / 2; return "А - б"; })()}',
+              '{(() => { const value = class extends Bases[{}] {} / 2; return "А - б"; })()}',
+              '{(() => { class Value {} /}}/.test(x); return "А - б"; })()}'
+            ]
+          : [
+              '{({ value: "} - text", nested: { a: 1 } })}',
+              `{\`А - \${\`б \${value} - в\`} г\`}`,
+              '{(() => { if (ok) {} /}}/.test(value); return "А - б"; })()}',
+              '{x++ / 2 + obj.return / 2}',
+              '{/* А - "б" */}',
+              '{<Inner>{"}"}</Inner>}'
+            ]
+      );
+      const unclosed = pick([
+        '{unfinished - "source"',
+        '<Box title="А - б',
+        '{/* А - б',
+        '{/unterminated'
+      ]);
+      source = `${guard('mdx-esm', `import X from "./a-b.js"${e}export const value = "А - б"`)}${e}${e}${sentence()} ${guard('mdx-expression', expression)}${review ? ' Корвин - принц' : ''}${e}${e}${guard('mdx-jsx', '<Box value={<Inner>{"}"}</Inner>}>')}${sentence()}${guard('mdx-jsx', '</Box>')}${e}${e}${guard('mdx-expression', `{String.raw\`А - б${e}~~~${e}В - г\`}`)}${e}${e}${sentence()}${e}${e}${guard('mdx-unclosed', unclosed)}${e}${e}${sentence()}`;
+      if (review) {
+        reviewProse();
+      }
+    } else if (chance(0.5) && ['markdown', 'frontmatter'].includes(format)) {
+      input.math = true;
+      const formula = pick([
+        '$a - b$',
+        '$$a - b$$',
+        String.raw`\(a - b\)`,
+        String.raw`\[a - b\]`,
+        '$a - b<c$',
+        String.raw`\(a - b<c\)`,
+        `$$${e}a - b = "c"${e}$$`
+      ]);
+      source = `${sentence()} ${guard('md-math', formula)}${formula.includes('<') ? '>' : ''}${e}${e}$5 и $10, стоит $5, а не $10${e}${e}${guard('md-code', '`$a - b$`')}${e}${e}${sentence()}`;
+      if (chance(0.5)) {
+        reviewProse();
+        const ending = pick(['\n', '\r', '\r\n']);
+        const [open, close] = pick([
+          ['$', '$'],
+          [String.raw`\(`, String.raw`\)`]
+        ]);
+        const physical = `${open}a - b\\${ending}c - d${close}`;
+        expectedProse.push({
+          source: physical,
+          expected: `${open}a\u00a0— b\\${ending}c\u00a0— d${close}`
+        });
+        source += `${e}${e}${physical}${e}${e}Корвин - принц`;
+      }
+    } else {
+      const attribute = pick(['alt', 'title', 'aria-label', 'placeholder']);
+      input.attributes = pick([
+        [attribute],
+        [attribute, 'content'],
+        ['alt', 'content', 'placeholder', 'aria-label']
+      ]);
+      const quote = pick(['"', "'"]);
+      const entities = ['&quot;', '&#34;', '&#x22;', '&amp;', '&lt;', '&nbsp;']
+        .map((entity) => guard('attribute-entity', entity))
+        .join(' ');
+      const prefix = `<img data-j6="image" ${attribute}=${quote}`;
+      const suffix = `${quote} src="a-b.png">`;
+      const valueText = `${g.word()} - ${g.word()} ${quote === '"' ? "'Амбер'" : '"Амбер"'}`;
+      source = `${sentence()}${e}${prefix}${valueText} ${entities}${suffix}${e}<meta data-j6="meta" name="description" content="${g.word()} - ${g.word()}">${e}${guard('attribute-protected', '<code title="А - б"><img alt="А - б"></code>')}${e}${sentence()}`;
+      const attributePattern = quote === '"' ? '[^"<>]*' : "[^'<>]*";
+      attributeShapes.push({
+        marker: 'data-j6="image"',
+        pattern: RegExp.escape(prefix) + attributePattern + RegExp.escape(suffix)
+      });
+      attributeShapes.push({
+        marker: 'data-j6="meta"',
+        pattern: '<meta data-j6="meta" name="description" content="[^"<>]*">'
+      });
+      guard('attribute-unselected', 'src="a-b.png"');
+    }
+    if (input.math && format === 'mdx') {
+      source += `${e}${e}${guard('md-math', '$a - b$')} ${sentence()}`;
+    }
+    if (format === 'frontmatter') {
+      source = `---${e}title: "${g.word()} - ${g.word()}"${e}---${e}${e}${source}`;
+    }
+    return {
+      format,
+      config,
+      text: g.strip(source),
+      protect: ctx.protect,
+      attributeShapes,
+      expectedProse
+    };
+  }
 
   function text(ctx) {
     const paragraphs = [];
@@ -296,6 +415,7 @@ export function createDocuments(lexicon, d) {
       : '';
 
     // Spaces closing the document are the one place Markdown leaves trailing spaces to the rules.
+    ctx.bodyOffset = header.length;
     return header + markdownBlocks(ctx) + (chance(0.05) ? pick(['  ', '   ', ' ']) : '');
   }
 
@@ -522,11 +642,13 @@ export function createDocuments(lexicon, d) {
     // The header's values are data: Markdown there is text the scanners may still see, not syntax.
     const header = { ...ctx, eol: ' ', data: true };
 
-    return weighted([
-      [5, () => `---${eol}${yamlBody(header, eol)}${eol}---${eol}${eol.repeat(int(1, 3))}${body}`],
-      [2, () => `+++${eol}${tomlBody(header, eol)}${eol}+++${eol}${eol.repeat(int(1, 3))}${body}`],
-      [1, () => body]
+    const prefix = weighted([
+      [5, () => `---${eol}${yamlBody(header, eol)}${eol}---${eol}${eol.repeat(int(1, 3))}`],
+      [2, () => `+++${eol}${tomlBody(header, eol)}${eol}+++${eol}${eol.repeat(int(1, 3))}`],
+      [1, () => '']
     ])();
+    ctx.bodyOffset = prefix.length;
+    return prefix + body;
   }
 
   const BUILDERS = { text, html, plain, markdown, json, yaml, toml, xml, frontmatter };
@@ -544,6 +666,12 @@ export function createDocuments(lexicon, d) {
 
   return function generate(format) {
     const config = generateConfig(d, format);
+    if (
+      format === 'mdx' ||
+      (['text', 'html', 'markdown', 'frontmatter'].includes(format) && chance(0.2))
+    ) {
+      return formatsII(format, config);
+    }
     const eol = eolFor();
     const structured = ['json', 'yaml', 'toml'].includes(format);
     const flags = { ...FLAGS[format] };
@@ -569,7 +697,13 @@ export function createDocuments(lexicon, d) {
       const end = chance(0.2) ? '' : '<!-- microtypo-ignore-end -->';
       source += `${nl(ctx)}${g.guard(ctx, 'pragma-region', `${start}${nl(ctx)}Код - "текст"${nl(ctx)}${end}`, { before: OUTSIDE_TAG })}`;
       if (chance(0.15)) {
-        source = g.guard(ctx, 'pragma-file', `${source}${nl(ctx)}<!-- microtypo-ignore-file -->`);
+        // The directive must precede any unclosed code or template body, outside metadata.
+        const at = ctx.bodyOffset ?? 0;
+        source = g.guard(
+          ctx,
+          'pragma-file',
+          `${source.slice(0, at)}<!-- microtypo-ignore-file -->${nl(ctx)}${source.slice(at)}`
+        );
       }
     }
     if (

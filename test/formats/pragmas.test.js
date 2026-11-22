@@ -41,6 +41,24 @@ test('frontmatter metadata does not activate a pragma', () => {
   );
 });
 
+for (const format of ['text', 'html', 'markdown', 'frontmatter']) {
+  for (const block of ['raw', 'comment']) {
+    test(`${format} ignores a pragma inside a Liquid ${block} body`, () => {
+      const options = { html: false, input: { format, template: 'liquid', pragmas: 'microtypo' } };
+      const prefix = format === 'frontmatter' ? '---\ntitle: "Амбер - город"\n---\n\n' : '';
+      const body = `{% ${block} %}\n${FILE}\nКод - "текст"`;
+      for (const close of ['', `\n{% end${block} %}`]) {
+        const source = `${prefix}Корвин - принц\n\n${body}${close}`;
+        assert.ok(microtypo(source, options).includes(`Корвин\u{00A0}— принц\n\n${body}${close}`));
+      }
+      const source = `${prefix}Корвин - принц\n\n{% ${block} %}Код - "текст"{% end${block} %}\n\n${FILE}`;
+      assert.equal(microtypo(source, options), source);
+      const before = `${prefix}${FILE}\n\nКорвин - принц\n\n${body}`;
+      assert.equal(microtypo(before, options), before);
+    });
+  }
+}
+
 test('pragmas are off by default', () => {
   const input = `${FILE}\nКорвин - принц`;
   assert.equal(microtypo(input, config('html', 'off')), microtypo(input, { input: 'html' }));

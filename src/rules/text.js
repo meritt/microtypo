@@ -790,6 +790,9 @@ function breaklines(text, ctx, names) {
       PARAGRAPH_GAP_RE,
       (_, c, ws, o) => `${c}${ctx.iblock(/[\r\n]/.test(ws) ? '\n\n' : ws)}${o}`
     );
+    s = s.replace(PARAGRAPH_SPLIT_RE, (gap, _p, _n, _s, _l, at) =>
+      s.startsWith(PARAGRAPH_OPEN, at + gap.length) ? ctx.iblock('\n\n') : gap
+    );
 
     if (boundaries !== null) {
       const [beforeBlock, afterBlock] = boundaries;
@@ -822,7 +825,7 @@ const LINE_MARK = '\u{FFFF}';
 // per line whether it ends in a hard break, per paragraph whether a `<p>` may go around it. A line of
 // `text` holding a protected region that spans lines of the document is a paragraph's only if all of
 // them are, and a paragraph that shares a line with anything else is left without a `<p>`.
-function markdownLayout(text, ctx, { header, restore }) {
+function markdownLayout(text, ctx, { header, mdx, restore }) {
   const lines = text.split('\n');
   let pieces = restore(text.replaceAll('\n', LINE_MARK)).split(LINE_MARK);
 
@@ -832,7 +835,7 @@ function markdownLayout(text, ctx, { header, restore }) {
   }
 
   const document = lineView(pieces.join('\n'));
-  const prose = proseParagraphs(document, header, ctx.checkBudget);
+  const prose = proseParagraphs(document, header, ctx.checkBudget, mdx);
   const line = new Int32Array(pieces.length).fill(-1);
   const hard = new Uint8Array(pieces.length);
   const wrap = [...prose.closed];

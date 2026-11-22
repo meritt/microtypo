@@ -331,6 +331,7 @@ export const etcGroup = {
     {
       id: 'split_triads',
       requires: F.DIGIT,
+      requiresPattern: /[1-9][0-9]{4}/u,
       description: 'Триады большого числа через узкий неразрывный пробел',
       // A digit run joined by hyphens to other digit groups is an identifier — an ISBN, a part
       // number — not a quantity, so `978-5-389-12345-6` must not gain a thousands separator. Only a

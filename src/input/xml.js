@@ -256,48 +256,47 @@ export function scanDoctype(text, checkBudget) {
   return spans;
 }
 
+export function xmlConstructReader(text, checkBudget) {
+  let nextCheck = 0;
+  return (from) => {
+    for (let i = text.indexOf('<', from); i !== -1; i = text.indexOf('<', i + 1)) {
+      if (i >= nextCheck) {
+        checkBudget?.('xml-construct-scan');
+        nextCheck = i + 0x4000;
+      }
+
+      let end = -1;
+
+      if (text.startsWith('<!DOCTYPE', i)) {
+        end = doctypeEnd(text, i, checkBudget);
+      } else {
+        const block = xmlBlocks.find(({ open }) => text.startsWith(open, i));
+
+        if (block) {
+          end = blockEnd(text, block, i, checkBudget);
+        }
+      }
+
+      if (end === -1) {
+        continue;
+      }
+      return [i, end, end];
+    }
+    return null;
+  };
+}
+
 function maskXmlConstructs(text, checkBudget) {
   if (!text.includes('<!') && !text.includes('<?')) {
     return text;
   }
-
-  const n = text.length;
+  const next = xmlConstructReader(text, checkBudget);
   const chunks = [];
-  let i = 0;
   let chunkStart = 0;
-  let nextCheck = 0;
-
-  while (i < n) {
-    if (i >= nextCheck) {
-      checkBudget?.('xml-construct-scan');
-      nextCheck = i + 0x4000;
-    }
-
-    if (text[i] !== '<') {
-      i += 1;
-      continue;
-    }
-
-    let end = -1;
-
-    if (text.startsWith('<!DOCTYPE', i)) {
-      end = doctypeEnd(text, i, checkBudget);
-    } else {
-      const block = xmlBlocks.find(({ open }) => text.startsWith(open, i));
-
-      if (block) {
-        end = blockEnd(text, block, i, checkBudget);
-      }
-    }
-
-    if (end === -1) {
-      i += 1;
-      continue;
-    }
-
-    chunks.push(text.slice(chunkStart, i), ' '.repeat(end - i));
+  for (let span = next(0); span !== null; span = next(span[2])) {
+    const [start, end] = span;
+    chunks.push(text.slice(chunkStart, start), ' '.repeat(end - start));
     chunkStart = end;
-    i = end;
   }
 
   if (chunks.length === 0) {
@@ -377,7 +376,7 @@ export function validateXml(text, checkBudget) {
 }
 
 // Assumes well-formed input: `validateXml` runs first and has already thrown on anything malformed.
-export function scanXmlSpacePreserve(text, checkBudget) {
+export function scanXmlSpacePreserve(text, checkBudget, whole = false) {
   if (!text.includes('xml:space')) {
     return [];
   }
@@ -421,13 +420,13 @@ export function scanXmlSpacePreserve(text, checkBudget) {
       stack.pop();
 
       if (preserveDepth !== -1 && stack.length === preserveDepth) {
-        spans.push([preserveStart, i]);
+        spans.push([preserveStart, whole ? tagEnd : i]);
         preserveDepth = -1;
       }
     } else if (!selfClosing) {
       if (preserveDepth === -1 && attrs.preserve) {
         preserveDepth = stack.length;
-        preserveStart = tagEnd;
+        preserveStart = whole ? i : tagEnd;
       }
 
       stack.push(name);

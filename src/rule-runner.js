@@ -66,7 +66,7 @@ function compileRule(rule, groupName) {
 
   const apply = makeApplyFn(rule, groupName);
   const cycled = Boolean(rule.cycled);
-  const { id } = rule;
+  const { id, requiresPattern } = rule;
 
   const wrapped = cycled
     ? (text, ctx, checkBudget) =>
@@ -91,6 +91,10 @@ function compileRule(rule, groupName) {
     htmlOnly: Boolean(rule.htmlOnly),
     requires: rule.requires ?? 0,
     requiresAny: rule.requiresAny ?? 0,
+    requiresPattern:
+      requiresPattern instanceof RegExp
+        ? new RegExp(requiresPattern.source, requiresPattern.flags.replace(/[gy]/g, ''))
+        : null,
     apply: wrapped
   };
 }
@@ -204,10 +208,13 @@ function ensureGlobal(re) {
 // A step `{ id, apply }` the engine takes on a fragment before its groups, run as a rule of a builtin
 // group. A text with nothing to lift takes it as it is: a custom group may yet add markup to it.
 export function runStep(step, text, ctx, keep, inline, features = null, checkBudget = null) {
-  if (features !== null && !hasRequiredFeatures(step, text, features)) {
+  if (features !== null && !hasRequiredFeatures(step, text, features, false)) {
     return text;
   }
   if (inline === null || !mayLift(text, inline)) {
+    if (features !== null && !hasRequiredFeatures(step, text, features)) {
+      return text;
+    }
     return executeRule(step, text, ctx, checkBudget);
   }
 
@@ -298,7 +305,7 @@ export function canRunRuleGroup(compiled, text, features, html) {
     (rule) =>
       isRuleEnabled(compiled, rule) &&
       (!rule.htmlOnly || html) &&
-      hasRequiredFeatures(rule, text, features)
+      hasRequiredFeatures(rule, text, features, false)
   );
 }
 

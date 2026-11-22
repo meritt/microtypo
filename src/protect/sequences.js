@@ -182,6 +182,10 @@ export class SafeSequences {
   // and the `)` that closes its destination: an address may hold either, a bracketed IPv6 address
   // the `]`, and the link scanner would then not see the destination to protect.
   protect(text, cuts = []) {
+    if (!SEQUENCE_HINT_RE.test(text)) {
+      return text;
+    }
+
     if (cuts.length === 0) {
       return this.#protect(text);
     }
@@ -197,6 +201,11 @@ export class SafeSequences {
     parts.push(this.#protect(text.slice(from)));
 
     return parts.join('');
+  }
+
+  protectTokens(text, pattern, accepts) {
+    pattern.lastIndex = 0;
+    return text.replace(pattern, (token) => (accepts(token) ? this.#storeToken(token) : token));
   }
 
   #protect(text) {
@@ -267,43 +276,51 @@ export class SafeSequences {
   // written in a link with none, it would be a path relative to the page.
   restore(text, href = false) {
     const nonce = this.#nonce;
+    const string = typeof text === 'string';
+    let result = text;
 
-    URL_RESTORE_RE.lastIndex = 0;
-    let result = text.replace(URL_RESTORE_RE, (m, n, id) => {
-      const url = n === nonce ? this.#urls[Number(id)] : undefined;
+    if (!string || this.#urls.length > 0) {
+      URL_RESTORE_RE.lastIndex = 0;
+      result = result.replace(URL_RESTORE_RE, (m, n, id) => {
+        const url = n === nonce ? this.#urls[Number(id)] : undefined;
 
-      if (url === undefined || !href) {
-        return url ?? m;
-      }
+        if (url === undefined || !href) {
+          return url ?? m;
+        }
 
-      return SCHEME_RE.test(url) ? decodeReferences(url) : `http://${decodeReferences(url)}`;
-    });
-    URL_RESTORE_NOPROTO_RE.lastIndex = 0;
+        return SCHEME_RE.test(url) ? decodeReferences(url) : `http://${decodeReferences(url)}`;
+      });
+      URL_RESTORE_NOPROTO_RE.lastIndex = 0;
 
-    result = result.replace(URL_RESTORE_NOPROTO_RE, (m, n, id) => {
-      if (n !== nonce) {
-        return m;
-      }
+      result = result.replace(URL_RESTORE_NOPROTO_RE, (m, n, id) => {
+        if (n !== nonce) {
+          return m;
+        }
 
-      const u = this.#urls[Number(id)];
+        const u = this.#urls[Number(id)];
 
-      return u == null ? m : u.replace(/^[^:]+:\/\//, '');
-    });
+        return u == null ? m : u.replace(/^[^:]+:\/\//, '');
+      });
+    }
 
-    EMAIL_RESTORE_RE.lastIndex = 0;
-    result = result.replace(EMAIL_RESTORE_RE, (m, n, id) => {
-      const email = n === nonce ? this.#emails[Number(id)] : undefined;
+    if (!string || this.#emails.length > 0) {
+      EMAIL_RESTORE_RE.lastIndex = 0;
+      result = result.replace(EMAIL_RESTORE_RE, (m, n, id) => {
+        const email = n === nonce ? this.#emails[Number(id)] : undefined;
 
-      if (email === undefined || !href) {
-        return email ?? m;
-      }
+        if (email === undefined || !href) {
+          return email ?? m;
+        }
 
-      return decodeReferences(email);
-    });
-    TOKEN_RESTORE_RE.lastIndex = 0;
-    result = result.replace(TOKEN_RESTORE_RE, (m, n, id) =>
-      n === nonce ? (this.#tokens[Number(id)] ?? m) : m
-    );
+        return decodeReferences(email);
+      });
+    }
+    if (!string || this.#tokens.length > 0) {
+      TOKEN_RESTORE_RE.lastIndex = 0;
+      result = result.replace(TOKEN_RESTORE_RE, (m, n, id) =>
+        n === nonce ? (this.#tokens[Number(id)] ?? m) : m
+      );
+    }
 
     return result;
   }

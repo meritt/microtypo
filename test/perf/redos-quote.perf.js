@@ -27,6 +27,31 @@ function best(run, k) {
 
 const nested = (k) => processQuotes('«'.repeat(k) + '»'.repeat(k));
 
+for (const [name, build] of [
+  ['one balanced quotation', (n) => `«${'а😀'.repeat(n)}»`],
+  ['an unclosed quotation', (n) => `«${'а😀'.repeat(n)}`]
+]) {
+  const time = (n) => {
+    const text = build(n);
+    let fastest = Infinity;
+    for (let sample = 0; sample < 5; sample++) {
+      const started = performance.now();
+      for (let repeat = 0; repeat < 10; repeat++) {
+        assert.equal(processQuotes(text), text);
+      }
+      fastest = Math.min(fastest, performance.now() - started);
+    }
+    return fastest;
+  };
+  test(`${name} over long content grows linearly`, (t) => {
+    time(1000);
+    const [one, two, four] = [time(10000), time(20000), time(40000)];
+    const detail = `${name}: N ${one.toFixed(3)}ms, 2N ${two.toFixed(3)}ms, 4N ${four.toFixed(3)}ms (${(four / one).toFixed(2)}x)`;
+    t.diagnostic(detail);
+    assert.ok(four / one < 8, detail);
+  });
+}
+
 // The quote state machine has to stay near-linear, and is isolated from the pipeline to keep the
 // signal: a 4x input grows about 4x if linear and about 16x if quadratic.
 test('quote-state scales sub-quadratically on nested input', () => {

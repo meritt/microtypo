@@ -369,6 +369,42 @@ function formatCases() {
       { format: 'frontmatter' }
     );
   }
+  for (const format of ['markdown', 'mdx', 'frontmatter']) {
+    for (const math of [false, true]) {
+      const text =
+        '$a - b$ \\(x - y\\) $$\r\na - b = "c"\r\n$$\r\n\r\nстоит $5, а не $10; Корвин - принц\r\n';
+      add(format === 'frontmatter' ? `---\r\ntitle: "А - б"\r\n---\r\n\r\n${text}` : text, {
+        format,
+        math
+      });
+    }
+  }
+  for (const html of [false, true]) {
+    for (const text of [
+      'import X from "./x.js"\nexport const label = "А - б"\n\nКорвин - принц',
+      '<Box value={<Inner>{"}"}</Inner>}>Корвин - принц</Box>',
+      '{(() => { if (ok) {} /}}/.test(value); return "А - б"; })()} Корвин - принц',
+      '{String.raw`А - б\n~~~\nВ - г`}\n\nКорвин - принц',
+      '{unfinished - "source"\n\nКорвин - принц'
+    ]) {
+      add(text, { format: 'mdx' }, html);
+    }
+  }
+  for (const format of ['text', 'html', 'markdown', 'frontmatter']) {
+    for (const attributes of [[], ['alt', 'title', 'content']]) {
+      add(
+        '<img alt=\'"Амбер" - город &quot;текст&quot;\' title="А - б"><meta property="og:description" content="Корвин - принц"><code title="А - б">А - б</code>',
+        { format, attributes }
+      );
+    }
+  }
+  for (const input of [
+    { format: 'mdx', math: 'invalid' },
+    { attributes: ['href'] },
+    { attributes: 'alt' }
+  ]) {
+    add('А - б', input);
+  }
   return cases;
 }
 

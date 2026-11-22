@@ -8,6 +8,7 @@ const DASHED_COMMENT = 3;
 
 const DELIMITERS = {
   handlebars: [
+    ['{{{{', '}}}}'],
     ['{{{', '}}}'],
     ['{{!--', '}}', DASHED_COMMENT],
     ['{{~!--', '}}', DASHED_COMMENT],
@@ -58,17 +59,26 @@ function nextIndex(text, needle, from, known) {
 // String literals are stepped over, so a close sequence inside a quoted expression — `{{ "a }}" }}`
 // — cannot end the span early. Quotes inside a comment are prose and open nothing. ERB and Liquid
 // split tags on the raw close, so a close inside a `#` line comment still ends the span.
-function findClose(text, i, close, limit, mode) {
+function findClose(text, i, close, limit, mode, checkBudget) {
   let j = i;
   let inComment = mode === COMMENT;
+  let nextCheck = i;
 
   while (j < limit) {
+    if (j >= nextCheck) {
+      checkBudget?.('template-scan');
+      nextCheck = j + 0x4000;
+    }
     const c = text[j];
 
     if (!inComment && (c === '"' || c === "'")) {
       j += 1;
 
       while (j < limit && text[j] !== c) {
+        if (j >= nextCheck) {
+          checkBudget?.('template-scan');
+          nextCheck = j + 0x4000;
+        }
         j += text[j] === '\\' ? 2 : 1;
       }
 
@@ -97,7 +107,7 @@ function findClose(text, i, close, limit, mode) {
 // close answers an opener is read forward from that opener alone, so where a walk starts changes
 // nothing about what it finds — and a walk sharing the document with another kind of opaque region
 // can resume behind one without the document being rewritten for it.
-export function templateReader(name) {
+export function templateReader(name, bodiesOnly = false) {
   const pairs = DELIMITERS[name];
 
   if (!pairs) {
@@ -137,11 +147,14 @@ export function templateReader(name) {
     // starts behind a close already found, and one that found nothing never finds anything.
     let dashedPlain;
     let dashedTilde;
+    const bodyEnds = new Map();
     // Every opener of an engine starts with the same character, so the scan jumps between those
     // instead of trying each opener at every position.
     const first = pairs[0][0][0];
 
-    return (from) => {
+    const headerEnds = new Map();
+    let dashedHeaders;
+    const read = (from, onlyAt = false, headerOnly = false) => {
       let i = from;
       // A threshold rather than a mask on `i`: a match jumps `i` by a whole expression, so a fixed
       // mask could stride past every check.
@@ -155,7 +168,7 @@ export function templateReader(name) {
 
         i = text.indexOf(first, i);
 
-        if (i === -1) {
+        if (i === -1 || (onlyAt && i !== from)) {
           break;
         }
 
@@ -179,6 +192,46 @@ export function templateReader(name) {
           if (mode === DASHED_COMMENT) {
             const dashes = i + open.length - 2;
 
+            if (headerOnly) {
+              if (dashedHeaders === undefined) {
+                dashedHeaders = new Map();
+                let plain;
+                let tilde;
+                for (let at = text.indexOf(first); at !== -1; at = text.indexOf(first, at + 1)) {
+                  checkBudget?.('template-comment-headers');
+                  const pair = pairs.find(
+                    ([prefix, , kind]) => kind === DASHED_COMMENT && text.startsWith(prefix, at)
+                  );
+                  if (pair === undefined) {
+                    continue;
+                  }
+                  const commentStart = at + pair[0].length - 2;
+                  plain = nextIndex(text, '--}}', commentStart, plain);
+                  tilde = nextIndex(text, '--~}}', commentStart, tilde);
+                  dashedHeaders.set(
+                    at,
+                    Math.min(
+                      plain === -1 ? Infinity : plain + 4,
+                      tilde === -1 ? Infinity : tilde + 5
+                    )
+                  );
+                }
+              }
+              const end = dashedHeaders.get(i);
+              if (end !== Infinity) {
+                return [i, end, end];
+              }
+              const fallback = findClose(
+                text,
+                i + open.length,
+                close,
+                Math.min(n, i + open.length + MAX_TEMPLATE_SCAN),
+                COMMENT,
+                checkBudget
+              );
+              return fallback === -1 ? null : [i, fallback, fallback];
+            }
+
             dashedPlain = nextIndex(text, '--}}', dashes, dashedPlain);
             dashedTilde = nextIndex(text, '--~}}', dashes, dashedTilde);
 
@@ -188,17 +241,67 @@ export function templateReader(name) {
             );
 
             if (end !== Infinity) {
+              if (bodiesOnly) {
+                if (onlyAt) {
+                  return [i, end, end, null, false];
+                }
+                i = end - 1;
+                break;
+              }
               return [i, end, end];
             }
 
             scanMode = COMMENT;
           }
 
-          const limit = Math.min(n, i + open.length + MAX_TEMPLATE_SCAN);
-          const end = findClose(text, i + open.length, close, limit, scanMode);
+          const limit =
+            bodiesOnly && !headerOnly ? n : Math.min(n, i + open.length + MAX_TEMPLATE_SCAN);
+          const end = findClose(text, i + open.length, close, limit, scanMode, checkBudget);
 
           if (end !== -1) {
+            if (headerOnly) {
+              return [i, end, end];
+            }
+            const head = text.slice(i + open.length, end - close.length);
+            let block;
+            if (name === 'handlebars' && open === '{{{{' && /^\s*raw(?:\s|$)/.test(head)) {
+              block = 'raw';
+            } else if (
+              open === '{%' &&
+              (name === 'liquid' || name === 'jinja' || name === 'nunjucks')
+            ) {
+              block = /^-?\s*(raw|comment)\s*-?$/.exec(head)?.[1];
+            }
+            if (block !== undefined && (block !== 'comment' || name === 'liquid')) {
+              let ending = bodyEnds.get(block);
+              if (ending === undefined || (ending !== null && ending[0] < end)) {
+                const pattern =
+                  name === 'handlebars'
+                    ? /\{\{\{\{\s*\/raw\s*\}\}\}\}/g
+                    : new RegExp(`\\{%[-]?[ \\t\\r\\n]*end${block}[ \\t\\r\\n]*[-]?%\\}`, 'g');
+                pattern.lastIndex = end;
+                const match = pattern.exec(text);
+                ending = match === null ? null : [match.index, pattern.lastIndex];
+                bodyEnds.set(block, ending);
+              }
+              const through = ending === null ? n : ending[1];
+              return ending === null ? [i, through, through, 'tail'] : [i, through, through];
+            }
+            if (bodiesOnly) {
+              if (onlyAt) {
+                return [i, end, end, null, false];
+              }
+              i = end - 1;
+              break;
+            }
             return [i, end, end];
+          }
+
+          if (headerOnly) {
+            return null;
+          }
+          if (bodiesOnly) {
+            return onlyAt ? [i, n, n, null, false] : null;
           }
 
           if (limit < n) {
@@ -218,6 +321,26 @@ export function templateReader(name) {
 
       return null;
     };
+    read.next = (from) => {
+      for (let at = text.indexOf(first, from); at !== -1; at = text.indexOf(first, at + 1)) {
+        checkBudget?.('template-opener');
+        if (pairs.some(([open]) => text.startsWith(open, at))) {
+          return [at, at, at];
+        }
+      }
+      return null;
+    };
+    read.read = (at) => read(at, true) ?? [at, at + 1, at + 1, null, false];
+    read.header = (at) => {
+      if (text[at] !== first || !pairs.some(([open]) => text.startsWith(open, at))) {
+        return -1;
+      }
+      if (!headerEnds.has(at)) {
+        headerEnds.set(at, read(at, true, true)?.[1] ?? -1);
+      }
+      return headerEnds.get(at);
+    };
+    return read;
   };
 }
 

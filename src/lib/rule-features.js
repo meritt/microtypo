@@ -103,13 +103,15 @@ export function featureMask(text, features) {
   return mask;
 }
 
-export function hasRequiredFeatures(rule, text, features) {
+export function hasRequiredFeatures(rule, text, features, lexical = true) {
   const required = rule.requires ?? 0;
   const any = rule.requiresAny ?? 0;
-  if (required === 0 && any === 0) {
-    return true;
+  if (required !== 0 || any !== 0) {
+    const mask = featureMask(text, features);
+    if ((mask & required) !== required || (any !== 0 && (mask & any) === 0)) {
+      return false;
+    }
   }
 
-  const mask = featureMask(text, features);
-  return (mask & required) === required && (any === 0 || (mask & any) !== 0);
+  return !lexical || (rule.requiresPattern?.test(text) ?? true);
 }

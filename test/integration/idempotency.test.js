@@ -993,7 +993,7 @@ describe('a paragraph laid out from an indented line', () => {
     settles(
       [
         ['.\n\n    Н', '<p>.</p>\n\n<p>Н</p>'],
-        ['    один\n\n    два\n    три', '    <p>один</p>\n\n<p>два<br>\n    три</p>'],
+        ['    один\n\n    два\n    три', '<p>    один</p>\n\n<p>два<br>\n    три</p>'],
         ['один\n    два', '<p>один<br>\n    два</p>']
       ],
       { html: true }

@@ -811,11 +811,74 @@ export function mayLift(text, cx) {
   return hasInlineTags(text) || (cx.markdown && MARKER_RE.test(text));
 }
 
+function liftLinks(text, cx) {
+  if (!cx.markdown || /[\n*_~`]/.test(text) || hasInlineTags(text)) {
+    return null;
+  }
+
+  const links = [];
+  findLinks(text, 0, text.length, links);
+  if (links.length === 0) {
+    return null;
+  }
+
+  const all = [piece(0, 0, false, false, 'M'), piece(0, 0, false, true, 'M')];
+  const parts = [];
+  const pos = [];
+  const str = [];
+  const flag = [];
+  const partner = [];
+  let cursor = 0;
+  let length = 0;
+
+  for (const link of links) {
+    if (link.image || link.open < cursor || (cursor > 0 && link.open === cursor)) {
+      return null;
+    }
+    const before = text.slice(cursor, link.open);
+    const content = text.slice(link.open + 1, link.close);
+    if (content.length === 0 || before.includes(OPEN) || content.includes(OPEN)) {
+      return null;
+    }
+
+    const [open, close] = all;
+    open.start = link.open;
+    open.end = link.open + 1;
+    close.start = link.close;
+    close.end = link.end;
+    if (!liftable(text, all, 0, 0, false, true) || !liftable(text, all, 1, 1, true, false)) {
+      return null;
+    }
+
+    parts.push(before, content);
+    length += before.length;
+    pos.push(length, length + content.length);
+    length += content.length;
+    const index = str.length;
+    str.push('[', text.slice(link.close, link.end));
+    flag.push(0, CLOSER);
+    partner.push(index + 1, index);
+    cursor = link.end;
+  }
+
+  const tail = text.slice(cursor);
+  if (tail.includes(OPEN)) {
+    return null;
+  }
+  parts.push(tail);
+  return { visible: parts.join(''), pos, toks: { str, flag, partner } };
+}
+
 // Lifts the inline markup out of `text`: `{ visible, pos, toks }`, `pos[k]` the offset in `visible`
 // token `k` stood at, or null when there is nothing to lift.
 export function lift(text, cx) {
   if (!mayLift(text, cx)) {
     return null;
+  }
+
+  const links = liftLinks(text, cx);
+  if (links !== null) {
+    return links;
   }
 
   const items = scanPlaceholders(text);
@@ -2293,11 +2356,15 @@ export function applyRule(group, rule, ctx, keep, cx, features = null, checkBudg
   }
 
   const input = group.state?.visible ?? group.marked;
-  if (features !== null && !hasRequiredFeatures(rule, input, features)) {
+  const lifted = group.state !== null;
+  if (features !== null && !hasRequiredFeatures(rule, input, features, lifted)) {
     return;
   }
 
   const state = liftedRun(group, cx);
+  if (!lifted && features !== null && !hasRequiredFeatures(rule, state.visible, features)) {
+    return;
+  }
   const next = applyLifted(state, rule, ctx, keep, cx, checkBudget);
 
   if (next !== state) {

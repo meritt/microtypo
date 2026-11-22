@@ -5,6 +5,26 @@ import { MicroTypo } from '../../src/index.js';
 import { SafeSequences } from '../../src/protect/sequences.js';
 import { compileRuleGroup, runRuleGroup } from '../../src/rule-runner.js';
 
+test('a falsy context budget hook keeps balanced quote output unchanged', () => {
+  for (const checkBudget of [false, 0, '', Number.NaN]) {
+    const typo = new MicroTypo();
+    typo.registerRuleGroup(
+      {
+        rules: [
+          {
+            id: 'hook',
+            handler: (ctx) => {
+              ctx.checkBudget = checkBudget;
+            }
+          }
+        ]
+      },
+      { name: 'hook', position: 'before:quote' }
+    );
+    assert.equal(typo.process('"Амбер"'), '«Амбер»');
+  }
+});
+
 for (const input of ['html', 'markdown']) {
   test(`${input}: a million-unit document stops before the next non-cycled rule`, (t) => {
     let now = 0;

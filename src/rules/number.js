@@ -55,6 +55,7 @@ export const numberGroup = {
     {
       id: 'times',
       requires: F.DIGIT,
+      requiresPattern: /[xх×]/u,
       description: 'x на × в размерных единицах',
       cycled: true,
       pattern: /([^a-zA-Z><]|^)(×)?(?<!\d)(\d+)( *)(x|х|×)( *)(\d+)([^a-zA-Z><]|$)/gu,
@@ -112,6 +113,7 @@ export const numberGroup = {
     {
       id: 'thin_space_triads',
       requires: F.DIGIT | F.SPACE,
+      requiresPattern: /[0-9][ \t]+[0-9]{3}/u,
       description: 'Триады чисел через узкий неразрывный пробел',
       // The lookarounds skip digit-space chains, so phone numbers and IBANs — non-triadic groups —
       // are left whole. The letter guard is the one `split_triads` already carries: digits stuck to a

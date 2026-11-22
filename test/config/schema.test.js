@@ -8,7 +8,14 @@ import { validateConfig } from '../../src/schemas/config.js';
 
 test('empty config validates and defaults input to text', () => {
   assert.deepEqual(validateConfig({}), {
-    input: { format: 'text', template: 'off', placeholders: 'off', pragmas: 'off' }
+    input: {
+      format: 'text',
+      template: 'off',
+      placeholders: 'off',
+      pragmas: 'off',
+      math: false,
+      attributes: []
+    }
   });
 });
 
@@ -44,43 +51,57 @@ test("input accepts 'text'|'html'|'markdown'|'json'|'yaml'|'toml'|'frontmatter',
     format: 'text',
     template: 'off',
     placeholders: 'off',
-    pragmas: 'off'
+    pragmas: 'off',
+    math: false,
+    attributes: []
   });
   assert.deepEqual(validateConfig({ input: 'html' }).input, {
     format: 'html',
     template: 'off',
     placeholders: 'off',
-    pragmas: 'off'
+    pragmas: 'off',
+    math: false,
+    attributes: []
   });
   assert.deepEqual(validateConfig({ input: 'markdown' }).input, {
     format: 'markdown',
     template: 'off',
     placeholders: 'off',
-    pragmas: 'off'
+    pragmas: 'off',
+    math: false,
+    attributes: []
   });
   assert.deepEqual(validateConfig({ input: 'json' }).input, {
     format: 'json',
     template: 'off',
     placeholders: 'off',
-    pragmas: 'off'
+    pragmas: 'off',
+    math: false,
+    attributes: []
   });
   assert.deepEqual(validateConfig({ input: 'yaml' }).input, {
     format: 'yaml',
     template: 'off',
     placeholders: 'off',
-    pragmas: 'off'
+    pragmas: 'off',
+    math: false,
+    attributes: []
   });
   assert.deepEqual(validateConfig({ input: 'toml' }).input, {
     format: 'toml',
     template: 'off',
     placeholders: 'off',
-    pragmas: 'off'
+    pragmas: 'off',
+    math: false,
+    attributes: []
   });
   assert.deepEqual(validateConfig({ input: 'frontmatter' }).input, {
     format: 'frontmatter',
     template: 'off',
     placeholders: 'off',
-    pragmas: 'off'
+    pragmas: 'off',
+    math: false,
+    attributes: []
   });
   assert.throws(() => validateConfig({ input: 'bogus' }), { code: 'ERR_MICROTYPO_CONFIG' });
   assert.throws(() => validateConfig({ input: true }), { code: 'ERR_MICROTYPO_CONFIG' });
@@ -91,25 +112,33 @@ test('input accepts the object form { format?, fields?, exclude?, template? }', 
     format: 'text',
     template: 'off',
     placeholders: 'off',
-    pragmas: 'off'
+    pragmas: 'off',
+    math: false,
+    attributes: []
   });
   assert.deepEqual(validateConfig({ input: { format: 'markdown' } }).input, {
     format: 'markdown',
     template: 'off',
     placeholders: 'off',
-    pragmas: 'off'
+    pragmas: 'off',
+    math: false,
+    attributes: []
   });
   assert.deepEqual(validateConfig({ input: { template: 'liquid' } }).input, {
     format: 'text',
     template: 'liquid',
     placeholders: 'off',
-    pragmas: 'off'
+    pragmas: 'off',
+    math: false,
+    attributes: []
   });
   assert.deepEqual(validateConfig({ input: { fields: ['a.b'], exclude: ['meta.id'] } }).input, {
     format: 'text',
     template: 'off',
     placeholders: 'off',
     pragmas: 'off',
+    math: false,
+    attributes: [],
     fields: ['a.b'],
     exclude: ['meta.id']
   });
@@ -117,13 +146,17 @@ test('input accepts the object form { format?, fields?, exclude?, template? }', 
     format: 'json',
     template: 'off',
     placeholders: 'off',
-    pragmas: 'off'
+    pragmas: 'off',
+    math: false,
+    attributes: []
   });
   assert.deepEqual(validateConfig({ input: { format: 'yaml' } }).input, {
     format: 'yaml',
     template: 'off',
     placeholders: 'off',
-    pragmas: 'off'
+    pragmas: 'off',
+    math: false,
+    attributes: []
   });
 });
 
@@ -132,7 +165,9 @@ test('input object accepts frontmatter, rejects unknown format/keys and bad temp
     format: 'frontmatter',
     template: 'off',
     placeholders: 'off',
-    pragmas: 'off'
+    pragmas: 'off',
+    math: false,
+    attributes: []
   });
   assert.throws(() => validateConfig({ input: { format: 'bogus' } }), {
     code: 'ERR_MICROTYPO_CONFIG'
@@ -255,10 +290,24 @@ test('rules accepts bundle names and group aliases, rejects unknown ones', () =>
 
 test('non-object input is treated as empty config', () => {
   assert.deepEqual(validateConfig(undefined), {
-    input: { format: 'text', template: 'off', placeholders: 'off', pragmas: 'off' }
+    input: {
+      format: 'text',
+      template: 'off',
+      placeholders: 'off',
+      pragmas: 'off',
+      math: false,
+      attributes: []
+    }
   });
   assert.deepEqual(validateConfig(null), {
-    input: { format: 'text', template: 'off', placeholders: 'off', pragmas: 'off' }
+    input: {
+      format: 'text',
+      template: 'off',
+      placeholders: 'off',
+      pragmas: 'off',
+      math: false,
+      attributes: []
+    }
   });
 });
 

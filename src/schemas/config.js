@@ -1,5 +1,6 @@
 import {
   BUNDLE_NAMES,
+  isOn,
   KNOWN_GROUPS,
   SETTING_SELECTORS,
   canonicalGroupName,
@@ -45,6 +46,7 @@ const INPUT_FORMATS = new Set([
   'html',
   'plain',
   'markdown',
+  'mdx',
   'json',
   'xml',
   'toml',
@@ -63,7 +65,18 @@ const INPUT_TEMPLATES = new Set([
 ]);
 const INPUT_PLACEHOLDERS = new Set(['off', 'icu', 'printf', 'interpolation', 'all']);
 const INPUT_PRAGMAS = new Set(['off', 'microtypo']);
-const INPUT_KEYS = new Set(['format', 'fields', 'exclude', 'template', 'placeholders', 'pragmas']);
+const INPUT_KEYS = new Set([
+  'format',
+  'fields',
+  'exclude',
+  'template',
+  'placeholders',
+  'pragmas',
+  'math',
+  'attributes'
+]);
+const TEXT_ATTRIBUTES = new Set(['alt', 'title', 'aria-label', 'placeholder', 'content']);
+const NO_ATTRIBUTES = Object.freeze([]);
 const INPUT_FORMAT_MESSAGE = `expected one of ${[...INPUT_FORMATS].join('|')}`;
 
 function isBooleanish(value) {
@@ -78,7 +91,14 @@ function isStringArray(value) {
 
 function normaliseInput(input, issues) {
   if (input === undefined) {
-    return { format: 'text', template: 'off', placeholders: 'off', pragmas: 'off' };
+    return {
+      format: 'text',
+      template: 'off',
+      placeholders: 'off',
+      pragmas: 'off',
+      math: false,
+      attributes: NO_ATTRIBUTES
+    };
   }
 
   if (typeof input === 'string') {
@@ -86,13 +106,27 @@ function normaliseInput(input, issues) {
       issues.push(`input: ${INPUT_FORMAT_MESSAGE}`);
     }
 
-    return { format: input, template: 'off', placeholders: 'off', pragmas: 'off' };
+    return {
+      format: input,
+      template: 'off',
+      placeholders: 'off',
+      pragmas: 'off',
+      math: false,
+      attributes: NO_ATTRIBUTES
+    };
   }
 
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     issues.push('input: expected a string or an object');
 
-    return { format: 'text', template: 'off', placeholders: 'off', pragmas: 'off' };
+    return {
+      format: 'text',
+      template: 'off',
+      placeholders: 'off',
+      pragmas: 'off',
+      math: false,
+      attributes: NO_ATTRIBUTES
+    };
   }
 
   for (const key of Object.keys(input)) {
@@ -120,7 +154,25 @@ function normaliseInput(input, issues) {
     issues.push(`input.pragmas: expected one of ${[...INPUT_PRAGMAS].join('|')}`);
   }
 
-  const normalised = { format, template, placeholders, pragmas };
+  if (input.math !== undefined && !isBooleanish(input.math)) {
+    issues.push('input.math: expected a boolean');
+  }
+  const math = isOn(input.math ?? false);
+  const rawAttributes = input.attributes === undefined ? NO_ATTRIBUTES : input.attributes;
+  const attributes = Array.isArray(rawAttributes)
+    ? Object.freeze([...rawAttributes])
+    : rawAttributes;
+  if (!Array.isArray(attributes) || !attributes.every((name) => TEXT_ATTRIBUTES.has(name))) {
+    issues.push('input.attributes: expected an array of alt|title|aria-label|placeholder|content');
+  }
+  const normalised = {
+    format,
+    template,
+    placeholders,
+    pragmas,
+    math,
+    attributes: Array.isArray(attributes) ? attributes : NO_ATTRIBUTES
+  };
 
   if (input.fields !== undefined) {
     if (isStringArray(input.fields)) {

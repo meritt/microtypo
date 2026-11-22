@@ -112,6 +112,7 @@ export const nobrGroup = {
     {
       id: 'nowrap_phone',
       requires: F.DIGIT,
+      requiresPattern: /[-−+]|тел/iu,
       description: 'Неразрывные номера телефонов',
       pattern: [
         /([^\d+]|^)(\+?[0-9]{1,3})( |\u{00A0}|\u{2009})([0-9]{3,4}|\([0-9]{3,4}\))( |\u{00A0}|\u{2009})([0-9]{2,3})([-−])([0-9]{2})([-−])([0-9]{2})([^\d]|$)/gu,
@@ -147,6 +148,7 @@ export const nobrGroup = {
     {
       id: 'initials_dots',
       requires: F.SPACE,
+      requiresPattern: /[А-ЯЁ](?![а-яёА-ЯЁ])/u,
       description: 'Простановка точек к инициалам у фамилии',
       enabled: false,
       pattern: [
@@ -163,6 +165,7 @@ export const nobrGroup = {
     {
       id: 'nowrap_initials',
       requiresAny: F.SPACE | F.PERIOD,
+      requiresPattern: /[А-ЯЁ](?![а-яёА-ЯЁ])/u,
       description: 'Привязка инициалов к фамилиям',
       pattern: [
         /(\s|^|\.|,|;|:|\?|!)([А-ЯЁ])\.(\s)?([А-ЯЁ])\.(\s)?([А-ЯЁ][а-яё]+)(\s|$|\.|,|;|:|\?|!)/gu,
@@ -209,6 +212,7 @@ export const nobrGroup = {
     {
       id: 'nbsp_after_particle',
       requires: F.SPACE | F.DASH,
+      requiresPattern: /-/u,
       description: 'Неразрывный пробел после усилительной частицы: Поди-кась так → Поди-кась так',
       // The leading boundary anchors the match start, so the greedy `[а-яё]+` cannot retry from every
       // offset. Both boundaries are only looked at: the word after the gap may be the next particle

@@ -1,5 +1,4 @@
 import { MicroTypoInputError } from '../errors/index.js';
-import { BLOCK_TAG_NAMES, VOID_BLOCK_TAG_NAMES } from '../lib/block-tags.js';
 import { G } from '../lib/glyphs.js';
 import { isFlowSpace, lineView, skipSpaces } from '../lib/strings.js';
 import { CLOSE, OPEN } from '../protect/placeholders.js';
@@ -7,12 +6,14 @@ import { LINKABLE_SOURCE } from '../protect/sequences.js';
 import {
   COMMENT_CLOSE,
   COMMENT_OPEN,
+  FRAGMENT_READING,
   emptyCommentClose,
   insideTag,
   namedAt,
   tagSpans
 } from '../protect/tag-spans.js';
 import { scanLeadingHeader } from './frontmatter.js';
+import { esmReader, mdxReader, mdxTagSpans } from './mdx.js';
 import { collectSpans } from './span-path.js';
 
 // Per-attempt scan bound that keeps link-destination scanning linear; an overrun destination
@@ -135,9 +136,9 @@ export function opaqueInline(codeReaderFor, templateReaderFor = null, owned = []
 
     for (const readerFor of [codeReaderFor, templateReaderFor]) {
       if (readerFor !== null) {
-        const next = readerFor(text, checkBudget, resolve);
-
-        readers.push({ next, at: next(0), report: true });
+        const reader = readerFor(text, checkBudget, resolve);
+        const next = reader.next ?? reader;
+        readers.push({ next, read: reader.read, at: next(0), report: true });
       }
     }
 
@@ -147,9 +148,9 @@ export function opaqueInline(codeReaderFor, templateReaderFor = null, owned = []
     }
 
     for (const readerFor of owned) {
-      const next = readerFor(text, checkBudget);
-
-      readers.push({ next, at: next(0), report: false });
+      const reader = readerFor(text, checkBudget);
+      const { next, read } = reader.next === undefined ? { next: reader } : reader;
+      readers.push({ next, read, at: next(0), report: false });
     }
 
     const spans = [];
@@ -170,12 +171,16 @@ export function opaqueInline(codeReaderFor, templateReaderFor = null, owned = []
         }
       }
 
-      if (won.report) {
-        spans.push([won.at[0], won.at[1]]);
+      const span = won.read ? won.read(won.at[0]) : won.at;
+      for (const syntax of span.syntax ?? []) {
+        spans.push(syntax);
+      }
+      if (won.report && span[4] !== false) {
+        spans.push(span[3] === 'tail' ? [span[0], span[1], 'tail'] : [span[0], span[1]]);
       }
 
       // Past the construct's last byte, which for a code span is behind the backticks that closed it.
-      const cursor = won.at[2];
+      const cursor = span[2];
 
       for (const reader of readers) {
         if (reader.at !== null && reader.at[0] < cursor) {
@@ -238,13 +243,16 @@ function fenceCloseAt(text, pos, lineEnd, column, content, char, minLen) {
 
 // The lines of an HTML block are HTML, whatever they spell, so they open no fence. `readOpaque` is
 // what `scanUnclosedHtmlBlock` is handed, so both agree on where a block opens.
-export function scanFences(source, checkBudget, readOpaque) {
+export function scanFences(source, checkBudget, readOpaque, readEsm = null, readInline = null) {
   const text = lineView(source);
   const n = text.length;
   const spans = [];
-  const opensHtml = htmlBlockOpener(text, readOpaque);
+  const opensHtml = htmlBlockOpener(text, readOpaque, readEsm !== null, checkBudget);
   const ends = new Map();
   const tick = lineTicker(checkBudget, 'md-fence');
+  const esmAt = readEsm?.(text, checkBudget);
+  const inline = readInline?.(text, checkBudget);
+  let inlineThrough = 0;
   let i = 0;
   // The containers still open where the walk stands: a fence opens at its own container's content
   // column, which is not always written on the fence's own line.
@@ -256,8 +264,21 @@ export function scanFences(source, checkBudget, readOpaque) {
 
     const nl = text.indexOf('\n', i);
     const lineEnd = contentEnd(text, i, nl === -1 ? n : nl);
+    if (inlineThrough > i) {
+      inlineThrough = inline(i, lineEnd);
+      i = nl === -1 ? n : nl + 1;
+      continue;
+    }
     const before = paragraphOpen;
     const { place, fresh, paragraphOpen: after } = walkLine(text, i, lineEnd, chain, before);
+    const moduleBlock = place.content === i ? esmAt?.(i) : null;
+    if (moduleBlock) {
+      spans.push([i, moduleBlock.end]);
+      i = moduleBlock.next;
+      paragraphOpen = false;
+      chain.length = 0;
+      continue;
+    }
     const open = fenceOpenAt(text, place.content, lineEnd);
 
     // The fence line of a container directive, `:::note{.x}` or the `:::` closing one, as Docusaurus,
@@ -279,6 +300,8 @@ export function scanFences(source, checkBudget, readOpaque) {
 
       if (html !== null) {
         i = htmlBlockEnd(text, place.content, html, i, nl, lineEnd, chain, ends, tick).next;
+      } else if (inline) {
+        inlineThrough = inline(place.content, lineEnd);
       }
 
       continue;
@@ -745,11 +768,6 @@ const BLOCK_KIND_6_NAMES = new Set([
   'ul'
 ]);
 
-// An HTML block opens with one of these, and a paragraph cannot continue past it. `pre`, `script`,
-// `style` and `textarea` are the four whose block runs to their own closing tag; the rest are the
-// elements HTML forbids inside `<p>`, which is the same question asked from the other side.
-const HTML_BLOCK_NAMES = new Set([...RAW_BLOCK_NAMES, ...BLOCK_TAG_NAMES, ...VOID_BLOCK_TAG_NAMES]);
-
 function opensHtmlBlock(text, i, end) {
   if (text[i] !== '<') {
     return false;
@@ -767,7 +785,15 @@ function opensHtmlBlock(text, i, end) {
     j += 1;
   }
 
-  return j > nameStart && HTML_BLOCK_NAMES.has(text.slice(nameStart, j).toLowerCase());
+  const name = text.slice(nameStart, j).toLowerCase();
+  const raw = nameStart === i + 1 && RAW_BLOCK_NAMES.has(name);
+  const boundary = j === end || isFlowSpace(text[j]) || text[j] === '>';
+
+  return (
+    j > nameStart &&
+    ((raw && boundary) ||
+      (BLOCK_KIND_6_NAMES.has(name) && (boundary || (text[j] === '/' && text[j + 1] === '>'))))
+  );
 }
 
 // A block that has finished, so the line under it opens a new one: a fence, an ATX heading, a
@@ -878,7 +904,13 @@ function walkLine(text, start, end, open, paragraphOpen) {
 // open: at the document start, after a blank line, continuing a code line, or under a block that has
 // finished. The lines of an HTML block are HTML, whatever they spell, and `readOpaque` is what
 // `scanUnclosedHtmlBlock` is handed to tell them.
-export function scanIndentedCode(source, checkBudget, readOpaque) {
+export function scanIndentedCode(
+  source,
+  checkBudget,
+  readOpaque,
+  caseSensitive = false,
+  readInline = null
+) {
   // A span needs a tab or four spaces at a content column, and a structured document runs this once
   // per value, so the precondition is asked first.
   if (!source.includes('\t') && !source.includes('    ')) {
@@ -888,9 +920,11 @@ export function scanIndentedCode(source, checkBudget, readOpaque) {
   const text = lineView(source);
   const n = text.length;
   const spans = [];
-  const opensHtml = htmlBlockOpener(text, readOpaque);
+  const opensHtml = htmlBlockOpener(text, readOpaque, caseSensitive, checkBudget);
   const ends = new Map();
   const tick = lineTicker(checkBudget, 'md-indented-code');
+  const inline = readInline?.(text, checkBudget);
+  let inlineThrough = 0;
   let i = 0;
   // The chunk being accumulated. An indented code block is one or more chunks separated by blank
   // lines (CommonMark §4.4), so those blank lines are inside the block and must not fall outside the
@@ -907,6 +941,11 @@ export function scanIndentedCode(source, checkBudget, readOpaque) {
 
     const nl = text.indexOf('\n', i);
     const end = contentEnd(text, i, nl === -1 ? n : nl);
+    if (inlineThrough > i) {
+      inlineThrough = inline(i, end);
+      i = nl === -1 ? n : nl + 1;
+      continue;
+    }
     const { place, fresh, paragraphOpen: after } = walkLine(text, i, end, open, paragraphOpen);
     const [, textColumn] = skipIndent(text, place.base, end, place.baseColumn);
     // A container opened on this line starts a block of its own, so what follows it starts fresh. A
@@ -914,6 +953,9 @@ export function scanIndentedCode(source, checkBudget, readOpaque) {
     const blank = place.content === end;
     const code = !blank && (fresh || !paragraphOpen) && textColumn - place.baseColumn >= TAB_STOP;
     const html = code || blank ? null : opensHtml(place.content, !paragraphOpen || fresh);
+    if (!code && html === null && inline) {
+      inlineThrough = inline(i, end);
+    }
 
     if (code) {
       if (chunk) {
@@ -1169,6 +1211,7 @@ const LABEL_WHITESPACE_RE = /[ \t\r\n]+/g;
 // broken across lines in a quote repeats the quote's prefix, which the paragraph's text does not
 // hold. A `>` behind four columns of lazy indent is text, and dropping it errs the same safe way.
 const LABEL_LINE_PREFIX_RE = /\n[ \t>]*/g;
+const LABEL_QUOTE_PREFIX_RE = /\n(?:[ \t]{0,3}>[ \t]?)+/g;
 
 // Case folding through three passes, because neither mapping alone is one: `ß` uppercases to `SS`,
 // so upper-then-lower folds it, while `ẞ` is already uppercase and only lower reaches the `ß` the
@@ -1177,7 +1220,13 @@ const LABEL_LINE_PREFIX_RE = /\n[ \t>]*/g;
 // `resolve` gives back the bytes an earlier protect layer replaced: comparing placeholders compares
 // vault ids rather than what the author wrote.
 function normalizeLabel(raw, resolve) {
-  const source = resolve ? resolve(raw) : raw;
+  const source = (resolve ? resolve(raw) : raw).replace(LABEL_QUOTE_PREFIX_RE, '\n');
+  let length = 0;
+  for (const _character of source) {
+    if (++length > 999) {
+      return '';
+    }
+  }
 
   return source
     .replace(LABEL_LINE_PREFIX_RE, '\n')
@@ -1712,11 +1761,12 @@ const PARAGRAPH_BREAK_RE = /\n[ \t]*\r?\n/;
 // The `]` that closes the label of a full or collapsed reference, `[текст][метка]` or `[текст][]`,
 // whose `[` stands at `at`; -1 where it never closes within its paragraph, or where a `(` behind it
 // makes the second pair of brackets an inline link's text instead.
-function referenceLabelEnd(text, at) {
+function referenceLabelEnd(text, at, resolve) {
   const close = labelEnd(text, at + 1, text.length);
 
   return text[close] === ']' &&
     text[close + 1] !== '(' &&
+    (close === at + 1 || normalizeLabel(text.slice(at + 1, close), resolve) !== '') &&
     !PARAGRAPH_BREAK_RE.test(text.slice(at, close))
     ? close
     : -1;
@@ -1807,7 +1857,7 @@ function linkTextAddresses(addresses, from, to, spans) {
 
 // Spans cover only the interior between `](` and `)`, never the delimiters, so the rules downstream
 // still see those as literal text; in front of them come the addresses in the link's text.
-export function scanLinkDestinations(text, checkBudget) {
+export function scanLinkDestinations(text, checkBudget, resolve) {
   const n = text.length;
   const spans = [];
   // No `)` at or after a destination start means this `](` can never close, which is literal prose
@@ -1833,7 +1883,7 @@ export function scanLinkDestinations(text, checkBudget) {
     if (text[i] !== ']' || text[i + 1] !== '(') {
       if (text[i] === ']') {
         const open = opens.pop();
-        const label = text[i + 1] === '[' ? referenceLabelEnd(text, i + 1) : -1;
+        const label = text[i + 1] === '[' ? referenceLabelEnd(text, i + 1, resolve) : -1;
 
         // A full or collapsed reference: its text is a link's text, and its label is a name to match
         // against a definition, which a typeset copy no longer does.
@@ -1901,6 +1951,7 @@ const LONE_TAG_RE =
 const HTML_BLOCK_LINE_RE = /^[ \t>*+0-9.)-]*<[!/A-Za-z]/m;
 // Kind 1 ends on a line holding any of its four end tags, whichever tag opened it.
 const RAW_BLOCK_END_RE = /<\/(?:pre|script|style|textarea)>/gi;
+const JSX_RAW_BLOCK_END_RE = /<\/(?:pre|script|style|textarea)>/g;
 const COMMENT_END = /-->/g;
 const BLANK_LINE_RE = /\n[ \t]*\r?\n/g;
 
@@ -1926,7 +1977,7 @@ function endsAtBlank(text, at, m, mayInterrupt) {
 
   const tag = LONE_TAG_RE.exec(text);
 
-  return tag !== null && (tag[2] !== undefined || !RAW_BLOCK_NAMES.has(tag[1].toLowerCase()));
+  return tag !== null;
 }
 
 // The document's tags as HTML reads them, raw text included, built once per scan and kept with the
@@ -1934,11 +1985,11 @@ function endsAtBlank(text, at, m, mayInterrupt) {
 const RAW_TEXT_NAMES = new Set(['script', 'style', 'textarea']);
 const BLOCK_TAGS = Symbol('block tags');
 
-function blockTags(text, ends) {
+function blockTags(text, ends, caseSensitive) {
   let tags = ends.get(BLOCK_TAGS);
 
   if (tags === undefined) {
-    tags = tagSpans(text, RAW_TEXT_NAMES);
+    tags = tagSpans(text, RAW_TEXT_NAMES, caseSensitive, markdownCommentCloser(text));
     ends.set(BLOCK_TAGS, tags);
   }
 
@@ -1950,8 +2001,8 @@ function blockTags(text, ends) {
 // it — not one written in an attribute value or a comment, nor the closer of a `<pre>` nested inside
 // — and past it the line is prose, as the lines of a kind-6 block are. Where that line holds no such
 // end tag the element is still open, and the whole line is the block's.
-function rawBlockEnd(text, name, at, lineStop, ends) {
-  const tags = blockTags(text, ends);
+function rawBlockEnd(text, name, at, lineStop, ends, caseSensitive) {
+  const tags = blockTags(text, ends, caseSensitive);
   let lo = 0;
   let hi = tags.length;
 
@@ -1975,7 +2026,8 @@ function rawBlockEnd(text, name, at, lineStop, ends) {
     const [start, gt, empty] = tags[k];
     const closing = text[start + 1] === '/';
 
-    if (namedAt(text, closing ? start + 2 : start + 1, name)) {
+    const nameStart = closing ? start + 2 : start + 1;
+    if ((!caseSensitive || text.startsWith(name, nameStart)) && namedAt(text, nameStart, name)) {
       if (!closing) {
         depth += empty === true ? 0 : 1;
       } else if (--depth === 0) {
@@ -2024,7 +2076,7 @@ export function lineTicker(checkBudget, label) {
 // expressions, opens nothing. Which lines a block owns is decided before what they spell, so the
 // code-block scanners ask this same question: a line inside a block opens no code block, and a line
 // inside a code block is never asked.
-function htmlBlockOpener(text, readOpaque) {
+function htmlBlockOpener(text, readOpaque, caseSensitive = false, checkBudget) {
   let tags;
   let opaque;
   const tagCursor = { i: 0 };
@@ -2043,8 +2095,20 @@ function htmlBlockOpener(text, readOpaque) {
       return null;
     }
 
-    tags ??= tagSpans(text);
+    if (caseSensitive) {
+      const name = m[1] ?? m[3];
+      if (name !== undefined && name !== name.toLowerCase()) {
+        return null;
+      }
+      m.caseSensitive = true;
+    }
+
+    // Markdown fragments reject a stray `<` outside quoted values. Earlier malformed prose
+    // must not hide a later block opener that the fragment vault recognizes.
     opaque ??= readOpaque?.() ?? [];
+    tags ??= caseSensitive
+      ? mdxTagSpans(text, checkBudget, opaque)
+      : tagSpans(text, undefined, false, markdownCommentCloser(text), FRAGMENT_READING, opaque);
 
     return insideTag(text, tags, tagCursor, at) || covered(opaque, opaqueCursor, at) ? null : m;
   };
@@ -2066,10 +2130,13 @@ function htmlBlockEnd(text, at, m, next, nl, lineEnd, chain, ends, tick) {
   // next blank line, and that line may open the next block.
   const raw = m[1] !== undefined;
   const toBlank = m[3] !== undefined;
-  const endRe = raw ? RAW_BLOCK_END_RE : COMMENT_END;
+  const endRe = raw ? (m.caseSensitive ? JSX_RAW_BLOCK_END_RE : RAW_BLOCK_END_RE) : COMMENT_END;
   const empty = raw || toBlank ? -1 : emptyCommentClose(text, at);
   const end = toBlank || empty !== -1 ? empty : nextMatch(endRe, text, at + m[0].length, ends);
-  const rawSpan = (lineStop) => [at, rawBlockEnd(text, m[1].toLowerCase(), at, lineStop, ends)];
+  const rawSpan = (lineStop) => [
+    at,
+    rawBlockEnd(text, m[1].toLowerCase(), at, lineStop, ends, m.caseSensitive)
+  ];
 
   if (chain.length === 0) {
     if (toBlank) {
@@ -2133,7 +2200,13 @@ function htmlBlockEnd(text, at, m, next, nl, lineEnd, chain, ends, tick) {
 // The HTML blocks `SafeBlocks` has to vault, as `htmlBlockEnd` gives them. Blocks are read in order,
 // each from the line that opens it to the line that ends it, so a line inside an open block opens
 // nothing.
-export function scanUnclosedHtmlBlock(source, checkBudget, readOpaque) {
+export function scanUnclosedHtmlBlock(
+  source,
+  checkBudget,
+  readOpaque,
+  caseSensitive = false,
+  readInline = null
+) {
   if (!HTML_BLOCK_LINE_RE.test(source)) {
     return [];
   }
@@ -2141,12 +2214,14 @@ export function scanUnclosedHtmlBlock(source, checkBudget, readOpaque) {
   const text = lineView(source);
   const n = text.length;
   const spans = [];
-  const opens = htmlBlockOpener(text, readOpaque);
+  const opens = htmlBlockOpener(text, readOpaque, caseSensitive, checkBudget);
   const ends = new Map();
   // The containers still open where the walk stands: a block opens at its container's content
   // column and ends with that container.
   const chain = [];
   const tick = lineTicker(checkBudget, 'md-html-block');
+  const inline = readInline?.(text, checkBudget);
+  let inlineThrough = 0;
   let paragraphOpen = false;
   let i = 0;
 
@@ -2155,9 +2230,17 @@ export function scanUnclosedHtmlBlock(source, checkBudget, readOpaque) {
 
     const nl = text.indexOf('\n', i);
     const lineEnd = contentEnd(text, i, nl === -1 ? n : nl);
+    if (inlineThrough > i) {
+      inlineThrough = inline(i, lineEnd);
+      i = nl === -1 ? n : nl + 1;
+      continue;
+    }
     const before = paragraphOpen;
     const { place, fresh, paragraphOpen: after } = walkLine(text, i, lineEnd, chain, before);
     const m = opens(place.content, !before || fresh);
+    if (m === null && inline) {
+      inlineThrough = inline(i, lineEnd);
+    }
 
     // A block is no paragraph, so the line under it is no lazy continuation.
     paragraphOpen = m === null && after;
@@ -2296,13 +2379,15 @@ function hardBreakAt(text, start, end) {
 // open with a YAML or TOML header. The walk reads every construct the block scanners read, in the same
 // order, and a table besides, whose rows are no paragraph either; a line that opens a container, a
 // table row or anything else that is not plainly a paragraph's is not prose.
-export function proseParagraphs(source, header, checkBudget) {
+export function proseParagraphs(source, header, checkBudget, mdx = false) {
   const text = lineView(source);
   const n = text.length;
   const paragraph = new Int32Array(linesIn(text, 0, n) + 1).fill(-1);
   const hard = new Uint8Array(paragraph.length);
   const closed = [];
-  const opensHtml = htmlBlockOpener(text);
+  const opensHtml = htmlBlockOpener(text, undefined, mdx, checkBudget);
+  const moduleAt = mdx ? esmReader(text, checkBudget) : null;
+  const syntax = mdx ? mdxReader(text, checkBudget) : null;
   const ends = new Map();
   const tick = lineTicker(checkBudget, 'md-prose');
   const chain = [];
@@ -2336,6 +2421,23 @@ export function proseParagraphs(source, header, checkBudget) {
     const fence = fenceOpenAt(text, place.content, lineEnd);
     let to = next;
     let defined = false;
+
+    if (syntax !== null) {
+      const module = place.content === i ? moduleAt(i) : null;
+      const candidate = syntax.next(place.content);
+      const span = candidate?.[0] === place.content ? syntax.read(place.content) : null;
+      if (
+        module !== null ||
+        (span !== null && text.slice(span[1], endOfLine(text, span[1])).trim() === '')
+      ) {
+        close(false);
+        to = module !== null ? module.next : lineAfter(text, span[1]);
+        line += linesIn(text, i, to);
+        i = to;
+        paragraphOpen = false;
+        continue;
+      }
+    }
 
     paragraphOpen = false;
 
@@ -2463,6 +2565,26 @@ function commentEnd(text, at, seen) {
   return blank === -1 || close < blank ? close : -1;
 }
 
+export function markdownCommentCloser(source, checkBudget) {
+  const text = lineView(source);
+  let ends;
+  return (at) => {
+    if (ends === undefined) {
+      ends = new Map();
+      const seen = new Map();
+      for (
+        let start = text.indexOf(COMMENT_OPEN);
+        start !== -1;
+        start = text.indexOf(COMMENT_OPEN, start + 1)
+      ) {
+        checkBudget?.('md-comment-ends');
+        ends.set(start, commentEnd(text, start, seen));
+      }
+    }
+    return ends.get(at) ?? -1;
+  };
+}
+
 // The first of Markdown's closed HTML comments opening at or past `from`, as `[start, end, end]`
 // through its `-->`. A `<!--` inside a tag, such as in a quoted attribute value, is part of that tag
 // and opens nothing.
@@ -2479,7 +2601,7 @@ export function commentReader(source, checkBudget) {
         checkBudget?.('md-comment');
       }
 
-      tags ??= tagSpans(text);
+      tags ??= tagSpans(text, undefined, false, markdownCommentCloser(text));
 
       if (insideTag(text, tags, tagCursor, at)) {
         at = text.indexOf(COMMENT_OPEN, at + COMMENT_OPEN.length);

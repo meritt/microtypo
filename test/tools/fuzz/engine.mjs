@@ -28,8 +28,8 @@ const PATCHES = [
   ],
   [
     'lib/rule-features.js',
-    'export function hasRequiredFeatures(rule, text, features) {\n',
-    (anchor) => `${anchor}  if (globalThis[Symbol.for('microtypo.fuzz.unfiltered')]) return true;\n`
+    '  const required = rule.requires ?? 0;\n',
+    (anchor) => `  if (globalThis[Symbol.for('microtypo.fuzz.unfiltered')]) return true;\n${anchor}`
   ],
   [
     'rule-runner.js',

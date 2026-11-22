@@ -51,7 +51,14 @@ test('the bundle typesets every format and option as the sources do', async () =
     `\${name}: {n, plural, one {# день - текст} other {# дней - тексты}} %1$s`,
     '<!-- microtypo-ignore-start -->Код - "текст"<!-- microtypo-ignore-end -->\r\nКорвин - принц\r\n',
     'если a<b, то "c" - d',
-    '| Альфа | Бета |\r\n| :- | -: |\r\n| Корвин - принц | Эрик |\r\n'
+    '| Альфа | Бета |\r\n| :- | -: |\r\n| Корвин - принц | Эрик |\r\n',
+    '$a - b$ \\(x - y\\) $$\r\na - b\r\n$$ Корвин - принц',
+    '$a - b<c$> Корвин - принц',
+    '$a - b\\\nc - d$\n\n\\(a - b\\\rc - d\\)',
+    '{(() => { if (ok) {} else /}}/.test(x); return "А - б"; })()} Корвин - принц',
+    '{(() => { const x = function() {} / 2; return "А - б"; })()} Корвин - принц',
+    'import X from "./x.js"\n\n<Box value={<Inner>{"}"}</Inner>}>Корвин - принц</Box>',
+    '<img alt="Корвин - принц &quot;текст&quot;" title=\'"Амбер" - город\'><meta name="description" content="А - б">'
   ];
 
   const names = await readdir(fixtures);
@@ -65,6 +72,13 @@ test('the bundle typesets every format and option as the sources do', async () =
     { html: true, entities: true },
     { input: 'html', html: true },
     { input: 'markdown' },
+    { input: { format: 'markdown', math: true } },
+    { input: { format: 'mdx', math: true } },
+    {
+      html: true,
+      entities: true,
+      input: { format: 'html', attributes: ['alt', 'title', 'content'] }
+    },
     { input: 'json' },
     { input: 'plain' },
     { input: { placeholders: 'all' } },

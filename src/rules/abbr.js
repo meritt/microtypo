@@ -159,6 +159,7 @@ export const abbrGroup = {
     {
       id: 'nbsp_location',
       requiresAny: F.PERIOD | F.DASH,
+      requiresPattern: /(?:г|ул|пер|просп|пл|бул|наб|пр|ш|туп|д|кв|эт)\.|б-р|пр-кт/iu,
       description: 'Пробелы в сокращениях г., ул., пер., д.',
       pattern: [
         // Before a postal index `г.` is the city: case-sensitive, for the capital of its name.
@@ -251,6 +252,7 @@ export const abbrGroup = {
     {
       id: 'nbsp_frequency_unit',
       requiresAny: F.DIGIT | F.PERIOD | F.COMMA,
+      requiresPattern: /гц|hz/iu,
       description: 'Неразрывный пробел перед частотами: 100 МГц, 2.4 ГГц',
       pattern: unitBind('(?:к|М|Г|Т)?Гц|(?:k|M|G|T)?Hz', DECIMAL_UNIT),
       replacement: BIND_UNIT
@@ -297,6 +299,7 @@ export const abbrGroup = {
     {
       id: 'nowrap_etc',
       requires: F.SPACE,
+      requiresPattern: /[ив][ \u{00A0}]т/u,
       description: 'и т. д., и т. п., в т. ч.',
       cycled: true,
       // Shared left boundary, like the measurement rules above, so `(и т. д.)` and `«и т. д.»` bind
@@ -356,6 +359,7 @@ export const abbrGroup = {
     {
       id: 'currency',
       requires: F.DIGIT,
+      requiresPattern: /\d ?[рде₽€$]/iu,
       description: 'Нормализация словесной валюты в символ + неразрывный пробел: 100 руб. → 100 ₽',
       // Spelled-out forms first, so `долларов` is not eaten as `долл.`; the abbreviated forms follow
       // and carry their own period. The trailing `(?![а-яёa-z])` stops a match inside a longer word —
@@ -416,6 +420,7 @@ export const abbrGroup = {
     {
       id: 'nowrap_gost',
       requires: F.DIGIT,
+      requiresPattern: /гост/iu,
       description: 'ГОСТ + номер (case-insensitive — нормализуем регистр)',
       pattern: [
         /( |\t|\u{00A0}|^)ГОСТ( |\u{00A0})?(\d+(?:\.\d+)*)(([-−—–])(\d+))?(( |\u{00A0})([-—]))?/giu,

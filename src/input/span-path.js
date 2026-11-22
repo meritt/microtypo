@@ -7,11 +7,36 @@ export function collectSpans(next) {
   let span;
 
   while ((span = next(from)) !== null) {
-    spans.push([span[0], span[1]]);
+    spans.push(span[3] === 'tail' ? [span[0], span[1], 'tail'] : [span[0], span[1]]);
     from = span[2];
   }
 
   return spans;
+}
+
+export function lineReader(readers) {
+  let through = 0;
+  return (from, to) => {
+    let cursor = Math.max(from, through);
+    while (cursor < to) {
+      let first = null;
+      for (const reader of readers) {
+        if (reader.at === undefined || (reader.at !== null && reader.at[0] < cursor)) {
+          reader.at = reader.next(cursor);
+        }
+        if (reader.at !== null && (first === null || reader.at[0] < first.at[0])) {
+          first = reader;
+        }
+      }
+      if (first === null || first.at[0] >= to) {
+        break;
+      }
+      const span = first.read ? first.read(first.at[0]) : first.at;
+      cursor = span[2];
+      through = cursor;
+    }
+    return through;
+  };
 }
 
 // Ancestry is a shared immutable chain, never an array copied into every frame: a frame's key or

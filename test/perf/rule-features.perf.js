@@ -3,6 +3,30 @@ import { test } from 'node:test';
 
 import { MicroTypo } from '../../src/index.js';
 import { F, featureMask } from '../../src/lib/rule-features.js';
+import { DEFAULT_GROUPS } from '../../src/rules/registry.js';
+
+for (const rule of ['other.split_triads', 'quote.around_link']) {
+  test(`${rule}: scalar filtering retains printf vault capacity checks`, () => {
+    const typo = new MicroTypo({
+      input: { format: 'json', placeholders: 'printf' },
+      maxInputLength: 5_000_000,
+      maxProcessingMs: 0,
+      rules: {
+        ...Object.fromEntries(DEFAULT_GROUPS.map(([name]) => [name, false])),
+        [rule]: true
+      }
+    });
+    const placeholders = Array.from(
+      { length: 100_001 },
+      (_, i) => `a%${(i % 9999) + 1}$${Math.floor(i / 9999) + 1}s`
+    ).join('');
+    const value = rule === 'quote.around_link' ? `«${placeholders}»` : placeholders;
+    assert.throws(
+      () => typo.process(JSON.stringify({ value })),
+      (error) => error.code === 'ERR_MICROTYPO_INPUT' && error.details?.reason === 'capacity'
+    );
+  });
+}
 
 test('feature masks preserve UTF-16 boundaries and alternating visible fragments', () => {
   const state = { text: null, mask: 0, previousText: null, previousMask: 0 };

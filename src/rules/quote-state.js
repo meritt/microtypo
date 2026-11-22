@@ -113,6 +113,20 @@ function nothingKept() {
 // after it again: with few quote marks in the chunk that costs a few scans of it, so the pass does
 // it in place; with more, `walkBack` takes over.
 function processChunk(chunk, allowNested, convertInches, checkBudget, kept) {
+  const open = chunk.indexOf(LAQUO);
+  const close = chunk.indexOf(RAQUO);
+  if (
+    open !== -1 &&
+    close > open &&
+    !chunk.includes(LAQUO, open + 1) &&
+    !chunk.includes(RAQUO, close + 1)
+  ) {
+    if (checkBudget) {
+      checkBudget('quote:processChunk');
+    }
+    return chunk;
+  }
+
   const buf = [...chunk];
   const balancedStack = [0];
   let lastBalanced = 0;

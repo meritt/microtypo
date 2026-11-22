@@ -1,13 +1,14 @@
 import { clearSpecialChars } from './clear-special.js';
 import { normaliseOptions, isOn, canonicalGroupName, wildcardToRegex } from './core/options.js';
 import { MicroTypoConfigError, MicroTypoInputError, MicroTypoBudgetError } from './errors/index.js';
+import { typesetAttributes } from './input/attributes.js';
 import { scanLeadingHeader, splitFrontmatter } from './input/frontmatter.js';
 import { compileSpanSelectors, scanJson, selectValueSpans } from './input/json.js';
 import { localizationScanner } from './input/localization.js';
 import {
   codeSpanReader,
-  commentReader,
   linkSyntaxCuts,
+  markdownCommentCloser,
   opaqueInline,
   scanFences,
   scanIndentedCode,
@@ -18,10 +19,19 @@ import {
   scanReferenceDefinitions,
   scanUnclosedHtmlBlock
 } from './input/markdown.js';
+import { scanMath } from './input/math.js';
+import { esmReader, mdxLineReader, opaqueMdx, paragraphEndReader } from './input/mdx.js';
 import { scanPragmas } from './input/pragmas.js';
+import { lineReader } from './input/span-path.js';
 import { scannerFor, templateReader } from './input/template.js';
 import { scanToml } from './input/toml.js';
-import { scanDoctype, scanXmlSpacePreserve, validateXml, xmlBlocks } from './input/xml.js';
+import {
+  scanDoctype,
+  scanXmlSpacePreserve,
+  validateXml,
+  xmlBlocks,
+  xmlConstructReader
+} from './input/xml.js';
 import { scanYaml } from './input/yaml.js';
 import { BLOCK_TAG_NAMES, VOID_BLOCK_TAG_NAMES } from './lib/block-tags.js';
 import { changedRanges } from './lib/diff.js';
@@ -32,10 +42,18 @@ import { F, featureMask } from './lib/rule-features.js';
 import { edgeWhitespace, leadingIndent, trimBlankLines } from './lib/strings.js';
 import { SafeBlocks, scanHtmlComments, scanLineIndent } from './protect/blocks.js';
 import { TokenBudget } from './protect/forgery.js';
-import { dropParagraphs, restoreParagraphs, stripReservedPua } from './protect/placeholders.js';
+import {
+  BLOCK_KIND,
+  OPEN,
+  PARAGRAPH_OPEN,
+  PLACEHOLDER_TOKEN,
+  dropParagraphs,
+  restoreParagraphs,
+  stripReservedPua
+} from './protect/placeholders.js';
 import { escapeReserved, hasReserved } from './protect/reserved.js';
 import { SafeSequences } from './protect/sequences.js';
-import { tagSpans } from './protect/tag-spans.js';
+import { DOCUMENT_READING, FRAGMENT_READING, tagSpans } from './protect/tag-spans.js';
 import { assertTagName, SafeTags } from './protect/tags.js';
 import {
   compileRuleGroup,
@@ -73,11 +91,11 @@ const FOREIGN_TAGS = new Set(['math']);
 // Of those, the two whose content a reader never sees. `abbr.currency` is the reader of the
 // difference: a sentence in front of a `<script>` has ended, while the words in a `<code>` span go
 // on with it, and both arrive as the same shape once the content is vaulted.
-const NON_RENDERING_TAGS = new Set(['script', 'style']);
+const NON_RENDERING_TAGS = new Set(['script', 'style', 'noembed', 'title']);
 
 // The elements HTML parses as raw or escapable-raw text. Their content is text and nothing else, so
 // a tag written inside one is those bytes rather than a nested element.
-const RAW_TEXT_TAGS = new Set(['script', 'style', 'textarea']);
+const RAW_TEXT_TAGS = new Set(['script', 'style', 'textarea', 'xmp', 'noembed', 'title']);
 
 const NOTG_START = '<span class="_notg_start"></span>';
 const NOTG_END = '<span class="_notg_end"></span>';
@@ -89,8 +107,8 @@ const DEFAULT_LAYOUT = { style: true, class: false };
 const BOM = '\u{FEFF}';
 
 // Formats whose document is Markdown source; frontmatter is here because its body is one.
-const BLOCK_RENDER_FORMATS = new Set(['markdown', 'frontmatter']);
-const FILE_FORMATS = new Set(['markdown', 'frontmatter', 'yaml', 'toml', 'json', 'xml']);
+const BLOCK_RENDER_FORMATS = new Set(['markdown', 'frontmatter', 'mdx']);
+const FILE_FORMATS = new Set(['markdown', 'frontmatter', 'mdx', 'yaml', 'toml', 'json', 'xml']);
 
 const sameList = (a, b) =>
   a === b || (a?.length === b?.length && a.every((value, i) => value === b[i]));
@@ -103,6 +121,8 @@ const sameInputConfig = (a, b) =>
   a.template === b.template &&
   a.placeholders === b.placeholders &&
   a.pragmas === b.pragmas &&
+  a.math === b.math &&
+  sameList(a.attributes, b.attributes) &&
   sameList(a.fields, b.fields) &&
   sameList(a.exclude, b.exclude);
 
@@ -128,6 +148,7 @@ export class MicroTypo {
   #processing = false; // reentrancy guard
   #ignoredFile = false;
   #pragmaDocument = false;
+  #attributeNames = null;
   #customProtection = false;
   // Whether a fragment of the current document can carry a reserved character. Only a JSON value
   // can hold one its document does not spell, since `JSON.parse` decodes ``; elsewhere one look
@@ -140,6 +161,12 @@ export class MicroTypo {
 
     // Frozen clones, so later external mutation can't change which values get typeset.
     this.#input = validated.input;
+    if (
+      this.#input.attributes.length > 0 &&
+      ['text', 'html', 'markdown', 'frontmatter'].includes(this.#input.format)
+    ) {
+      this.#attributeNames = new Set(this.#input.attributes);
+    }
     this.#presets = validated.presets !== false;
     this.#select = compileSpanSelectors(this.#input);
 
@@ -158,8 +185,39 @@ export class MicroTypo {
     const readTemplates =
       this.#input.template === 'off' ? null : templateReader(this.#input.template);
     const scanTemplate = scannerFor(readTemplates);
+    const readElements = (text, checkBudget, mdx = null) =>
+      this.#safeBlocks.elementReader(
+        text,
+        checkBudget,
+        this.#input.format !== 'plain',
+        mdx,
+        readTemplates,
+        this.#input.format === 'markdown' || this.#input.format === 'frontmatter'
+          ? paragraphEndReader
+          : null
+      );
+    const htmlOwners = [readElements];
+    if (this.#input.format === 'xml') {
+      htmlOwners.unshift(xmlConstructReader, (text, checkBudget) => {
+        const spans = scanXmlSpacePreserve(text, checkBudget, true);
+        let cursor = 0;
+        return (from) => {
+          while (cursor < spans.length && spans[cursor][0] < from) {
+            cursor += 1;
+          }
+          const span = spans[cursor];
+          return span === undefined ? null : [span[0], span[1], span[1]];
+        };
+      });
+    }
 
     const markdown = BLOCK_RENDER_FORMATS.has(this.#input.format);
+    if (!markdown && readTemplates !== null) {
+      this.#safeBlocks.addScanner(
+        'template-bodies',
+        opaqueInline(null, templateReader(this.#input.template, true), htmlOwners)
+      );
+    }
 
     // Registration order is load-bearing: an earlier block's placeholder hides its content from every
     // later block's regex.
@@ -168,20 +226,45 @@ export class MicroTypo {
     }
 
     if (markdown) {
+      let readMdxLines = null;
+      if (this.#input.format === 'mdx') {
+        readMdxLines = mdxLineReader(codeSpanReader, readTemplates, [readElements]);
+      } else if (readTemplates !== null) {
+        readMdxLines = (text, checkBudget) => {
+          const templates = readTemplates(text, checkBudget);
+          return lineReader([
+            { next: codeSpanReader(text, checkBudget) },
+            { next: templates.next ?? templates, read: templates.read },
+            readElements(text, checkBudget)
+          ]);
+        };
+      }
       // Every block scanner asks one question of where an HTML block opens: a template expression
       // stays opaque to it.
-      const templatesIn = (text, checkBudget) => () => scanTemplate?.(text, checkBudget) ?? [];
+      const boundaryOpaque = (this.#input.format === 'mdx' ? opaqueMdx : opaqueInline)(
+        codeSpanReader,
+        readTemplates,
+        [readElements],
+        false
+      );
+      const templatesIn = (text, checkBudget) => () => boundaryOpaque(text, checkBudget);
 
       // Before every other block, so no line of the header opens one. The front-matter format reads
       // its header as data and its body has none.
-      if (this.#input.format === 'markdown') {
+      if (this.#input.format === 'markdown' || this.#input.format === 'mdx') {
         this.#safeBlocks.addScanner('md-leading-header', scanLeadingHeader);
       }
 
       // Line-oriented scanner: a same-length fence run mid-line can't close the block early. The
       // lines of an HTML block open no fence.
       this.#safeBlocks.addScanner('md-fence', (text, checkBudget) =>
-        scanFences(text, checkBudget, templatesIn(text, checkBudget))
+        scanFences(
+          text,
+          checkBudget,
+          templatesIn(text, checkBudget),
+          this.#input.format === 'mdx' ? esmReader : null,
+          readMdxLines
+        )
       );
 
       // Block-level constructs first: their interiors must be opaque to every inline scanner below.
@@ -189,7 +272,13 @@ export class MicroTypo {
       // the prose around it, which is why definitions are taken before code spans — and why the
       // reference scanner resolves code spans itself before deciding which labels are uses.
       this.#safeBlocks.addScanner('md-indented-code', (text, checkBudget) =>
-        scanIndentedCode(text, checkBudget, templatesIn(text, checkBudget))
+        scanIndentedCode(
+          text,
+          checkBudget,
+          templatesIn(text, checkBudget),
+          this.#input.format === 'mdx',
+          readMdxLines
+        )
       );
 
       // An HTML block is block structure too: read after code blocks, so a tag written in one opens
@@ -197,17 +286,24 @@ export class MicroTypo {
       // bytes and may hold the end tag that closes it. The code-block scanners skip the lines it
       // owns, so a fence or indent inside it hides no end tag.
       this.#safeBlocks.addScanner('md-html-block', (text, checkBudget) =>
-        scanUnclosedHtmlBlock(text, checkBudget, templatesIn(text, checkBudget))
+        scanUnclosedHtmlBlock(
+          text,
+          checkBudget,
+          templatesIn(text, checkBudget),
+          this.#input.format === 'mdx',
+          readMdxLines
+        )
       );
 
       // One answer about the opaque inline constructs, shared by the reader that needs it early and
       // the pass that applies it: the reference scanner decides which labels are uses by where the
       // code spans fall, and templates move where they fall. An element or comment that opened first
       // owns the backticks inside it.
-      const scanInline = opaqueInline(codeSpanReader, readTemplates, [
-        (text, checkBudget) => this.#safeBlocks.elementReader(text, checkBudget),
-        commentReader
-      ]);
+      const scanInline = (this.#input.format === 'mdx' ? opaqueMdx : opaqueInline)(
+        codeSpanReader,
+        readTemplates,
+        [readElements]
+      );
 
       this.#safeBlocks.addScanner('md-reference-definition', (text, checkBudget, resolve) =>
         scanReferenceDefinitions(text, checkBudget, resolve, scanInline)
@@ -226,6 +322,10 @@ export class MicroTypo {
 
       // Balanced scanner: a literal ) inside the destination doesn't end the span early.
       this.#safeBlocks.addScanner('md-link-destination', scanLinkDestinations);
+
+      if (this.#input.math) {
+        this.#safeBlocks.addScanner('md-math', scanMath);
+      }
 
       // Indent, blockquote chain and list or heading marker in one span, so `> -` stays a list
       // rather than becoming an em dash and the spaces that set a content column survive.
@@ -286,7 +386,10 @@ export class MicroTypo {
     }
 
     if (!markdown && scanTemplate) {
-      this.#safeBlocks.addScanner(`tmpl-${this.#input.template}`, scanTemplate);
+      this.#safeBlocks.addScanner(
+        `tmpl-${this.#input.template}`,
+        opaqueInline(null, readTemplates, htmlOwners)
+      );
     }
 
     if (this.#input.pragmas === 'microtypo' && (html || markdown)) {
@@ -324,17 +427,28 @@ export class MicroTypo {
 
   // Construction-only: compiles the block/tag regexes once per instance.
   #initVaults() {
-    this.#safeBlocks = new SafeBlocks();
+    this.#safeBlocks = new SafeBlocks(
+      this.#input.format === 'mdx',
+      BLOCK_RENDER_FORMATS.has(this.#input.format) ? markdownCommentCloser : null,
+      this.#input.format === 'text' || this.#input.format === 'html'
+        ? DOCUMENT_READING
+        : FRAGMENT_READING
+    );
     this.#safeSequences = new SafeSequences();
     this.#safeTags = new SafeTags({
-      document: this.#input.format === 'text' || this.#input.format === 'html'
+      document: this.#input.format === 'text' || this.#input.format === 'html',
+      readComments: BLOCK_RENDER_FORMATS.has(this.#input.format) ? markdownCommentCloser : null
     });
   }
 
   #addSafeElements() {
     const xml = this.#input.format === 'xml';
 
-    for (const tag of DEFAULT_SAFE_TAGS) {
+    const tags =
+      this.#input.format === 'html' || this.#input.format === 'text'
+        ? [...DEFAULT_SAFE_TAGS, 'xmp', 'noembed', 'title']
+        : DEFAULT_SAFE_TAGS;
+    for (const tag of tags) {
       this.#safeBlocks.addTag(tag, {
         renders: !NON_RENDERING_TAGS.has(tag),
         // Raw text is an HTML parsing mode. In XML the same element nests like any other, and a
@@ -660,7 +774,7 @@ export class MicroTypo {
 
     const session = this.#makeSession(hook, checkBudget);
     session.lineStyle =
-      FILE_FORMATS.has(this.#input.format) && this.#input.format !== 'json'
+      FILE_FORMATS.has(this.#input.format) && this.#input.format !== 'json' && text.includes('\r')
         ? fileLineStyle(text, checkBudget)
         : null;
 
@@ -697,7 +811,7 @@ export class MicroTypo {
 
     // Markdown trims edge-aware, keeping the leading indent of indented code; text and HTML trim
     // as `String.prototype.trim` does, all but the indent of the first line with content.
-    if (this.#input.format === 'markdown') {
+    if (this.#input.format === 'markdown' || this.#input.format === 'mdx') {
       return this.#runPipeline(text, session, checkBudget, { trim: this.#trimBlankLines });
     }
 
@@ -708,10 +822,11 @@ export class MicroTypo {
     const body = this.#runPipeline(text.slice(0, from) + text.slice(to), session, checkBudget, {
       destination: this.#input.format === 'plain' ? 'plain' : 'html',
       trim: (s) => s.trim(),
-      indents: true
+      indents: true,
+      firstIndent: text.slice(from, to)
     });
 
-    return body === '' ? body : text.slice(from, to) + body;
+    return body;
   }
 
   // `null` is no header, the whole document being a Markdown body; MALFORMED is an opening delimiter
@@ -889,6 +1004,77 @@ export class MicroTypo {
   // `ctx` is reused across calls, so `ctx.html` is mutated to reflect this call's destination.
   // Every fragment a document is typeset in passes through here, so this is the one place the
   // reserved characters are escaped: a JSON value carries them only once `JSON.parse` decodes it.
+  #typesetAttributes(text, session, checkBudget) {
+    if (!text.includes('<')) {
+      return text;
+    }
+    let worker = session.attributeWorker;
+    if (worker === undefined) {
+      const engine = new MicroTypo({
+        presets: false,
+        html: false,
+        entities: false,
+        maxProcessingMs: this.#maxProcessingMs,
+        input: {
+          format: 'plain',
+          template: this.#input.template,
+          placeholders: this.#input.placeholders
+        }
+      });
+      engine.#groups = this.#groups;
+      engine.#order = this.#order;
+      engine.#engineSettings = this.#engineSettings;
+      engine.addSafeBlock({
+        id: 'attribute-entity',
+        open: '&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*)(?=;)',
+        close: ';',
+        unsafeRegex: true
+      });
+      const state = engine.#makeSession(session.ctx.onCycleLimit, checkBudget);
+      state.lineStyle = null;
+      const foreign = new RegExp(
+        [
+          PLACEHOLDER_TOKEN,
+          ...this.#safeSequences.restoreRegexes.map((pattern) => pattern.source)
+        ].join('|'),
+        'g'
+      );
+      const inherited = (value, sequences) =>
+        sequences.protectTokens(value, foreign, (token) => this.#restoreProtected(token) !== token);
+      worker = { engine, state, inherited };
+      session.attributeWorker = worker;
+    }
+    const { engine, state, inherited } = worker;
+    const transform = (value) => {
+      const { start, end } = edgeWhitespace(value);
+      if (start === end) {
+        return value;
+      }
+      engine.#groups = this.#groups;
+      engine.#order = this.#order;
+      engine.#engineSettings = this.#engineSettings;
+      engine.#resetVaults();
+      state.lineStyle = value.includes('\r') ? fileLineStyle(value, checkBudget) : null;
+      return (
+        value.slice(0, start) +
+        engine
+          .#runPipeline(value.slice(start, end), state, checkBudget, {
+            destination: 'data-value',
+            inherited
+          })
+          .trim() +
+        value.slice(end)
+      );
+    };
+    return typesetAttributes(
+      text,
+      this.#attributeNames,
+      transform,
+      (name) => this.#safeBlocks.protectsTag(name),
+      checkBudget
+    );
+  }
+
   #runPipeline(text, session, checkBudget, options) {
     const escaped = this.#reservedPossible ? escapeReserved(text) : null;
 
@@ -903,7 +1089,7 @@ export class MicroTypo {
     text,
     session,
     checkBudget,
-    { destination = 'html', trim, indents = false } = {}
+    { destination = 'html', trim, indents = false, firstIndent = '', inherited } = {}
   ) {
     const effHtml = destination === 'html' && this.#html;
     session.ctx.html = effHtml;
@@ -911,12 +1097,13 @@ export class MicroTypo {
 
     // Per-call vault frame so an id minted for an earlier scalar can't be referenced by a later one.
     this.#safeSequences.resetFrame();
+    const source = inherited === undefined ? text : inherited(text, this.#safeSequences);
 
     // A front-matter header's values are data; only the body is Markdown.
     let result = this.#safeSequences.protect(
-      text,
+      source,
       destination === 'html' && BLOCK_RENDER_FORMATS.has(this.#input.format)
-        ? linkSyntaxCuts(text)
+        ? linkSyntaxCuts(source)
         : undefined
     );
     checkBudget('safeSequences.protect');
@@ -936,13 +1123,16 @@ export class MicroTypo {
     }
     checkBudget('protectNotg');
 
+    if (destination === 'html' && this.#attributeNames !== null) {
+      result = this.#typesetAttributes(result, session, checkBudget);
+    }
+
     if (this.#input.format !== 'plain') {
       result = this.#safeTags.protect(result);
     }
     checkBudget('safeTags.protect');
 
-    const lineSource =
-      FILE_FORMATS.has(this.#input.format) && this.#input.format !== 'json' ? result : null;
+    const lineSource = session.lineStyle === null ? null : result;
     result = clearSpecialChars(result);
     checkBudget('clearSpecialChars');
 
@@ -1004,6 +1194,10 @@ export class MicroTypo {
 
     result = this.#safeTags.restoreIblocks(result);
 
+    const generatedFirstParagraph =
+      result.startsWith(PARAGRAPH_OPEN) &&
+      !result.startsWith(`${PARAGRAPH_OPEN}${OPEN}${BLOCK_KIND}`);
+
     result = restoreParagraphs(result);
 
     result = this.#safeTags.restore(result);
@@ -1025,6 +1219,11 @@ export class MicroTypo {
 
     result = this.#safeSequences.restore(result);
 
+    if (firstIndent !== '' && result !== '') {
+      return generatedFirstParagraph && result.startsWith('<p>')
+        ? `<p>${firstIndent}${result.slice(3)}`
+        : firstIndent + result;
+    }
     return result;
   }
 
@@ -1209,7 +1408,8 @@ export class MicroTypo {
 
     if (BLOCK_RENDER_FORMATS.has(self.#input.format)) {
       markdownSources.set(ctx, {
-        header: self.#input.format === 'markdown',
+        header: self.#input.format === 'markdown' || self.#input.format === 'mdx',
+        mdx: self.#input.format === 'mdx',
         restore: (line) => self.#restoreProtected(restoreParagraphs(line))
       });
     }

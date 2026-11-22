@@ -5,9 +5,12 @@ import { CLOSE, OPEN } from './placeholders.js';
 import {
   COMMENT_CLOSE,
   COMMENT_OPEN,
+  DOCUMENT_READING,
+  FRAGMENT_READING,
   commentCloseAt,
   insideTag,
   selfClosing,
+  tagSpanReader,
   tagSpans
 } from './tag-spans.js';
 import { Vault } from './vault.js';
@@ -45,6 +48,24 @@ export function scanHtmlComments(text, checkBudget) {
   return spans;
 }
 
+export function htmlCommentReader(text, checkBudget) {
+  let tags;
+  let cursor = 0;
+  return (from) => {
+    tags ??= tagSpans(text);
+    while (cursor < tags.length) {
+      const [start, end] = tags[cursor++];
+      if ((cursor & 0x3fff) === 0) {
+        checkBudget?.('html-comment');
+      }
+      if (start >= from && text.startsWith(COMMENT_OPEN, start) && text[end] === '>') {
+        return [start, end + 1, end + 1];
+      }
+    }
+    return null;
+  };
+}
+
 // The spaces and tabs a line opens with, when something follows them on that line: the author's
 // layout — a verse indent, the nesting of HTML source — which no rule may collapse. A line of white
 // space alone carries no content to indent and is left to the edge trim.
@@ -72,6 +93,13 @@ export function scanLineIndent(text, checkBudget) {
 
     if (end > start && next > end) {
       spans.push([start, end]);
+    }
+    if (text.startsWith('<p>', end)) {
+      const innerStart = end + 3;
+      const innerEnd = skipSpaces(text, innerStart, next);
+      if (innerEnd > innerStart && innerEnd < next) {
+        spans.push([innerStart, innerEnd]);
+      }
     }
 
     start = next + 1;
@@ -126,14 +154,19 @@ function openCommentAt(text, tags, opaque) {
 }
 
 // Where each tag starts in `text`, as `tagSpans` reads it, mapped to its span.
-function tagIndex(text, rawText) {
+function tagIndex(text, rawText, caseSensitive, readComment) {
   const index = new Map();
 
-  for (const span of tagSpans(text, rawText)) {
+  for (const span of tagSpans(text, rawText, caseSensitive, readComment)) {
     index.set(span[0], span);
   }
 
   return index;
+}
+
+function closingEnd(text, index, at) {
+  const span = index.get(at);
+  return span !== undefined && text[span[1]] === '>' ? span[1] + 1 : -1;
 }
 
 // Where the body of the element a name match at `at` opens begins, behind the `>` of the tag there,
@@ -155,13 +188,16 @@ function bodyStart(text, index, at, slashOpens) {
 function closerFrom(text, closeRe, from, closes) {
   closeRe.lastIndex = from;
 
-  let close = closeRe.exec(text);
-
-  while (close !== null && !closes(close.index)) {
-    close = closeRe.exec(text);
+  for (let close = closeRe.exec(text); close !== null; close = closeRe.exec(text)) {
+    const end = closes(close.index);
+    if (end !== -1) {
+      close[0] = text.slice(close.index, end);
+      closeRe.lastIndex = end;
+      return close;
+    }
   }
 
-  return close;
+  return null;
 }
 
 // The outermost opener of one protected element that the document never closes, as `{ index, end }`,
@@ -207,7 +243,7 @@ function unclosedOpener(text, { openRe, closeRe, nests }, opens, closes, checkBu
   closeRe.lastIndex = 0;
 
   for (let m = closeRe.exec(text); m; m = closeRe.exec(text)) {
-    if (closes(m.index)) {
+    if (closes(m.index) !== -1) {
       events.push({ index: m.index, open: false });
     }
   }
@@ -306,6 +342,15 @@ export class SafeBlocks {
   // tail pass has nothing to pair again.
   #unclosed = false;
   #indents = null;
+  #caseSensitive;
+  #readComments;
+  #reading;
+
+  constructor(caseSensitive = false, readComments = null, reading = DOCUMENT_READING) {
+    this.#caseSensitive = caseSensitive;
+    this.#readComments = readComments;
+    this.#reading = reading;
+  }
 
   // A body with nothing in it shows the reader nothing, whatever element holds it — the same fact
   // the hidden vault stands for, and the reason every protection path stores through here.
@@ -350,87 +395,200 @@ export class SafeBlocks {
     });
   }
 
-  // The protected elements the document closes, for a reader that has to know what an element owns
-  // before the blocks run: `next(from)` gives the first one opening at or past `from` as
-  // `[start, end, end]`, through its closer. Raw text ends at its first closer, a nesting element at
-  // the closer that matches it. Both are read where the document's tags are, as the blocks read
-  // them: a name written in an attribute value opens and closes nothing, and neither does a start
-  // tag closing itself in SVG or MathML.
-  elementReader(text, checkBudget) {
+  // An ordinary tag owns its syntax; a closed protected element also owns its body. Searching for
+  // their openers must not commit the lexical state of a candidate that loses to another owner.
+  elementReader(
+    text,
+    checkBudget,
+    syntax = true,
+    mdx = null,
+    readTemplates = null,
+    readLimit = null
+  ) {
     if (!text.includes('<')) {
-      return () => null;
+      return { next: () => null };
     }
 
-    const elements = [];
-    let seen = 0;
-    const tick = () => {
-      if ((seen++ & 0x3fff) === 0) {
-        checkBudget?.('safeBlocks.elements');
+    const tags = tagSpanReader(
+      text,
+      this.#rawTextTags,
+      this.#caseSensitive,
+      this.#readComments?.(text, checkBudget),
+      this.#reading,
+      checkBudget
+    );
+    const anchored = new Map();
+    const matches = (re, at) => {
+      let pattern = anchored.get(re);
+      if (pattern === undefined) {
+        pattern = new RegExp(re.source, re.flags.replace('g', 'y'));
+        anchored.set(re, pattern);
       }
+      pattern.lastIndex = at;
+      return pattern.test(text);
     };
-    let index;
+    const lastCloses = new Map();
+    const atomEnd = readTemplates?.(text, checkBudget).header;
+    const paragraphEnd = readLimit?.(text, checkBudget);
+    const endings = new Map();
+    const opens = (opener, span, readAtom) =>
+      span !== null &&
+      span[2] !== true &&
+      text[span[1]] === '>' &&
+      matches(opener.openRe, span[0]) &&
+      (opener.slashOpens || !selfClosing(text, span[0], span[1], readAtom, checkBudget));
 
-    for (const { openRe, closeRe, nests, slashOpens } of this.#openers) {
-      const closers = [];
-
-      closeRe.lastIndex = 0;
-
-      for (let m = closeRe.exec(text); m; m = closeRe.exec(text)) {
-        tick();
-        index ??= tagIndex(text, this.#rawTextTags);
-
-        if (index.has(m.index)) {
-          closers.push([m.index, closeRe.lastIndex]);
+    return {
+      next: tags.next,
+      read: (at) => {
+        if (!syntax && !this.#openers.some((entry) => matches(entry.openRe, at))) {
+          return [at, at + 1, at + 1];
         }
-      }
-
-      if (closers.length === 0) {
-        continue;
-      }
-
-      const stack = [];
-      let c = 0;
-
-      openRe.lastIndex = 0;
-
-      for (let m = openRe.exec(text); m; m = openRe.exec(text)) {
-        tick();
-
-        if (bodyStart(text, index, m.index, slashOpens) === -1) {
-          continue;
+        const jsx = mdx !== null && /[A-Za-z/]/.test(text[at + 1] ?? '') ? mdx.read(at) : null;
+        const limit = paragraphEnd?.(at);
+        const openingTrial =
+          limit !== undefined && this.#openers.some((entry) => matches(entry.openRe, at));
+        if (openingTrial) {
+          tags.begin();
+        }
+        const first = tags.read(
+          at,
+          jsx === null ? undefined : jsx[1] - 1,
+          atomEnd,
+          openingTrial ? undefined : limit
+        );
+        const { context, scope, depth } = tags;
+        const end = first.span === null ? at + 1 : Math.min(first.span[1] + 1, text.length);
+        const ordinary = (token) => {
+          const to =
+            token.span === null ||
+            (jsx === null && this.#reading === FRAGMENT_READING && text[token.span[1]] !== '>')
+              ? at + 1
+              : Math.min(token.span[1] + 1, text.length);
+          const span = [at, syntax ? to : at + 1, syntax ? to : at + 1, null, jsx !== null];
+          span.syntax = to > at + 1 ? token.syntax : [];
+          return span;
+        };
+        const fallback = () => {
+          if (!openingTrial) {
+            return ordinary(first);
+          }
+          tags.finish(false);
+          return ordinary(tags.read(at, undefined, atomEnd, limit));
+        };
+        const opener = this.#openers.find((entry) => opens(entry, first.span, atomEnd));
+        if (opener === undefined) {
+          return fallback();
+        }
+        if (!lastCloses.has(opener)) {
+          opener.closeRe.lastIndex = 0;
+          let last = -1;
+          for (let m = opener.closeRe.exec(text); m; m = opener.closeRe.exec(text)) {
+            checkBudget?.('safeBlocks.elements');
+            ({ index: last } = m);
+          }
+          lastCloses.set(opener, last);
+        }
+        if (lastCloses.get(opener) < end) {
+          return fallback();
         }
 
-        // A raw-text body ends at the first closer behind its opener; a nesting one at the closer
-        // that empties the openers stacked since.
-        for (; c < closers.length && closers[c][0] < m.index; c += 1) {
-          if (nests && stack.length > 0) {
-            elements.push([stack.pop(), closers[c][1]]);
+        let cache = endings.get(opener);
+        if (cache === undefined) {
+          cache = new Map();
+          endings.set(opener, cache);
+        }
+        const known = cache.get(at);
+        if (
+          known?.end === -1 &&
+          known.bodyStart === end &&
+          known.scope === scope &&
+          (known.context === context || known.stable)
+        ) {
+          return fallback();
+        }
+        const stack = [{ at, context, scope, depth, mark: 0, bodyStart: end }];
+        let from = first.after;
+        let through = -1;
+        let readThrough;
+        let independent = true;
+        tags.begin();
+        for (let candidate = tags.next(from); candidate !== null; candidate = tags.next(from)) {
+          const token = tags.read(candidate[0]);
+          const { context: inside, scope: innerScope, depth: innerDepth, mark } = tags;
+          from = token.after;
+          const { span } = token;
+          if (span === null || text[span[1]] !== '>') {
+            continue;
+          }
+          if (matches(opener.closeRe, span[0])) {
+            const open = stack.pop();
+            cache.set(open.at, { context: open.context, end: span[1] + 1 });
+            if (stack.length === 0) {
+              through = span[1] + 1;
+              break;
+            }
+          } else if (span[1] >= lastCloses.get(opener)) {
+            readThrough = token.mark;
+            break;
+          } else if (from > lastCloses.get(opener)) {
+            break;
+          } else if (opener.nests && opens(opener, span)) {
+            const nested = cache.get(span[0]);
+            if (
+              nested?.end === -1 &&
+              nested.bodyStart === span[1] + 1 &&
+              nested.scope === innerScope &&
+              (nested.context === inside || nested.stable)
+            ) {
+              independent = nested.stable;
+              break;
+            }
+            stack.push({
+              at: span[0],
+              context: inside,
+              scope: innerScope,
+              depth: innerDepth,
+              mark,
+              bodyStart: span[1] + 1
+            });
           }
         }
-
-        if (nests) {
-          stack.push(m.index);
-        } else if (c < closers.length) {
-          elements.push([m.index, closers[c][1]]);
+        const minimums = tags.finish(through !== -1, readThrough);
+        for (const open of stack) {
+          cache.set(open.at, {
+            context: open.context,
+            scope: open.scope,
+            bodyStart: open.bodyStart,
+            stable: independent && minimums[open.mark] >= open.depth - 1,
+            end: -1
+          });
         }
+        if (through === -1) {
+          return fallback();
+        }
+        if (openingTrial) {
+          tags.finish(true);
+        }
+        const owned = [at, through, through];
+        owned.syntax = first.syntax;
+        return owned;
       }
+    };
+  }
 
-      for (; c < closers.length && stack.length > 0; c += 1) {
-        elements.push([stack.pop(), closers[c][1]]);
+  protectsTag(name) {
+    const tag = `<${name}>`;
+    for (const { openRe } of this.#openers) {
+      const previous = openRe.lastIndex;
+      openRe.lastIndex = 0;
+      const matches = openRe.test(tag);
+      openRe.lastIndex = previous;
+      if (matches) {
+        return true;
       }
     }
-
-    elements.sort((a, b) => a[0] - b[0]);
-
-    let i = 0;
-
-    return (from) => {
-      while (i < elements.length && elements[i][0] < from) {
-        i += 1;
-      }
-
-      return i === elements.length ? null : [elements[i][0], elements[i][1], elements[i][1]];
-    };
+    return false;
   }
 
   // Keep #blocks (compiled regexes); only vault entry state resets between process() calls.
@@ -458,8 +616,12 @@ export class SafeBlocks {
     // The tag name is pre-validated, so nothing here escapes it. Where the opener ends, and whether
     // it opens anything, is the tag span's answer; a pattern only finds the name. A closing tag may
     // carry white space before its `>`, which every parser reads as the close it is.
-    const openRe = new RegExp(`<${tag}(?=[ \\t\\n\\r\\f/>])`, 'gi');
-    const closeRe = new RegExp(`<\\/${tag}[ \\t\\r\\n${formFeed ? '\\f' : ''}]*>`, 'gi');
+    const flags = this.#caseSensitive ? 'g' : 'gi';
+    const openRe = new RegExp(`<${tag}(?=[ \\t\\n\\r\\f/>])`, flags);
+    const closeRe = new RegExp(
+      formFeed ? `<\\/${tag}(?=[ \\t\\r\\n\\f/>])` : `<\\/${tag}[ \\t\\r\\n]*>`,
+      flags
+    );
 
     if (!nests) {
       this.#rawTextTags.add(tag.toLowerCase());
@@ -502,7 +664,7 @@ export class SafeBlocks {
         checkBudget?.('safeBlocks.tag');
       }
 
-      index ??= tagIndex(text, this.#rawTextTags);
+      index ??= tagIndex(text, this.#rawTextTags, this.#caseSensitive, this.#readComments?.(text));
 
       const start = bodyStart(text, index, open.index, slashOpens);
 
@@ -510,7 +672,7 @@ export class SafeBlocks {
         continue;
       }
 
-      const close = closerFrom(text, closeRe, start, (at) => index.has(at));
+      const close = closerFrom(text, closeRe, start, (at) => closingEnd(text, index, at));
 
       // An element never closed is the tail pass's, which runs once every block is out of sight.
       if (!close) {
@@ -557,10 +719,15 @@ export class SafeBlocks {
 
     // Only delimiters that begin a real tag span are kept, so a `</code>` inside a quoted attribute
     // is not read as markup.
-    const index = tagIndex(text, this.#rawTextTags);
+    const index = tagIndex(
+      text,
+      this.#rawTextTags,
+      this.#caseSensitive,
+      this.#readComments?.(text)
+    );
     const kept = events.filter((ev) => {
       if (!ev.open) {
-        return index.has(ev.index);
+        return closingEnd(text, index, ev.index) !== -1;
       }
 
       ev.end = bodyStart(text, index, ev.index, slashOpens);
@@ -700,7 +867,7 @@ export class SafeBlocks {
     // no `-->` behind it.
     const lastComment = text.lastIndexOf(COMMENT_OPEN);
     const openComment = lastComment !== -1 && commentCloseAt(text, lastComment) === -1;
-    const tags = tagSpans(text, this.#rawTextTags);
+    const tags = tagSpans(text, this.#rawTextTags, this.#caseSensitive);
     // The scan stops at a tag the text never ends, which its span runs to the end of.
     const last = tags.at(-1);
     const unended = last !== undefined && last[1] === text.length ? last[0] : -1;
@@ -714,7 +881,7 @@ export class SafeBlocks {
       m.index,
       m.index + m[0].length
     ]);
-    const closes = (at) => index.has(at) && !within(opaque, at);
+    const closes = (at) => (within(opaque, at) ? -1 : closingEnd(text, index, at));
     let first = unended !== -1 && !within(opaque, unended) ? unended : -1;
     let firstEnd = first;
     let vault = this.#hiddenVault;

@@ -11,6 +11,7 @@ export const NAMES = {
   errors: 'типизированные ошибки',
   traces: 'нет следов хранилищ',
   protected: 'защищённое байт в байт',
+  prose: 'проза вне синтаксиса',
   shape: 'форма документа',
   idempotence: 'идемпотентность',
   transparent: 'строчная разметка прозрачна',
@@ -382,7 +383,10 @@ export function createChecker(MicroTypo, restart, unfiltered) {
 
   return check;
 
-  function checkOne({ format, config, text, protect }, only) {
+  function checkOne(
+    { format, config, text, protect, attributeShapes = [], expectedProse = [] },
+    only
+  ) {
     const wants = (invariant) => only === null || only === invariant;
     let typo;
     let out;
@@ -403,6 +407,16 @@ export function createChecker(MicroTypo, restart, unfiltered) {
     }
 
     const violations = [];
+    for (const item of wants('prose') ? expectedProse : []) {
+      if (text.includes(item.source) && !out.includes(item.expected)) {
+        violations.push({
+          invariant: 'prose',
+          key: item.source,
+          fingerprint: item.source,
+          detail: `не обработана проза: ${JSON.stringify(item.source)}`
+        });
+      }
+    }
     let again;
     let secondError;
 
@@ -451,6 +465,18 @@ export function createChecker(MicroTypo, restart, unfiltered) {
       }
 
       const problem = wants('shape') ? checkShape(format, text, out, before, after) : null;
+
+      for (const { marker, pattern } of wants('shape') ? attributeShapes : []) {
+        const attributeShape = new RegExp(pattern, 'u');
+        if (attributeShape.test(text) && !attributeShape.test(out)) {
+          violations.push({
+            invariant: 'shape',
+            key: marker,
+            fingerprint: marker,
+            detail: `атрибут изменил структуру ${marker}`
+          });
+        }
+      }
 
       if (problem !== null) {
         violations.push({

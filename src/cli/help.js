@@ -5,7 +5,7 @@ Russian typesetting for text. Reads stdin or files, writes to stdout.
 Options:
   --html / --no-html            master switch for markup emission
   --entities / --no-entities    glyphs as HTML entities instead of raw Unicode
-  --input <text|html|markdown|json|xml|yaml|toml|frontmatter>
+  --input <text|html|markdown|mdx|json|xml|yaml|toml|frontmatter>
                                 input format (default: text)
   --hanging / --no-hanging      optical alignment of quotes and brackets
   --rule <id=bool>              enable/disable a typesetting rule (repeatable)
