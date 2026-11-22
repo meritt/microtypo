@@ -5,17 +5,19 @@ import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path
 import { styleText } from 'node:util';
 
 import { MicroTypoConfigError, MicroTypoInputError } from '../errors/index.js';
-import { DEFAULT_MAX_INPUT_LENGTH, MicroTypo, VERSION } from '../index.js';
+import { MicroTypo, VERSION } from '../index.js';
 import { parse } from './args.js';
-import { loadConfigFile } from './config.js';
+import { processInput, report } from './diagnostics.js';
 import { CliUsageError } from './errors.js';
 import { HELP } from './help.js';
-import { mergeConfig } from './util.js';
+import { loadIgnore, selectFiles } from './paths.js';
+import { CLI_MAX_INPUT_LENGTH, loadProject } from './project.js';
 
 // UTF-8 encodes any UTF-16 code unit in at most 3 bytes, so this byte cap never rejects input the
 // engine's own length check would accept.
 const BYTES_PER_CHAR_BOUND = 3;
 const READ_CHUNK_BYTES = 64 * 1024;
+const MAX_BATCH_UNITS = 50_000_000;
 
 export async function run(argv, io) {
   const { stderr } = io;
@@ -36,38 +38,41 @@ export async function run(argv, io) {
     return 0;
   }
 
-  let engine;
-  let config;
+  let project;
   try {
-    const fileConfig = await loadConfigFile(opts.configPath, io.cwd);
-    config = mergeConfig(fileConfig, opts.config);
-    engine = new MicroTypo(config);
+    project = await loadProject(opts, io.cwd);
   } catch (err) {
     const code = err instanceof CliUsageError || err instanceof MicroTypoConfigError ? 2 : 1;
     return fail(err, stderr, code);
   }
 
   try {
-    return await transform(engine, opts, io, maxInputLengthOf(config));
+    return await transform(project, opts, io);
   } catch (err) {
-    const code = err instanceof CliUsageError ? 2 : 1;
+    const code = err instanceof CliUsageError || err instanceof MicroTypoConfigError ? 2 : 1;
     return fail(err, stderr, code);
   }
 }
 
 function maxInputLengthOf(config) {
-  return typeof config.maxInputLength === 'number'
-    ? config.maxInputLength
-    : DEFAULT_MAX_INPUT_LENGTH;
+  return typeof config.maxInputLength === 'number' ? config.maxInputLength : CLI_MAX_INPUT_LENGTH;
 }
 
-async function transform(engine, opts, io, maxInputLength) {
-  const { files, write, outputFile } = opts;
+async function transform(project, opts, io) {
+  const { write, outputFile } = opts;
+  let { files } = opts;
   const { stdin, stdout, cwd } = io;
 
   if (write && outputFile) {
     throw new CliUsageError('--output-file cannot combine with --write');
   }
+  if ((opts.check && opts.diff) || ((opts.check || opts.diff) && (write || outputFile))) {
+    throw new CliUsageError('--check and --diff are separate read-only modes');
+  }
+  if (opts.stdinFilepath !== undefined && files.length > 0) {
+    throw new CliUsageError('--stdin-filepath requires stdin input');
+  }
+  const ignored = await loadIgnore(project.root);
 
   if (files.length === 0) {
     if (stdin.isTTY) {
@@ -77,12 +82,27 @@ async function transform(engine, opts, io, maxInputLength) {
     if (write) {
       throw new CliUsageError('--write requires file arguments');
     }
-    const input = await readCappedStream(stdin, maxInputLength);
-    await emit(keepFinalNewline(input, engine.process(input)), outputFile, stdout, cwd);
+    const config = project.configFor(opts.stdinFilepath);
+    const engine = new MicroTypo(config);
+    const input = await readCappedStream(stdin, maxInputLengthOf(config));
+    const skip = opts.stdinFilepath !== undefined && ignored(resolve(cwd, opts.stdinFilepath));
+    const target = {
+      file: opts.stdinFilepath ?? '<stdin>',
+      ...(skip ? { input, output: input, edits: [], trace: [] } : processInput(engine, input, opts))
+    };
+    report(target, opts, io);
+    if (!opts.check && !opts.diff) {
+      await emit(target.output, outputFile, stdout, cwd);
+    }
+    return opts.check && target.edits.length > 0 ? 1 : 0;
+  }
+
+  files = await selectFiles(files, cwd, ignored);
+  if (files.length === 0) {
     return 0;
   }
 
-  if (files.length > 1 && !write) {
+  if (files.length > 1 && !write && !opts.check && !opts.diff) {
     throw new CliUsageError('multiple files require --write');
   }
 
@@ -94,27 +114,48 @@ async function transform(engine, opts, io, maxInputLength) {
   // `realpath` syscall per target.
   const root = write ? await resolvedRoot(cwd) : null;
   const targets = [];
+  // Files that resolve to the same configuration share one engine. A configuration is JSON data —
+  // the config file and the flags — so its serialization tells two apart.
+  const engines = new Map();
+  let units = 0;
   for (const file of files) {
+    const config = project.configFor(file);
+    const key = JSON.stringify(config);
+    const engine = engines.get(key) ?? engines.set(key, new MicroTypo(config)).get(key);
     const abs = write ? await resolveTarget(resolve(cwd, file), root) : resolve(cwd, file);
-    const { content, mode } = await readCappedFile(abs, maxInputLength);
+    const { content, mode } = await readCappedFile(abs, maxInputLengthOf(config));
+    units += content.length;
+    if (units > MAX_BATCH_UNITS) {
+      throw new MicroTypoInputError(`batch exceeds ${MAX_BATCH_UNITS} input UTF-16 units`, {
+        details: { max: MAX_BATCH_UNITS }
+      });
+    }
 
-    if (write) {
+    const target = { abs, mode, file, ...processInput(engine, content, opts) };
+
+    // A file the run leaves as it is is not rewritten, so a read-only one does not stop the batch.
+    if (write && target.output !== target.input) {
       await assertWritable(abs);
     }
 
-    targets.push({ abs, mode, output: keepFinalNewline(content, engine.process(content)) });
+    targets.push(target);
   }
 
   // Phase 2: every target survived phase 1, so writing is now safe. Each replace is atomic on its
   // own; the batch is not, and a failure here leaves the earlier files replaced.
   if (write) {
-    for (const { abs, output, mode } of targets) {
-      await atomicWrite(abs, output, mode);
+    for (const { abs, input, output, mode } of targets) {
+      if (output !== input) {
+        await atomicWrite(abs, output, mode);
+      }
     }
-  } else {
+  } else if (!opts.check && !opts.diff) {
     await emit(targets[0].output, outputFile, stdout, cwd);
   }
-  return 0;
+  for (const target of targets) {
+    report(target, opts, io);
+  }
+  return opts.check && targets.some(({ edits }) => edits.length > 0) ? 1 : 0;
 }
 
 // A path the run is about to write may simply not exist yet, and that is not a failure for any of
@@ -182,21 +223,6 @@ async function assertWritable(abs) {
   await ifPresent(() => access(abs, constants.W_OK));
 }
 
-// The engine trims by contract, but a filter that eats a file's final newline turns every rewrite
-// into a diff and breaks composition with tools that expect a text file to end with one.
-function keepFinalNewline(input, output) {
-  if (!/\r?\n$/.test(input) || output.endsWith('\n')) {
-    return output;
-  }
-
-  // The terminator has to agree with the endings the body now carries: the pipeline rewrites every
-  // interior `\r\n` to `\n`, so copying the input's back onto a multi-line document would leave the
-  // last line ending in a break none of the others had.
-  const carriesLf = /[^\r]\n/.test(output);
-
-  return output + (input.endsWith('\r\n') && !carriesLf ? '\r\n' : '\n');
-}
-
 async function readCappedFile(abs, maxInputLength) {
   const info = await stat(abs);
   const maxBytes = maxInputLength * BYTES_PER_CHAR_BOUND;
@@ -211,41 +237,37 @@ async function readCappedFile(abs, maxInputLength) {
   // `size` is a snapshot, and a FIFO or a device reports 0 whatever it delivers, so the cap is held
   // on the bytes actually read: never more than one past it, and no read left pending to block the
   // close until the writer's EOF.
-  const handle = await open(abs, 'r');
-  try {
-    let buffer = Buffer.allocUnsafe(Math.min(READ_CHUNK_BYTES, maxBytes + 1));
-    let bytes = 0;
+  await using handle = await open(abs, 'r');
+  let buffer = Buffer.allocUnsafe(Math.min(READ_CHUNK_BYTES, maxBytes + 1));
+  let bytes = 0;
 
-    for (;;) {
-      if (bytes === buffer.length) {
-        const grown = Buffer.allocUnsafe(Math.min(buffer.length * 2, maxBytes + 1));
+  for (;;) {
+    if (bytes === buffer.length) {
+      const grown = Buffer.allocUnsafe(Math.min(buffer.length * 2, maxBytes + 1));
 
-        buffer.copy(grown, 0, 0, bytes);
-        buffer = grown;
-      }
-
-      const { bytesRead } = await handle.read({
-        buffer,
-        offset: bytes,
-        length: buffer.length - bytes
-      });
-
-      if (bytesRead === 0) {
-        break;
-      }
-      bytes += bytesRead;
-      if (bytes > maxBytes) {
-        throw new MicroTypoInputError(
-          `${abs} exceeds the ${maxBytes}-byte pre-read cap for maxInputLength ${maxInputLength}`,
-          { details: { path: abs, maxBytes, maxInputLength } }
-        );
-      }
+      buffer.copy(grown, 0, 0, bytes);
+      buffer = grown;
     }
 
-    return { content: buffer.toString('utf8', 0, bytes), mode: info.mode & 0o777 };
-  } finally {
-    await handle.close();
+    const { bytesRead } = await handle.read({
+      buffer,
+      offset: bytes,
+      length: buffer.length - bytes
+    });
+
+    if (bytesRead === 0) {
+      break;
+    }
+    bytes += bytesRead;
+    if (bytes > maxBytes) {
+      throw new MicroTypoInputError(
+        `${abs} exceeds the ${maxBytes}-byte pre-read cap for maxInputLength ${maxInputLength}`,
+        { details: { path: abs, maxBytes, maxInputLength } }
+      );
+    }
   }
+
+  return { content: buffer.toString('utf8', 0, bytes), mode: info.mode & 0o777 };
 }
 
 async function readCappedStream(stream, maxInputLength) {
@@ -296,16 +318,14 @@ async function atomicWrite(abs, content, mode) {
     dirname(abs),
     `.microtypo.${process.pid}.${randomBytes(6).toString('hex')}.tmp`
   );
-  const handle = await open(tmp, 'w', mode ?? 0o666);
   try {
-    try {
+    {
+      await using handle = await open(tmp, 'w', mode ?? 0o666);
       await handle.writeFile(content, 'utf8');
       if (mode !== undefined) {
         await handle.chmod(mode);
       }
       await handle.sync();
-    } finally {
-      await handle.close();
     }
     await rename(tmp, abs);
   } catch (err) {
@@ -316,7 +336,7 @@ async function atomicWrite(abs, content, mode) {
 
 function fail(err, stderr, code) {
   const message = `error: ${err.message}\n`;
-  stderr.write(stderr.isTTY ? styleText('red', message, { validateStream: false }) : message);
+  stderr.write(styleText('red', message, { stream: stderr }));
   if (code === 2) {
     stderr.write('run `microtypo --help` for usage\n');
   }

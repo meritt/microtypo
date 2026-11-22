@@ -17,25 +17,30 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { Readable } from 'node:stream';
+import { Readable, Writable } from 'node:stream';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
+import { WriteStream } from 'node:tty';
 
 import { HELP } from '../../src/cli/help.js';
 import { run } from '../../src/cli/run.js';
 
+// `node --test` hands each test file FORCE_COLOR=1 when it reports to a colour terminal, and the
+// stderr expected here is the plain one a pipe gets.
+delete process.env.FORCE_COLOR;
+
 function collector() {
   const chunks = [];
-  return {
-    isTTY: false,
-    write(chunk) {
+  const stream = new Writable({
+    decodeStrings: false,
+    write(chunk, _encoding, callback) {
       chunks.push(chunk);
-      return true;
-    },
-    text() {
-      return chunks.join('');
+      callback();
     }
-  };
+  });
+  stream.isTTY = false;
+  stream.text = () => chunks.join('');
+  return stream;
 }
 
 function stdinFrom(value) {
@@ -82,6 +87,58 @@ test('invalid config exits 2 with a stderr message', async () => {
   });
   assert.equal(code, 2);
   assert.match(stderr.text(), /error:/);
+});
+
+const COLOUR_ENV = [
+  'FORCE_COLOR',
+  'NO_COLOR',
+  'NODE_DISABLE_COLORS',
+  'TERM',
+  'CI',
+  'TEAMCITY_VERSION'
+];
+const RED = '\u{1B}[31m';
+
+function assignEnv(vars) {
+  for (const [name, value] of Object.entries(vars)) {
+    if (value === undefined) {
+      delete process.env[name];
+    } else {
+      process.env[name] = value;
+    }
+  }
+}
+
+async function errorColour(isTTY, env) {
+  const saved = Object.fromEntries(COLOUR_ENV.map((name) => [name, process.env[name]]));
+  const stderr = collector();
+
+  stderr.isTTY = isTTY;
+  stderr.getColorDepth = WriteStream.prototype.getColorDepth;
+  assignEnv({ ...Object.fromEntries(COLOUR_ENV.map((name) => [name, undefined])), ...env });
+  try {
+    await run(['--input', 'chaos'], {
+      stdin: stdinFrom(''),
+      stdout: collector(),
+      stderr,
+      cwd: process.cwd()
+    });
+  } finally {
+    assignEnv(saved);
+  }
+
+  const text = stderr.text();
+
+  return text.slice(0, text.indexOf('error: '));
+}
+
+test('an error is red only where the stream and the environment allow colour', async () => {
+  assert.equal(await errorColour(true, { TERM: 'xterm-256color' }), RED);
+  assert.equal(await errorColour(true, { TERM: 'xterm-256color', NO_COLOR: '1' }), '');
+  assert.equal(await errorColour(true, { TERM: 'dumb' }), '');
+  assert.equal(await errorColour(true, { TERM: 'xterm-256color', FORCE_COLOR: '0' }), '');
+  assert.equal(await errorColour(false, { TERM: 'xterm-256color' }), '');
+  assert.equal(await errorColour(false, { FORCE_COLOR: '1' }), RED);
 });
 
 test('--input markdown protects fenced code while typesetting the rest', async () => {
@@ -604,6 +661,50 @@ test('a read-only file later in the batch leaves every earlier file untouched', 
   assert.equal(await readFile(first, 'utf8'), 'Корвин - принц\n');
   assert.equal(await readFile(second, 'utf8'), 'Рэндом - брат\n');
   await chmod(second, 0o644);
+});
+
+test('a read-only file the run leaves as it is neither stops the batch nor is rewritten', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'tg-'));
+  const done = join(dir, 'a.md');
+  const todo = join(dir, 'b.md');
+  await writeFile(done, 'Готово.\n', 'utf8');
+  await writeFile(todo, 'Рэндом - брат\n', 'utf8');
+  await chmod(done, 0o444);
+  const before = await stat(done);
+
+  const stderr = collector();
+  const code = await run(['--write', '.'], {
+    stdin: stdinFrom(''),
+    stdout: collector(),
+    stderr,
+    cwd: dir
+  });
+
+  assert.equal(code, 0, stderr.text());
+  assert.match(await readFile(todo, 'utf8'), /Рэндом\u{00A0}— брат/u);
+  const after = await stat(done);
+  assert.equal(after.mtimeMs, before.mtimeMs);
+  await chmod(done, 0o644);
+});
+
+test('--input changes the format and keeps the input settings of the config file', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'tg-input-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await writeFile(join(dir, '.microtyporc.json'), '{"input": {"pragmas": "microtypo"}}');
+  const kept = '<!-- microtypo-ignore-start -->\nКорвин - принц\n<!-- microtypo-ignore-end -->\n';
+  await writeFile(join(dir, 'in.txt'), kept);
+
+  const stdout = collector();
+  const stderr = collector();
+  const code = await run(['--input', 'markdown', 'in.txt'], {
+    stdin: stdinFrom(''),
+    stdout,
+    stderr,
+    cwd: dir
+  });
+
+  assert.equal(code, 0, stderr.text());
+  assert.equal(stdout.text(), kept);
 });
 
 // A temp name carrying the whole basename plus a suffix can push a name a filesystem accepts past
