@@ -1,4 +1,4 @@
-import { clearSpecialChars } from './clear-special.js';
+import { decodeSpecialChars, readScalarAt } from './clear-special.js';
 import { normaliseOptions, isOn, canonicalGroupName, wildcardToRegex } from './core/options.js';
 import { MicroTypoConfigError, MicroTypoInputError, MicroTypoBudgetError } from './errors/index.js';
 import { typesetAttributes } from './input/attributes.js';
@@ -6,8 +6,8 @@ import { scanLeadingHeader, splitFrontmatter } from './input/frontmatter.js';
 import { compileSpanSelectors, scanJson, selectValueSpans } from './input/json.js';
 import { localizationScanner } from './input/localization.js';
 import {
-  codeSpanReader,
-  linkSyntaxCuts,
+  documentCodeSpanReader,
+  markdownAddressSyntax,
   markdownCommentCloser,
   opaqueInline,
   scanFences,
@@ -17,12 +17,12 @@ import {
   scanLinkDestinations,
   scanMarkdownComments,
   scanReferenceDefinitions,
+  isMarkdownDividerAt,
   scanUnclosedHtmlBlock
 } from './input/markdown.js';
 import { scanMath } from './input/math.js';
 import { esmReader, mdxLineReader, opaqueMdx, paragraphEndReader } from './input/mdx.js';
 import { scanPragmas } from './input/pragmas.js';
-import { lineReader } from './input/span-path.js';
 import { scannerFor, templateReader } from './input/template.js';
 import { scanToml } from './input/toml.js';
 import {
@@ -33,14 +33,22 @@ import {
   xmlConstructReader
 } from './input/xml.js';
 import { scanYaml } from './input/yaml.js';
-import { BLOCK_TAG_NAMES, VOID_BLOCK_TAG_NAMES } from './lib/block-tags.js';
+import { BLOCK_TAG_NAMES, VOID_BLOCK_TAG_NAMES, DEFAULT_SAFE_TAGS } from './lib/block-tags.js';
+import {
+  CHARACTER_REFERENCE_HEAD,
+  characterReferenceEndingAt,
+  readCharacterReferenceAt,
+  quoteBoundaryGlyph
+} from './lib/character-reference.js';
 import { changedRanges, replacementEdits } from './lib/diff.js';
 import { G, unicodeToEntities, unicodeToXmlEntities } from './lib/glyphs.js';
+import { bindInlineBoundaries } from './lib/inline-boundaries.js';
 import { fileLineStyle, restoreFileEndings, restoreFileTail } from './lib/line-endings.js';
 import { SourceMap, jsonSourceMap, representedMap } from './lib/provenance.js';
 import { bindRuleBudget } from './lib/rule-budget.js';
-import { F, featureMask } from './lib/rule-features.js';
-import { RuleTrace, bindRuleTrace, ruleTraceOf } from './lib/rule-trace.js';
+import { F, holdsAnyFeature } from './lib/rule-features.js';
+import { RuleTrace, bindRuleTrace, ruleTraceOf, unbindRuleTrace } from './lib/rule-trace.js';
+import { releaseSession } from './lib/session-maps.js';
 import { edgeWhitespace, leadingIndent, trimBlankLines } from './lib/strings.js';
 import { SafeBlocks, scanHtmlComments, scanLineIndent } from './protect/blocks.js';
 import { TokenBudget } from './protect/forgery.js';
@@ -61,31 +69,28 @@ import {
   compileRuleGroup,
   canRunRuleGroup,
   describeRuleGroup,
+  enabledRule,
   isRuleOn,
   runRuleGroup,
   runStep
 } from './rule-runner.js';
-import { YEAR_MARKS } from './rules/date.js';
+import { SOURCE_YEAR_RANGE_RE, YEAR_MARKS } from './rules/date.js';
+import { bindNowrapRules } from './rules/etc.js';
+import {
+  bindQuoteBlockEdges,
+  bindQuoteLineBlocks,
+  bindQuoteInlinePadding,
+  bindQuoteParagraphs,
+  bindReferenceGlyph,
+  canonicalQuoteRoles
+} from './rules/quote-state.js';
+import { bindQuoteRules, bindQuotePaddingStrip, prepareAuthoredQuotes } from './rules/quote.js';
 import { DEFAULT_GROUPS } from './rules/registry.js';
-import { markdownSources } from './rules/text.js';
+import { bindBoundaryActivity, punctuationAfterInlineGap } from './rules/space.js';
+import { markdownSources, paragraphEdgeReader } from './rules/text.js';
 import { UNSAFE_PREFIX_RE, validateConfig } from './schemas/config.js';
 
-// Raw-text tags whose content is not typeset; block-level tags are excluded, since their content is.
-// `textarea` belongs here for a different reason: its content is the form's value, not display prose,
-// and `math` because its content is a formula in MathML.
-// prettier-ignore
-const DEFAULT_SAFE_TAGS = [
-  'pre',
-  'code',
-  'script',
-  'style',
-  'kbd',
-  'samp',
-  'var',
-  'tt',
-  'textarea',
-  'math',
-];
+const trimEdges = (text) => text.trim();
 
 // MathML is foreign content in HTML, where `<math/>` closes itself as it does in XML.
 const FOREIGN_TAGS = new Set(['math']);
@@ -99,12 +104,78 @@ const NON_RENDERING_TAGS = new Set(['script', 'style', 'noembed', 'title']);
 // a tag written inside one is those bytes rather than a nested element.
 const RAW_TEXT_TAGS = new Set(['script', 'style', 'textarea', 'xmp', 'noembed', 'title']);
 
+// What the HTML tokenizer opens a tag, a closing tag, a comment or a declaration on.
+const TAG_START_RE = /<[A-Za-z/!?]/u;
+
 const NOTG_START = '<span class="_notg_start"></span>';
 const NOTG_END = '<span class="_notg_end"></span>';
 // Quoted-attribute alternation so a `>` inside an attribute value doesn't truncate the opener.
 const NOTG_RE = /<notg(?:\s(?:[^<>"']|"[^"]*"|'[^']*')*)?>([\s\S]*?)<\/notg>/gi;
 
 const DEFAULT_LAYOUT = { style: true, class: false };
+
+// Readers whose context a later builtin group creates, under the last group that creates it. Each
+// enabled reader runs once right after that group, whose rules may be off, so it sees every such
+// boundary in the pass that creates it, as a repeated pass does.
+const DEPENDENT_READS = new Map([
+  // Trimmed gaps and stripped quote padding bring punctuation marks together; a collapsed run of
+  // spaces leaves the one gap before a conjunction.
+  [
+    'space',
+    [
+      ['punctuation', 'drop_terminal_garbage'],
+      ['punctuation', 'collapse_doubled'],
+      ['punctuation', 'comma_before_conjunction']
+    ]
+  ],
+  // Units, currency and initials expose the end of an abbreviated reference, numeric notation and a
+  // new word start, `т.е.и т. д.` included, and change what stands before a dash. The word start
+  // `,5л.т «` gets from a unit is a short word before a quote. A unit's power and a fraction leave a
+  // currency sign with no number in front, `5 м² € 0`, `⅝ ₽ 5`, so it binds to the number after it.
+  [
+    'abbr',
+    [
+      ['space', 'space_after_period'],
+      ['space', 'space_after_punctuation'],
+      ['space', 'nbsp_before_quote'],
+      ['abbr', 'nbsp_location'],
+      ['number', 'sup'],
+      ['number', 'sub'],
+      ['abbr', 'nbsp_short_acronym'],
+      ['abbr', 'nbsp_currency_prefix'],
+      // A currency prefix can replace a thin gap with the word boundary a glued year reads.
+      ['space', 'space_after_year'],
+      ['dash', 'emphatic_particle'],
+      ['dash', 'em']
+    ]
+  ],
+  // A run of spaces bound after a short word leaves one gap before a conjunction; a wrapper written
+  // around words this group bound gives them back their spaces. Initials parted before a surname
+  // start the `т. н.` their second one was glued to, `За М.Т. н.`.
+  [
+    'nobr',
+    [
+      ['punctuation', 'comma_before_conjunction'],
+      ['nobr', 'nbsp_short_word']
+    ]
+  ],
+  // A year mark ends the number `и т. д.` binds, as the abbreviations before it end the reference,
+  // `т.е.и т. д.`.
+  ['date', [['abbr', 'nowrap_etc']]],
+  // Year marks change what stands before a dash; a wrapper around a time, an address or a phone, a
+  // currency sign in place of a glued letter end a digit chain the triads left whole.
+  [
+    'other',
+    [
+      ['dash', 'em_after_sentence'],
+      ['number', 'thin_space_triads']
+    ]
+  ],
+  // A wrapper's end or a paragraph's start before a comma is neither a decimal digit nor the start
+  // of the text; the number after the comma it parts is no decimal part either, `ГОСТ 6</span>, 4 и`.
+  // The dash of a year range starts a number bound to the word after it.
+  ['text', [['space', 'space_after_comma']]]
+]);
 
 const BOM = '\u{FEFF}';
 
@@ -136,6 +207,7 @@ export class MicroTypo {
   #order = [];
   #safeBlocks;
   #safeSequences;
+  #markdownAddressSyntax;
   #safeTags;
   #engineSettings = {};
   #layout = { ...DEFAULT_LAYOUT };
@@ -219,6 +291,24 @@ export class MicroTypo {
     }
 
     const markdown = BLOCK_RENDER_FORMATS.has(this.#input.format);
+    const addPragmas = () => {
+      if (
+        this.#input.pragmas === 'microtypo' &&
+        (markdown || this.#input.format === 'text' || this.#input.format === 'html')
+      ) {
+        this.#safeBlocks.addScanner('microtypo-pragma', (text, checkBudget) =>
+          this.#pragmaDocument
+            ? scanPragmas(text, checkBudget, {
+                markdown,
+                restore: (content) => this.#safeBlocks.restore(content),
+                ignoreFile: () => {
+                  this.#ignoredFile = true;
+                }
+              })
+            : []
+        );
+      }
+    };
     if (!markdown && readTemplates !== null) {
       this.#safeBlocks.addScanner(
         'template-bodies',
@@ -233,23 +323,15 @@ export class MicroTypo {
     }
 
     if (markdown) {
-      let readMdxLines = null;
-      if (this.#input.format === 'mdx') {
-        readMdxLines = mdxLineReader(codeSpanReader, readTemplates, [readElements]);
-      } else if (readTemplates !== null) {
-        readMdxLines = (text, checkBudget) => {
-          const templates = readTemplates(text, checkBudget);
-          return lineReader([
-            { next: codeSpanReader(text, checkBudget) },
-            { next: templates.next ?? templates, read: templates.read },
-            readElements(text, checkBudget)
-          ]);
-        };
-      }
+      const mdx = this.#input.format === 'mdx';
+      const readMdxLines =
+        mdx || readTemplates !== null
+          ? mdxLineReader(documentCodeSpanReader, readTemplates, [readElements], mdx)
+          : null;
       // Every block scanner asks one question of where an HTML block opens: a template expression
       // stays opaque to it.
-      const boundaryOpaque = (this.#input.format === 'mdx' ? opaqueMdx : opaqueInline)(
-        codeSpanReader,
+      const boundaryOpaque = (mdx ? opaqueMdx : opaqueInline)(
+        documentCodeSpanReader,
         readTemplates,
         [readElements],
         false
@@ -264,42 +346,51 @@ export class MicroTypo {
 
       // Line-oriented scanner: a same-length fence run mid-line can't close the block early. The
       // lines of an HTML block open no fence.
-      this.#safeBlocks.addScanner('md-fence', (text, checkBudget) =>
-        scanFences(
-          text,
-          checkBudget,
-          templatesIn(text, checkBudget),
-          this.#input.format === 'mdx' ? esmReader : null,
-          readMdxLines
-        )
+      this.#safeBlocks.addScanner(
+        'md-fence',
+        (text, checkBudget) =>
+          scanFences(
+            text,
+            checkBudget,
+            templatesIn(text, checkBudget),
+            this.#input.format === 'mdx' ? esmReader : null,
+            readMdxLines
+          ),
+        true
       );
 
       // Block-level constructs first: their interiors must be opaque to every inline scanner below.
       // A backtick inside a reference definition is part of that block and must not pair with one in
       // the prose around it, which is why definitions are taken before code spans — and why the
       // reference scanner resolves code spans itself before deciding which labels are uses.
-      this.#safeBlocks.addScanner('md-indented-code', (text, checkBudget) =>
-        scanIndentedCode(
-          text,
-          checkBudget,
-          templatesIn(text, checkBudget),
-          this.#input.format === 'mdx',
-          readMdxLines
-        )
+      this.#safeBlocks.addScanner(
+        'md-indented-code',
+        (text, checkBudget) =>
+          scanIndentedCode(
+            text,
+            checkBudget,
+            templatesIn(text, checkBudget),
+            this.#input.format === 'mdx',
+            readMdxLines
+          ),
+        true
       );
 
       // An HTML block is block structure too: read after code blocks, so a tag written in one opens
       // nothing, and before every inline construct, whose backticks inside the block are its own
       // bytes and may hold the end tag that closes it. The code-block scanners skip the lines it
       // owns, so a fence or indent inside it hides no end tag.
-      this.#safeBlocks.addScanner('md-html-block', (text, checkBudget) =>
-        scanUnclosedHtmlBlock(
-          text,
-          checkBudget,
-          templatesIn(text, checkBudget),
-          this.#input.format === 'mdx',
-          readMdxLines
-        )
+      this.#safeBlocks.addScanner(
+        'md-html-block',
+        (text, checkBudget) =>
+          scanUnclosedHtmlBlock(
+            text,
+            checkBudget,
+            templatesIn(text, checkBudget),
+            this.#input.format === 'mdx',
+            readMdxLines
+          ),
+        true
       );
 
       // One answer about the opaque inline constructs, shared by the reader that needs it early and
@@ -307,10 +398,18 @@ export class MicroTypo {
       // code spans fall, and templates move where they fall. An element or comment that opened first
       // owns the backticks inside it.
       const scanInline = (this.#input.format === 'mdx' ? opaqueMdx : opaqueInline)(
-        codeSpanReader,
+        documentCodeSpanReader,
         readTemplates,
         [readElements]
       );
+      this.#markdownAddressSyntax = (source, checkBudget) =>
+        markdownAddressSyntax(
+          source,
+          scanInline,
+          readElements,
+          checkBudget,
+          this.#input.format === 'mdx'
+        );
 
       this.#safeBlocks.addScanner('md-reference-definition', (text, checkBudget, resolve) =>
         scanReferenceDefinitions(text, checkBudget, resolve, scanInline)
@@ -321,7 +420,7 @@ export class MicroTypo {
       // belongs to is settled by which opened first, never by which pass ran first. Both stay behind
       // the block constructs, whose interiors are already opaque here: read before them, an
       // expression could span a fence boundary and take the fence apart.
-      this.#safeBlocks.addScanner('md-inline-opaque', scanInline);
+      this.#safeBlocks.addInlineScanner('md-inline-opaque', scanInline);
 
       // A tag written in code is text, so elements are paired once every kind of code is out of
       // sight.
@@ -336,6 +435,10 @@ export class MicroTypo {
 
       // Indent, blockquote chain and list or heading marker in one span, so `> -` stays a list
       // rather than becoming an em dash and the spaces that set a content column survive.
+      // Prefix protection removes real `>` boundaries. Read pragma comments after opaque code
+      // and elements, while those original tag boundaries still exist.
+      addPragmas();
+
       this.#safeBlocks.addScanner('md-table-delimiter', scanTableDelimiters);
       this.#safeBlocks.addScanner('md-line-prefix', scanLinePrefix);
 
@@ -375,7 +478,7 @@ export class MicroTypo {
       // fails outright.
       this.addSafeBlock({
         id: 'xml-entity',
-        open: '&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*)(?=;)',
+        open: `${CHARACTER_REFERENCE_HEAD}(?=;)`,
         close: ';',
         unsafeRegex: true
       });
@@ -399,21 +502,14 @@ export class MicroTypo {
       );
     }
 
-    if (this.#input.pragmas === 'microtypo' && (html || markdown)) {
-      this.#safeBlocks.addScanner('microtypo-pragma', (text, checkBudget) =>
-        this.#pragmaDocument
-          ? scanPragmas(text, checkBudget, {
-              markdown,
-              restore: (content) => this.#safeBlocks.restore(content),
-              ignoreFile: () => {
-                this.#ignoredFile = true;
-              }
-            })
-          : []
-      );
+    if (!markdown) {
+      addPragmas();
     }
 
-    const localization = localizationScanner(this.#input.placeholders);
+    const localization = localizationScanner(
+      this.#input.placeholders,
+      this.#input.format === 'xml'
+    );
     if (localization !== null) {
       this.#safeBlocks.addScanner('localization', localization);
     }
@@ -439,10 +535,15 @@ export class MicroTypo {
       BLOCK_RENDER_FORMATS.has(this.#input.format) ? markdownCommentCloser : null,
       this.#input.format === 'text' || this.#input.format === 'html'
         ? DOCUMENT_READING
-        : FRAGMENT_READING
+        : FRAGMENT_READING,
+      this.#input.format === 'markdown' || this.#input.format === 'frontmatter'
+        ? paragraphEndReader
+        : null,
+      this.#input.format === 'xml'
     );
     this.#safeSequences = new SafeSequences();
     this.#safeTags = new SafeTags({
+      xmlNames: this.#input.format === 'xml',
       document: this.#input.format === 'text' || this.#input.format === 'html',
       readComments: BLOCK_RENDER_FORMATS.has(this.#input.format) ? markdownCommentCloser : null
     });
@@ -463,7 +564,8 @@ export class MicroTypo {
         nests: xml || !RAW_TEXT_TAGS.has(tag),
         // HTML allows a form feed among the space before a closing `>`; XML's S production does not.
         formFeed: !xml,
-        slashOpens: !xml && !FOREIGN_TAGS.has(tag)
+        slashOpens: !xml && !FOREIGN_TAGS.has(tag),
+        typeset: tag === 'title'
       });
     }
 
@@ -497,6 +599,15 @@ export class MicroTypo {
     this.#order = order;
 
     return this;
+  }
+
+  #builtinRule(group, id) {
+    const owner = this.#groups.get(group);
+    return owner?.builtin === true ? enabledRule(owner, id) : null;
+  }
+
+  #builtinRuleOn(group, id) {
+    return this.#builtinRule(group, id) !== null;
   }
 
   // Group order is load-bearing, so a position that cannot be honoured is an error rather than a
@@ -766,6 +877,7 @@ export class MicroTypo {
     const trace = diagnostics.trace ? [] : null;
     this.#trace = trace;
     let result;
+    let asGiven = false;
 
     // A byte-order mark tells how the file is encoded, not what it says: it goes back first, and no
     // format reads it as part of the document.
@@ -774,7 +886,10 @@ export class MicroTypo {
     try {
       this.#reservedPossible = this.#input.format === 'json' || hasReserved(text);
       result = bom + this.#typeset(text.slice(bom.length), checkBudget, bom.length);
-      if (this.#ignoredFile) {
+      // A placeholder still standing after the restore is an address the engine cannot give back.
+      // The text returns as it came: the one output known to hold no string of the engine's own.
+      asGiven = this.#ignoredFile || this.#safeSequences.leftIn(result);
+      if (asGiven) {
         result = text;
       }
       if (FILE_FORMATS.has(this.#input.format)) {
@@ -792,7 +907,7 @@ export class MicroTypo {
 
     return {
       text: result,
-      ...(diagnostics.trace ? { trace: this.#ignoredFile ? [] : trace } : {}),
+      ...(diagnostics.trace ? { trace: asGiven ? [] : trace } : {}),
       ...(diagnostics.changes ? { changes: changedRanges(text, result, checkBudget) } : {}),
       ...(diagnostics.edits ? { edits: replacementEdits(text, result, checkBudget) } : {})
     };
@@ -806,6 +921,18 @@ export class MicroTypo {
     this.#resetVaults();
 
     const session = this.#makeSession(hook, checkBudget);
+
+    try {
+      return this.#typesetIn(session, text, checkBudget, offset);
+    } finally {
+      for (const worker of session.workers?.values() ?? []) {
+        worker.state.release();
+      }
+      session.release();
+    }
+  }
+
+  #typesetIn(session, text, checkBudget, offset) {
     session.lineStyle =
       FILE_FORMATS.has(this.#input.format) && this.#input.format !== 'json' && text.includes('\r')
         ? fileLineStyle(text, checkBudget)
@@ -835,7 +962,7 @@ export class MicroTypo {
         text.slice(0, start) +
         this.#runPipeline(core, session, checkBudget, {
           destination: 'xml',
-          sourceMap: this.#trace === null ? null : new SourceMap(core, offset + start, checkBudget)
+          sourceMap: this.#sourceMap(core, offset + start, checkBudget)
         }) +
         text.slice(end)
       );
@@ -848,28 +975,32 @@ export class MicroTypo {
     // Markdown trims edge-aware, keeping the leading indent of indented code; text and HTML trim
     // as `String.prototype.trim` does, all but the indent of the first line with content.
     if (this.#input.format === 'markdown' || this.#input.format === 'mdx') {
-      return this.#runPipeline(text, session, checkBudget, {
-        trim: this.#trimBlankLines,
-        sourceMap: this.#trace === null ? null : new SourceMap(text, offset, checkBudget)
-      });
+      return this.#typesetMarkdown(text, session, checkBudget, offset);
     }
 
     // Spliced out rather than lifted onto a line of its own, which would put a line break in front of
     // content the rules read at the start of the document; the blank lines before it stay for the
     // trim.
-    const [from, to] = leadingIndent(text);
-    const body = this.#runPipeline(text.slice(0, from) + text.slice(to), session, checkBudget, {
+    const [from, to] = leadingIndent(text, readScalarAt, checkBudget);
+    const spliced = text.slice(0, from) + text.slice(to);
+    return this.#runPipeline(spliced, session, checkBudget, {
       destination: this.#input.format === 'plain' ? 'plain' : 'html',
-      trim: (s) => s.trim(),
+      trim: trimEdges,
       indents: true,
-      firstIndent: text.slice(from, to),
-      sourceMap:
-        this.#trace === null
-          ? null
-          : new SourceMap(text, offset, checkBudget).fork(text.slice(0, from) + text.slice(to))
+      firstIndent: to < text.length ? text.slice(from, to) : '',
+      sourceMap: this.#sourceMap(text, offset, checkBudget)?.fork(spliced) ?? null
     });
+  }
 
-    return body;
+  #sourceMap(text, offset, checkBudget) {
+    return this.#trace === null ? null : new SourceMap(text, offset, checkBudget);
+  }
+
+  #typesetMarkdown(text, session, checkBudget, offset) {
+    return this.#runPipeline(text, session, checkBudget, {
+      trim: this.#trimBlankLines,
+      sourceMap: this.#sourceMap(text, offset, checkBudget)
+    });
   }
 
   // `null` is no header, the whole document being a Markdown body; MALFORMED is an opening delimiter
@@ -878,10 +1009,7 @@ export class MicroTypo {
     const fm = splitFrontmatter(text);
 
     if (fm === null) {
-      return this.#runPipeline(text, session, checkBudget, {
-        trim: this.#trimBlankLines,
-        sourceMap: this.#trace === null ? null : new SourceMap(text, offset, checkBudget)
-      });
+      return this.#typesetMarkdown(text, session, checkBudget, offset);
     }
 
     if (fm.malformed) {
@@ -891,28 +1019,15 @@ export class MicroTypo {
       );
     }
 
-    const typedHeader =
-      fm.open === '+++'
-        ? this.#typesetStructured(
-            fm.header,
-            scanToml,
-            session,
-            checkBudget,
-            offset + fm.headerStart
-          )
-        : this.#typesetStructured(
-            fm.header,
-            scanYaml,
-            session,
-            checkBudget,
-            offset + fm.headerStart
-          );
+    const typedHeader = this.#typesetStructured(
+      fm.header,
+      fm.open === '+++' ? scanToml : scanYaml,
+      session,
+      checkBudget,
+      offset + fm.headerStart
+    );
     const boundary = /^(?:[ \t]*(?:\r\n?|\n))+/u.exec(fm.body)?.[0] ?? '';
-    const typedBody = this.#runPipeline(fm.body, session, checkBudget, {
-      trim: this.#trimBlankLines,
-      sourceMap:
-        this.#trace === null ? null : new SourceMap(fm.body, offset + fm.bodyStart, checkBudget)
-    });
+    const typedBody = this.#typesetMarkdown(fm.body, session, checkBudget, offset + fm.bodyStart);
 
     // Delimiter lines come straight from the original text, so they stay byte-exact.
     return (
@@ -984,10 +1099,13 @@ export class MicroTypo {
 
     return (
       value.slice(0, start) +
-      this.#runPipeline(core, session, checkBudget, {
-        destination: 'data-value',
-        sourceMap: sourceMap?.slice(start, end)
-      }).trim() +
+      trimEdges(
+        this.#runPipeline(core, session, checkBudget, {
+          destination: 'data-value',
+          sourceTrim: trimEdges,
+          sourceMap: sourceMap?.slice(start, end)
+        })
+      ) +
       value.slice(end)
     );
   }
@@ -1017,9 +1135,7 @@ export class MicroTypo {
         interior,
         session,
         checkBudget,
-        this.#trace === null
-          ? null
-          : new SourceMap(interior, offset + start + quote.length, checkBudget)
+        this.#sourceMap(interior, offset + start + quote.length, checkBudget)
       );
 
       // The scanner guarantees the input interior holds no bare wrapper quote, but glyph folding can
@@ -1092,44 +1208,7 @@ export class MicroTypo {
     if (!text.includes('<')) {
       return text;
     }
-    let worker = session.attributeWorker;
-    if (worker === undefined) {
-      const engine = new MicroTypo({
-        presets: false,
-        html: false,
-        entities: false,
-        maxProcessingMs: this.#maxProcessingMs,
-        input: {
-          format: 'plain',
-          template: this.#input.template,
-          placeholders: this.#input.placeholders
-        }
-      });
-      engine.#groups = this.#groups;
-      engine.#order = this.#order;
-      engine.#engineSettings = this.#engineSettings;
-      engine.addSafeBlock({
-        id: 'attribute-entity',
-        open: '&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*)(?=;)',
-        close: ';',
-        unsafeRegex: true
-      });
-      engine.#trace = this.#trace;
-      const state = engine.#makeSession(session.ctx.onCycleLimit, checkBudget);
-      state.lineStyle = null;
-      const foreign = new RegExp(
-        [
-          PLACEHOLDER_TOKEN,
-          ...this.#safeSequences.restoreRegexes.map((pattern) => pattern.source)
-        ].join('|'),
-        'g'
-      );
-      const inherited = (value, sequences) =>
-        sequences.protectTokens(value, foreign, (token) => this.#restoreProtected(token) !== token);
-      worker = { engine, state, inherited };
-      session.attributeWorker = worker;
-    }
-    const { engine, state, inherited } = worker;
+    const { engine, state, inherited } = this.#attributeWorker(session, checkBudget);
     let sourceMap = null;
     const transform = (value, sourceStart, sourceEnd) => {
       const { start, end } = edgeWhitespace(value);
@@ -1139,23 +1218,10 @@ export class MicroTypo {
       if (sourceMap === null && session.traceFrame !== null) {
         sourceMap = representedMap(session.traceFrame.map, text, session.traceFrame.render);
       }
-      engine.#groups = this.#groups;
-      engine.#trace = this.#trace;
-      engine.#order = this.#order;
-      engine.#engineSettings = this.#engineSettings;
-      engine.#resetVaults();
-      state.lineStyle = value.includes('\r') ? fileLineStyle(value, checkBudget) : null;
-      return (
-        value.slice(0, start) +
-        engine
-          .#runPipeline(value.slice(start, end), state, checkBudget, {
-            destination: 'data-value',
-            inherited,
-            sourceMap: sourceMap?.slice(sourceStart, sourceEnd).slice(start, end)
-          })
-          .trim() +
-        value.slice(end)
-      );
+      return this.#typesetWithWorker(engine, state, inherited, value, start, end, checkBudget, {
+        trace: this.#trace,
+        sourceMap: sourceMap?.slice(sourceStart, sourceEnd).slice(start, end)
+      });
     };
     return typesetAttributes(
       text,
@@ -1171,6 +1237,120 @@ export class MicroTypo {
             }
           }
     );
+  }
+
+  // The text of a document title is typeset as a text value is: HTML reads it as RCDATA, so its
+  // character references stay as written and nothing in it becomes markup, a no-break wrapper
+  // included. Its glyphs are spelled as the rest of the document's are. The trace keeps to the
+  // document's own offsets, which a vaulted body has none of. Inside `<svg>` the same element holds
+  // real markup, so a body with a tag in it goes to a worker that keeps tags and comments as the
+  // document does, and their attribute quotes are never read as prose.
+  #typesetTextBody(body, session, checkBudget) {
+    const { start, end } = edgeWhitespace(body);
+    if (start === end) {
+      return body;
+    }
+    const { engine, state, inherited } = this.#attributeWorker(
+      session,
+      checkBudget,
+      TAG_START_RE.test(body) ? 'text' : 'plain'
+    );
+    const typeset = this.#typesetWithWorker(
+      engine,
+      state,
+      inherited,
+      body,
+      start,
+      end,
+      checkBudget,
+      {
+        trace: null
+      }
+    );
+    return this.#entities ? unicodeToEntities(typeset) : typeset;
+  }
+
+  #typesetWithWorker(
+    engine,
+    state,
+    inherited,
+    value,
+    start,
+    end,
+    checkBudget,
+    { trace, sourceMap }
+  ) {
+    // The groups and settings are shared objects the worker took at birth; only the order is
+    // replaced when a group registers.
+    engine.#trace = trace;
+    engine.#order = this.#order;
+    engine.#resetVaults();
+    state.lineStyle = value.includes('\r') ? fileLineStyle(value, checkBudget) : null;
+    // A worker built while tracing carries the rule trace on its context; a value typeset untraced
+    // opens no trace frame for it to record into.
+    const ruleTrace = trace === null ? ruleTraceOf(state.ctx) : undefined;
+    if (ruleTrace !== undefined) {
+      unbindRuleTrace(state.ctx);
+    }
+    try {
+      return (
+        value.slice(0, start) +
+        trimEdges(
+          engine.#runPipeline(value.slice(start, end), state, checkBudget, {
+            destination: 'data-value',
+            sourceTrim: trimEdges,
+            inherited,
+            sourceMap
+          })
+        ) +
+        value.slice(end)
+      );
+    } finally {
+      if (ruleTrace !== undefined) {
+        bindRuleTrace(state.ctx, ruleTrace);
+      }
+    }
+  }
+
+  #attributeWorker(session, checkBudget, format = 'plain') {
+    session.workers ??= new Map();
+    let worker = session.workers.get(format);
+    if (worker === undefined) {
+      const engine = new MicroTypo({
+        presets: false,
+        html: false,
+        entities: false,
+        maxProcessingMs: this.#maxProcessingMs,
+        input: {
+          format,
+          template: this.#input.template,
+          placeholders: this.#input.placeholders
+        }
+      });
+      engine.#groups = this.#groups;
+      engine.#order = this.#order;
+      engine.#engineSettings = this.#engineSettings;
+      engine.addSafeBlock({
+        id: 'attribute-entity',
+        open: `${CHARACTER_REFERENCE_HEAD}(?=;)`,
+        close: ';',
+        unsafeRegex: true
+      });
+      engine.#trace = this.#trace;
+      const state = engine.#makeSession(session.ctx.onCycleLimit, checkBudget);
+      const foreign = new RegExp(
+        [
+          PLACEHOLDER_TOKEN,
+          ...this.#safeSequences.restoreRegexes.map((pattern) => pattern.source)
+        ].join('|'),
+        'g'
+      );
+      const inherited = (value, sequences) =>
+        sequences.protectTokens(value, foreign, (token) => this.#restoreProtected(token) !== token);
+      worker = { engine, state, inherited };
+      session.workers.set(format, worker);
+    }
+    return worker;
   }
 
   #runPipeline(text, session, checkBudget, options) {
@@ -1206,7 +1386,14 @@ export class MicroTypo {
     text,
     session,
     checkBudget,
-    { destination = 'html', trim, indents = false, firstIndent = '', inherited } = {}
+    {
+      destination = 'html',
+      trim,
+      sourceTrim = trim,
+      indents = false,
+      firstIndent = '',
+      inherited
+    } = {}
   ) {
     const effHtml = destination === 'html' && this.#html;
     session.ctx.html = effHtml;
@@ -1217,18 +1404,35 @@ export class MicroTypo {
     const source = inherited === undefined ? text : inherited(text, this.#safeSequences);
 
     // A front-matter header's values are data; only the body is Markdown.
-    let result = this.#safeSequences.protect(
-      source,
-      destination === 'html' && BLOCK_RENDER_FORMATS.has(this.#input.format)
-        ? linkSyntaxCuts(source)
-        : undefined
-    );
-    checkBudget('safeSequences.protect');
+    const quote = this.#groups.get('quote');
+    const nested = this.#builtinRuleOn('quote', 'nested');
+    const readsInches = nested && quote.settings.convertInches !== false;
+    const addressSyntax = destination === 'html' ? this.#markdownAddressSyntax : undefined;
+    const protectSequences = (value, codeCuts) => {
+      const protectedText = this.#safeSequences.protect(
+        value,
+        addressSyntax,
+        checkBudget,
+        readsInches,
+        codeCuts
+      );
+      checkBudget('safeSequences.protect');
+      return protectedText;
+    };
+    // An email local part may contain a backtick. Only the Markdown inline reader knows
+    // which delimiters belong to complete code after fenced blocks and templates take their spans.
+    const inlineFirst = addressSyntax && source.includes('@') && source.includes('`');
+    let result = inlineFirst
+      ? this.#safeSequences.protectAddressLinks(source)
+      : protectSequences(source);
 
-    // The sequence layer ran a step ago, so a scanner that has to compare source content sees
-    // placeholders where the document had a URL or an address. It gets a way back to the bytes.
-    result = this.#safeBlocks.protect(result, checkBudget, (value) =>
-      this.#safeSequences.restore(value)
+    // A block scanner comparing source content can resolve addresses already vaulted.
+    result = this.#safeBlocks.protect(
+      result,
+      checkBudget,
+      (value) => this.#safeSequences.restore(value),
+      inlineFirst ? protectSequences : undefined,
+      destination === 'html' ? (body) => this.#typesetTextBody(body, session, checkBudget) : null
     );
     checkBudget('safeBlocks.protect');
     if (this.#ignoredFile) {
@@ -1250,34 +1454,73 @@ export class MicroTypo {
     checkBudget('safeTags.protect');
 
     const lineSource = session.lineStyle === null ? null : result;
-    result = clearSpecialChars(result);
-    checkBudget('clearSpecialChars');
-
     // Unconditional so it survives html:false disabling the text group.
     result = result.replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n');
     checkBudget('newlineInvariant');
+
+    const quoteTags =
+      destination === 'html' && this.#input.format !== 'plain' ? session.ctx.tags : null;
+    bindQuoteParagraphs(session.ctx, quoteTags);
+    if (
+      effHtml &&
+      quoteTags !== null &&
+      markdownSources.has(session.ctx) &&
+      this.#builtinRuleOn('text', 'paragraphs')
+    ) {
+      bindQuoteBlockEdges(quoteTags, paragraphEdgeReader(session.ctx));
+    }
+    const nameOf = (prefix, id) => this.#safeTags.nameOf(prefix, id);
+    bindInlineBoundaries(
+      session.ctx,
+      destination === 'xml' ? null : nameOf,
+      (prefix, id) => this.#safeTags.rawOf(prefix, id),
+      nameOf
+    );
+    result = decodeSpecialChars(result);
+    if (this.#builtinRuleOn('quote', 'open')) {
+      result = prepareAuthoredQuotes(result, session.ctx, isRuleOn(quote, 'close'), readsInches);
+    }
+    result = canonicalQuoteRoles(result, quoteTags, checkBudget, session.ctx, nested);
+    checkBudget('clearSpecialChars');
+
+    if (sourceTrim !== undefined) {
+      result = this.#safeBlocks.trimSource(result, sourceTrim, checkBudget);
+      checkBudget('sourceEdges');
+    }
 
     if (indents) {
       result = this.#safeBlocks.liftIndents(result);
     }
 
     session.beginFragment({
+      yearRange: this.#builtinRuleOn('date', 'year_range') ? SOURCE_YEAR_RANGE_RE : null,
       transparent: destination !== 'xml',
       markdown: destination === 'html' && BLOCK_RENDER_FORMATS.has(this.#input.format)
     });
 
-    const date = this.#groups.get('date');
-
-    if (date?.builtin && this.#order.includes('date') && isRuleOn(date, 'nowrap_date')) {
-      result = session.runStep(date, YEAR_MARKS, result);
+    if (this.#builtinRuleOn('date', 'nowrap_date')) {
+      result = session.runStep(this.#groups.get('date'), YEAR_MARKS, result);
     }
+
+    const etc = this.#groups.get('other');
+    const wrapperSpaces =
+      etc?.builtin === true
+        ? etc.compiledRules.filter(
+            (rule) =>
+              (rule.id === 'strip_nbsp_in_nowrap' || rule.id === 'nbsp_in_nowrap') &&
+              isRuleOn(etc, rule.id)
+          )
+        : [];
+    let etcRan = false;
+    const reread = (owner, step, before) => {
+      const next = session.runStep(owner, step, before);
+      return etcRan && next !== before
+        ? wrapperSpaces.reduce((written, rule) => session.runStep(etc, rule, written), next)
+        : next;
+    };
 
     for (const groupName of this.#order) {
       const group = this.#groups.get(groupName);
-
-      if (!group) {
-        continue;
-      }
 
       // The text group lays out lines and paragraphs, and to it an indent is the white space at the
       // start of a line, which it keeps or drops with the line break in front of it.
@@ -1285,7 +1528,23 @@ export class MicroTypo {
         result = this.#safeBlocks.settleIndents(result);
       }
 
+      if (groupName === 'abbr') {
+        // Grouping a genuine quantity can expose its unit boundary. The source-role guards
+        // remain those of the actual split reader; units themselves are not replayed.
+        const triads = this.#builtinRule('other', 'split_triads');
+        if (triads !== null) {
+          result = session.runStep(etc, triads, result);
+        }
+      }
       result = session.runGroup(group, result);
+      etcRan ||= group === etc;
+
+      for (const [name, id] of DEPENDENT_READS.get(groupName) ?? []) {
+        const step = this.#builtinRule(name, id);
+        if (step !== null && (!step.htmlOnly || effHtml)) {
+          result = reread(this.#groups.get(name), step, result);
+        }
+      }
 
       checkBudget(`group:${groupName}`);
     }
@@ -1353,6 +1612,11 @@ export class MicroTypo {
   // document, never inside an attribute. Used where content has to be readable before the last thing
   // that could read it — attribute escaping — rather than after it.
   #restoreProtected(text, href = false, mapping) {
+    // Every vault placeholder opens with OPEN; a text without one has none of them to restore.
+    if (mapping === undefined && typeof text === 'string' && !text.includes(OPEN)) {
+      return this.#safeSequences.restore(text, href);
+    }
+
     let result = this.#safeTags.restoreIblocks(text, mapping);
 
     result = this.#safeTags.restore(result, mapping);
@@ -1375,7 +1639,7 @@ export class MicroTypo {
     let inline = null;
     const features =
       typeof hook !== 'function' && [...this.#groups.values()].every((group) => group.builtin)
-        ? { text: null, mask: 0, previousText: null, previousMask: 0 }
+        ? { text: null, scan: null, previousText: null, previousScan: null }
         : null;
 
     // A wrapper a builtin group minted keeps its place when the markup around it is lifted, and the
@@ -1519,6 +1783,39 @@ export class MicroTypo {
       checkBudget: checkBudget ?? null
     };
 
+    const bindBoundaryOwner = (group) =>
+      bindBoundaryActivity(ctx, () => ({
+        periods: isRuleOn(group, 'space_after_period'),
+        punctuation: isRuleOn(group, 'space_after_punctuation')
+      }));
+
+    const builtinRuleOn = (group, id) => self.#builtinRuleOn(group, id);
+    const spaceRuleOn = (id) => builtinRuleOn('space', id);
+
+    if (BLOCK_RENDER_FORMATS.has(self.#input.format)) {
+      bindQuoteLineBlocks(ctx, {
+        blockAt: (text, at, afterBreak) =>
+          self.#safeBlocks.lineBlockAt(text, at, afterBreak) ||
+          (afterBreak && isMarkdownDividerAt(text, at)),
+        spaceEnd: (text, at) => self.#safeBlocks.horizontalSpaceEnd(text, at)
+      });
+    }
+    bindQuotePaddingStrip(ctx, () => spaceRuleOn('strip_quote_padding'));
+    bindQuoteInlinePadding(ctx, (text, at) => punctuationAfterInlineGap(text, at, spaceRuleOn));
+    bindQuoteRules(
+      ctx,
+      (rule) => builtinRuleOn('quote', rule),
+      BLOCK_RENDER_FORMATS.has(self.#input.format)
+        ? (text, at) => self.#safeBlocks.labelAddressBefore(text, at)
+        : null
+    );
+    bindNowrapRules(ctx, builtinRuleOn);
+    bindReferenceGlyph(
+      ctx,
+      (text, semicolonAt) => quoteBoundaryGlyph(characterReferenceEndingAt(text, semicolonAt)),
+      (text, at) => quoteBoundaryGlyph(readCharacterReferenceAt(text, at))
+    );
+
     bindRuleBudget(ctx, ruleBudget);
 
     const reject = this.#trace === null ? undefined : () => ruleTraceOf(ctx).discard();
@@ -1543,18 +1840,22 @@ export class MicroTypo {
       ctx,
       traceFrame: null,
 
+      // Once the call ends: the rules' per-call state is keyed by `ctx` and by its `tags`.
+      release() {
+        releaseSession(ctx, ctx.tags);
+      },
+
       canSkipValue(value) {
         if (
           self.#customProtection ||
           features === null ||
-          (featureMask(value, features) & F.SOURCE) !== 0
+          holdsAnyFeature(value, features, F.SOURCE)
         ) {
           return false;
         }
 
         for (const name of self.#order) {
-          const group = self.#groups.get(name);
-          if (group && canRunRuleGroup(group, value, features, false)) {
+          if (canRunRuleGroup(self.#groups.get(name), value, features, false)) {
             return false;
           }
         }
@@ -1563,10 +1864,12 @@ export class MicroTypo {
 
       // Inline markup is lifted for the rules of a fragment typeset for a document; an XML
       // destination reads its elements by a vocabulary of its own, and stays as it is.
-      beginFragment({ transparent, markdown }) {
+      beginFragment({ transparent, markdown, yearRange }) {
         inline = transparent
           ? {
               markdown,
+              yearRange,
+              collapsesSpaces: () => spaceRuleOn('collapse_spaces'),
               nameOf: (prefix, id) => self.#safeTags.nameOf(prefix, id),
               rawOf: (prefix, id) => self.#safeTags.rawOf(prefix, id),
               restoreSequences: (s) => self.#safeSequences.restore(s),
@@ -1574,14 +1877,22 @@ export class MicroTypo {
               engineTags: new Set(),
               // Every wrapper a builtin group writes by a class, minted once for a fragment with
               // markup: a second pass finds the ones the first wrote, and they keep their place.
+              // A form is its class and that class's style, all a group adds to the wrapper.
               mintForms() {
+                const minted = new Map();
                 for (const group of self.#groups.values()) {
                   for (const name of group.builtin ? Object.keys(group.raw.classes ?? {}) : []) {
-                    ctx.tag.call({ html: true, group }, '', 'span', { class: name });
+                    const styles = minted.get(name) ?? minted.set(name, new Set()).get(name);
+                    const style = group.raw.classes[name];
+                    if (!styles.has(style)) {
+                      styles.add(style);
+                      ctx.tag.call({ html: true, group }, '', 'span', { class: name });
+                    }
                   }
                 }
               },
               mints: null,
+              mintLog: new Set(),
               near: null,
               loose: null,
               cache: null,
@@ -1593,6 +1904,7 @@ export class MicroTypo {
       // A step the engine takes for builtin `group` before the groups run reads the text as the
       // group's rules do.
       runStep(group, step, text) {
+        bindBoundaryOwner(group);
         ctx.group = group.view;
 
         return runStep(step, text, ctx, keep, inline, features, ruleBudget);
@@ -1601,6 +1913,7 @@ export class MicroTypo {
       // A custom group's return value is untrusted and is scrubbed against its own input; a builtin
       // group is trusted and skips both the scrub and the accounting.
       runGroup(group, text) {
+        bindBoundaryOwner(group);
         if (group.builtin) {
           return runRuleGroup(group, text, ctx, keep, inline, features, ruleBudget);
         }

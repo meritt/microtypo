@@ -1,4 +1,7 @@
 import { CHARS_TABLE } from './lib/chars-table.js';
+import { NUMERIC_REFERENCE_HEAD } from './lib/glyphs.js';
+import { RDQUO } from './lib/quote-pairs.js';
+import { canonicalQuoteRoles } from './rules/quote-state.js';
 
 const ENTRIES = (() => {
   const out = [];
@@ -35,23 +38,55 @@ const LOOKUP = new Map(SORTED);
 // A numeric reference names one code point however it is spelled — hex with either `x`, decimal
 // with leading zeros — and the table lists each by its plain decimal spelling. A code point with
 // none there, `&#38;` and `&#60;` among them, stays as written.
-const NUMERIC_SOURCE = '&#(?:[xX]([0-9A-Fa-f]+)|([0-9]+));';
 const SCAN_RE = new RegExp(
-  [NUMERIC_SOURCE, ...SORTED.map(([needle]) => RegExp.escape(needle))].join('|'),
+  [`${NUMERIC_REFERENCE_HEAD};`, ...SORTED.map(([needle]) => RegExp.escape(needle))].join('|'),
   'gu'
 );
+const SCALAR_RE = new RegExp(SCAN_RE.source, 'uy');
 
-function decode(m, hex, decimal) {
+const decoder = (lookup) => (m, hex, decimal) => {
   if (hex === undefined && decimal === undefined) {
-    return LOOKUP.get(m) ?? m;
+    return lookup.get(m) ?? m;
   }
 
   const code = hex === undefined ? Number.parseInt(decimal, 10) : Number.parseInt(hex, 16);
 
-  return LOOKUP.get(`&#${code};`) ?? m;
+  return lookup.get(`&#${code};`) ?? m;
+};
+
+const decode = decoder(LOOKUP);
+
+// `”` decodes to `»`, but the quote-role owner reads it first: whether the next high quote is `”` or
+// `“` is what tells an English pair inside a nested quotation from the nested pair's own closer.
+const decodeForRoles = decoder(
+  new Map([...LOOKUP, [RDQUO, RDQUO], ['&rdquo;', RDQUO], [`&#${RDQUO.codePointAt(0)};`, RDQUO]])
+);
+
+// The same single-pass spelling reader, at one original offset. Unknown references remain literal.
+export function readScalarAt(text, offset, preserveQuoteDirection = false) {
+  SCALAR_RE.lastIndex = offset;
+  const match = SCALAR_RE.exec(text);
+
+  if (match !== null) {
+    const decodeScalar = preserveQuoteDirection ? decodeForRoles : decode;
+    return { glyph: decodeScalar(match[0], match[1], match[2]), end: SCALAR_RE.lastIndex };
+  }
+
+  const glyph = String.fromCodePoint(text.codePointAt(offset));
+  return { glyph, end: offset + glyph.length };
 }
 
-// Single-pass: never rescans its own output, so a decoded result can't be re-decoded.
-export function clearSpecialChars(text) {
-  return text.replace(SCAN_RE, decode);
+// Decode once, retaining the direction the quote-role owner still needs.
+export function decodeSpecialChars(text) {
+  return text.replace(SCAN_RE, decodeForRoles);
+}
+
+export function clearSpecialChars(text, tags, checkBudget, inlineContext, turnsOpeners = false) {
+  return canonicalQuoteRoles(
+    decodeSpecialChars(text),
+    tags,
+    checkBudget,
+    inlineContext,
+    turnsOpeners
+  );
 }

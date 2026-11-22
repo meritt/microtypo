@@ -16,6 +16,30 @@ function applyEdits(input, edits) {
   return result + input.slice(cursor);
 }
 
+test('XML quote-role reads preserve reference bytes and original UTF-16 edit offsets', () => {
+  const typo = new MicroTypo({ input: 'xml', entities: true });
+  for (const prefix of [
+    '&#171;&#8222;а&#8220;&#187;',
+    '&#xAB;&#x201E;а&#x201C;&#xBB;',
+    '&#000171;&#0008222;а&#0008220;&#000187;'
+  ]) {
+    const input = `<doc>🙂${prefix} " слово"</doc>`;
+    const expected = `<doc>🙂${prefix} &#171;слово&#187;</doc>`;
+    const result = typo.process(input, { trace: true, edits: true });
+    assert.equal(result.text, expected);
+    assert.equal(applyEdits(input, result.edits), expected);
+    const first = input.indexOf('"');
+    const last = input.lastIndexOf('"');
+    assert.deepEqual(result.trace.find(({ rule }) => rule === 'quote.open').ranges, [
+      [first, first + 2]
+    ]);
+    assert.deepEqual(result.trace.find(({ rule }) => rule === 'quote.close').ranges, [
+      [last - 1, last + 1]
+    ]);
+    assert.equal(typo.process(expected), expected);
+  }
+});
+
 test('edits reconstruct output in input UTF-16 coordinates, including deletions and pairs', () => {
   const typo = new MicroTypo({ presets: false });
   typo.registerRuleGroup(
@@ -109,6 +133,19 @@ test('trace counts adjacent changed matches and retains attribution across succe
   });
   assert.equal(typo.process('aa'), 'd');
   assert.deepEqual(typo.process('none', { trace: true }), { text: 'none', trace: [] });
+});
+
+test('a traced HTML document with a title typesets the title and traces the rest', () => {
+  const typo = new MicroTypo({ input: { format: 'html', attributes: ['alt'] } });
+  const input = '<img alt="в - г"><title>а - "б"</title>';
+  const result = typo.process(input, { trace: true });
+
+  assert.equal(result.text, '<img alt="в\u{00A0}— г"><title>а\u{00A0}— «б»</title>');
+  assert.equal(result.text, typo.process(input));
+  assert.deepEqual(
+    result.trace.map(({ rule }) => rule),
+    ['dash.em']
+  );
 });
 
 test('trace maps repeated escaped JSON values to their own original spans', () => {
@@ -656,4 +693,132 @@ test('trace reads lifted visible words rather than equal words in author attribu
     assert.equal(applyEdits(input, result.edits), result.text);
     assert.equal(result.text, typo.process(input));
   }
+});
+
+test('prospective spacing credits only the reader that changes each mark', () => {
+  for (const [period, punctuation, expected, rules] of [
+    [
+      true,
+      true,
+      'Е. Опять: нет. что',
+      ['space.space_after_punctuation', 'space.space_after_period']
+    ],
+    [true, false, 'Е. Опять:нет.что', ['space.space_after_period']],
+    [false, true, 'Е.Опять:нет.что', []],
+    [false, false, 'Е.Опять:нет.что', []]
+  ]) {
+    const typo = new MicroTypo({
+      rules: {
+        'space.space_after_period': period,
+        'space.space_after_punctuation': punctuation
+      }
+    });
+    const input = 'Е.Опять:нет.что';
+    const result = typo.process(input, { trace: true, edits: true });
+    assert.equal(result.text, expected);
+    assert.equal(applyEdits(input, result.edits), expected);
+    assert.deepEqual(
+      result.trace.map(({ rule }) => rule),
+      rules
+    );
+    for (const trace of result.trace) {
+      assert.ok(trace.count > 0);
+      assert.ok(
+        trace.ranges.every(([start, end]) => start >= 0 && start <= end && end <= input.length)
+      );
+    }
+  }
+});
+
+// A range is the rule's match in the input. A protected address inside the match is covered whole,
+// and so is what an earlier rule rewrote, wherever the match touches it: the dash rule takes the
+// address in front of the dash with it, and the binding of the short word in front of the address
+// then reaches the end of what the dash rule rewrote.
+test('trace covers a protected address and the dash an earlier rule set behind it', () => {
+  const nbsp = '\u{00A0}';
+
+  for (const [input, text, dash, word, edits] of [
+    [
+      'a www.a -',
+      `a${nbsp}www.a${nbsp}—`,
+      [2, 9],
+      [0, 9],
+      [
+        [1, 2, nbsp],
+        [7, 9, `${nbsp}—`]
+      ]
+    ],
+    [
+      'a www.a - b',
+      `a${nbsp}www.a${nbsp}— b`,
+      [2, 10],
+      [0, 10],
+      [
+        [1, 2, nbsp],
+        [7, 9, `${nbsp}—`]
+      ]
+    ],
+    [
+      'а www.a.ru - б',
+      `а${nbsp}www.a.ru${nbsp}— б`,
+      [2, 13],
+      [0, 13],
+      [
+        [1, 2, nbsp],
+        [10, 12, `${nbsp}—`]
+      ]
+    ],
+    [
+      'а a@b.ru - б',
+      `а${nbsp}a@b.ru${nbsp}— б`,
+      [2, 11],
+      [0, 11],
+      [
+        [1, 2, nbsp],
+        [8, 10, `${nbsp}—`]
+      ]
+    ],
+    ['www.a.ru - б', `www.a.ru${nbsp}— б`, [0, 11], null, [[8, 10, `${nbsp}—`]]],
+    ['а - www.a.ru', `а${nbsp}— www.a.ru`, [0, 4], null, [[1, 3, `${nbsp}—`]]]
+  ]) {
+    const result = new MicroTypo().process(input, { trace: true, edits: true });
+
+    assert.deepEqual(
+      result,
+      {
+        text,
+        trace: [
+          { rule: 'dash.em', kind: 'regex', count: 1, ranges: [dash] },
+          ...(word === null
+            ? []
+            : [{ rule: 'nobr.nbsp_short_word', kind: 'regex', count: 1, ranges: [word] }])
+        ],
+        edits: edits.map(([start, end, replacement]) => ({ start, end, text: replacement }))
+      },
+      input
+    );
+    assert.equal(applyEdits(input, result.edits), text, input);
+  }
+});
+
+test('trace of a link written over a protected address reaches what the rules before it rewrote', () => {
+  const input = 'a www.a -';
+  const result = new MicroTypo({ html: true }).process(input, { trace: true, edits: true });
+
+  assert.equal(result.text, '<p>a\u{00A0}<a href="http://www.a">www.a</a>\u{00A0}—</p>');
+  assert.equal(applyEdits(input, result.edits), result.text);
+  assert.deepEqual(result.trace, [
+    { rule: 'dash.em', kind: 'regex', count: 1, ranges: [[2, 9]] },
+    { rule: 'nobr.nbsp_short_word', kind: 'regex', count: 1, ranges: [[0, 9]] },
+    { rule: 'text.autolink', kind: 'regex', count: 1, ranges: [[0, 9]] },
+    {
+      rule: 'text.paragraphs',
+      kind: 'handler',
+      count: 1,
+      ranges: [
+        [0, 0],
+        [9, 9]
+      ]
+    }
+  ]);
 });

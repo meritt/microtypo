@@ -90,16 +90,20 @@ function isStringArray(value) {
   return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
 
+function plainInput(format) {
+  return {
+    format,
+    template: 'off',
+    placeholders: 'off',
+    pragmas: 'off',
+    math: false,
+    attributes: NO_ATTRIBUTES
+  };
+}
+
 function normaliseInput(input, issues) {
   if (input === undefined) {
-    return {
-      format: 'text',
-      template: 'off',
-      placeholders: 'off',
-      pragmas: 'off',
-      math: false,
-      attributes: NO_ATTRIBUTES
-    };
+    return plainInput('text');
   }
 
   if (typeof input === 'string') {
@@ -107,27 +111,13 @@ function normaliseInput(input, issues) {
       issues.push(`input: ${INPUT_FORMAT_MESSAGE}`);
     }
 
-    return {
-      format: input,
-      template: 'off',
-      placeholders: 'off',
-      pragmas: 'off',
-      math: false,
-      attributes: NO_ATTRIBUTES
-    };
+    return plainInput(input);
   }
 
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     issues.push('input: expected a string or an object');
 
-    return {
-      format: 'text',
-      template: 'off',
-      placeholders: 'off',
-      pragmas: 'off',
-      math: false,
-      attributes: NO_ATTRIBUTES
-    };
+    return plainInput('text');
   }
 
   for (const key of Object.keys(input)) {

@@ -70,6 +70,8 @@ export class SafeTags {
   // the two change.
   #reading;
   #readComments;
+  // Whether a tag is named as XML names one, by any letter, or as HTML does.
+  #xmlNames;
   #tagVault = new Vault('T');
   #anchorVault = new Vault('A');
   #blockVault = new Vault('L');
@@ -91,9 +93,10 @@ export class SafeTags {
 
   #heads = new Map(NAMED_KINDS.map((prefix) => [prefix, []]));
 
-  constructor({ document = true, readComments = null } = {}) {
+  constructor({ document = true, readComments = null, xmlNames = false } = {}) {
     this.#reading = document ? DOCUMENT_READING : FRAGMENT_READING;
     this.#readComments = readComments;
+    this.#xmlNames = xmlNames;
   }
 
   reset() {
@@ -133,7 +136,7 @@ export class SafeTags {
       const at = text[lt + 1] === '/' ? lt + 2 : lt + 1;
       const first = text.codePointAt(at);
 
-      if (!isTagNameStart(first) && first !== PLACEHOLDER_START) {
+      if (!isTagNameStart(first, this.#xmlNames) && first !== PLACEHOLDER_START) {
         continue;
       }
       if (this.#readComments !== null && text.startsWith(COMMENT_OPEN, lt)) {

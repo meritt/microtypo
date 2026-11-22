@@ -86,7 +86,7 @@ export class SourceMap {
   }
 }
 
-export class RestoreMap {
+class RestoreMap {
   constructor() {
     this.stages = [];
   }

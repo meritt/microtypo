@@ -29,12 +29,12 @@ test('frontmatter without a header still trims leading empty lines', () => {
   assert.equal(microtypo('\n\nКорвин - принц', config), 'Корвин\u{00A0}— принц');
 });
 
-test('preserving the boundary leaves the original first-pass body context intact', () => {
+test('preserving the boundary allows the body to read its actual source start', () => {
   const header = '---\ntitle: test\n---\n';
   for (const boundary of ['\n', '\n\n', '\r\n']) {
     for (const [body, typed] of [
-      ['1997год.', '1997год.'],
-      ['Гост 5773-90', 'Гост 5773–90']
+      ['1997год.', '1997 год.'],
+      ['Гост 5773-90', 'ГОСТ\u00a05773–90']
     ]) {
       const expected = header + boundary + typed;
       assert.equal(microtypo(header + boundary + body, config), expected);

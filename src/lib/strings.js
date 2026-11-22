@@ -1,3 +1,14 @@
+export const WHITESPACE =
+  ' \t\n\r\v\f\u{00A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{2028}\u{2029}\u{202F}\u{205F}\u{3000}\u{FEFF}';
+
+export function isBackslashEscaped(text, at) {
+  let start = at;
+  while (start > 0 && text[start - 1] === '\\') {
+    start -= 1;
+  }
+  return (at - start) % 2 === 1;
+}
+
 export function cycle(text, fn, maxIter = 100, onLimit, checkBudget) {
   let current = text;
   checkBudget?.('cycle');
@@ -37,10 +48,10 @@ export function trimBlankLines(text, isBlank) {
   return pieces.slice(start, end + 1).join('');
 }
 
-function isWhitespaceCode(code) {
+export function isWhitespaceCode(code) {
   return (
-    (code >= 0x09 && code <= 0x0d) ||
     code === 0x20 ||
+    (code >= 0x09 && code <= 0x0d) ||
     code === 0xa0 ||
     code === 0x1680 ||
     (code >= 0x2000 && code <= 0x200a) ||
@@ -69,19 +80,39 @@ export function edgeWhitespace(text) {
   return { start, end };
 }
 
-// The `[start, end)` of the spaces and tabs that open the line of the first character with content,
-// empty at that character when it has none.
-export function leadingIndent(text) {
-  const { start: end } = edgeWhitespace(text);
-  let start = end;
+// The raw `[start, end)` of the spaces and tabs opening the first content line. A wholly blank
+// source is removed as one range; it has no content line whose indent needs preserving.
+export function leadingIndent(text, readScalar, checkBudget) {
+  let end = 0;
+  let start = 0;
+  let opensLine = true;
+  let previous = '';
+  let steps = 0;
 
-  while (start > 0 && (text[start - 1] === ' ' || text[start - 1] === '\t')) {
-    start -= 1;
+  while (end < text.length) {
+    if ((steps++ & 1023) === 0) {
+      checkBudget?.('leadingIndent');
+    }
+    const scalar = readScalar(text, end);
+    if (scalar.glyph.length !== 1 || !isWhitespaceCode(scalar.glyph.codePointAt(0))) {
+      break;
+    }
+    const ascii = scalar.glyph === ' ' || scalar.glyph === '\t';
+
+    if (!ascii || (previous !== ' ' && previous !== '\t')) {
+      start = ascii ? end : scalar.end;
+      opensLine = ascii && (end === 0 || previous === '\n' || previous === '\r');
+    }
+
+    previous = scalar.glyph;
+    ({ end } = scalar);
   }
 
-  const opensLine = start === 0 || text[start - 1] === '\n' || text[start - 1] === '\r';
-
-  return opensLine && end < text.length ? [start, end] : [end, end];
+  // No content means there is no first-line indent to preserve, but the empty core still runs.
+  if (end === text.length) {
+    return [0, end];
+  }
+  return opensLine ? [start, end] : [end, end];
 }
 
 const LONE_CR_RE = /\r(?!\n)/g;

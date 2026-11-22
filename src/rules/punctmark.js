@@ -1,13 +1,24 @@
+import { abbreviationPeriod } from '../lib/abbreviation-grammar.js';
+import { NOT_AFTER_LONE_QUOTE } from '../lib/boundaries.js';
+import {
+  endsCharacterReference,
+  CHARACTER_REFERENCE_PATTERNS
+} from '../lib/character-reference.js';
 import { G } from '../lib/glyphs.js';
 import { F } from '../lib/rule-features.js';
+import { INLINE_END } from '../protect/placeholders.js';
+
+const ABBREVIATION_PERIOD_RE = abbreviationPeriod(INLINE_END);
+
+function endsAbbreviation(source, end) {
+  ABBREVIATION_PERIOD_RE.lastIndex = end;
+
+  return ABBREVIATION_PERIOD_RE.test(source);
+}
 
 const BRACKET_SPACE_RE = /[ \t\u{00A0}]/u;
 const WORD_RE = /[a-zа-яё0-9]/iu;
 const CYRILLIC_RE = /[а-яё]/iu;
-const REFERENCE_TAIL_RE = /&[0-9A-Za-z#]+$/;
-// Longest HTML5 named reference (CounterClockwiseContourIntegral) plus its '&' and ';'.
-const REFERENCE_MAX = 32;
-
 // Which second mark each first mark swallows, taken from the rules below: `collapse_doubled` reads
 // `.`/`!` before `.`/`!`/`?` and `?` before `?`, `mark_ellipsis` reads `?`/`!` before `…`, and
 // `collapse_repeated` reads a comma or a semicolon before itself. One table, because a group later
@@ -25,13 +36,7 @@ export function collapsesAsRepeat(first, second) {
   return second !== undefined && (SWALLOWED_AFTER.get(first) ?? '').includes(second);
 }
 
-// The ';' closing a character reference is markup, not the stray punctuation this rule strips:
-// cutting it turns &amp; into a bare &amp, which the entities layer promises never to emit.
-function endsCharacterReference(text, semicolonAt) {
-  return REFERENCE_TAIL_RE.test(text.slice(Math.max(0, semicolonAt - REFERENCE_MAX), semicolonAt));
-}
-
-function trimBracketPunct(text) {
+function trimBracketPunct(text, checkBudget) {
   let close = text.indexOf(')');
 
   if (close === -1) {
@@ -49,7 +54,7 @@ function trimBracketPunct(text) {
 
     const mark = text[markAt];
 
-    if (mark === ',' || (mark === ';' && !endsCharacterReference(text, markAt))) {
+    if (mark === ',' || (mark === ';' && !endsCharacterReference(text, markAt, checkBudget))) {
       const wordAt = markAt - 1;
 
       if (wordAt >= 0 && WORD_RE.test(text[wordAt])) {
@@ -134,7 +139,13 @@ export const punctmarkGroup = {
       // :: is intentionally kept (IPv6, ::before, std::vector); only 3+ colons collapse.
       cycled: true,
       pattern: [/(,){2,}/g, /(:){3,}/g, /(;){2,}/g, /((,|:);){2,}/g, /,\s+,/g],
-      replacement: ['$1', '$1', '$1', '$1', ',']
+      replacement: [
+        '$1',
+        '$1',
+        (m, ctx) => (endsCharacterReference(m.at(-1), m.at(-2), ctx.checkBudget) ? ';;' : ';'),
+        '$1',
+        ','
+      ]
     },
     {
       id: 'ellipsis',
@@ -147,7 +158,9 @@ export const punctmarkGroup = {
       id: 'mark_ellipsis',
       requires: F.ELLIPSIS,
       description: 'Многоточие после ? или ! теряет точку: ?… → ?..',
-      pattern: new RegExp(`([?!])${G.HELLIP}`, 'gu'),
+      // Periods behind the ellipsis go with it: the next pass would read them and these two as a new
+      // ellipsis, as `ellipsis` reads `!....` before this rule.
+      pattern: new RegExp(`([?!])${G.HELLIP}\\.*`, 'gu'),
       replacement: '$1..'
     },
     {
@@ -159,6 +172,7 @@ export const punctmarkGroup = {
     },
     {
       id: 'drop_terminal_garbage',
+      projectSpacedYears: true,
       requiresAny: F.EXCLAMATION | F.QUESTION | F.PERIOD,
       description: 'Удаление мусорных хвостов пунктуации после терминального знака',
       pattern: [/([!?])(?:[,;]+[!?]+)+/g, new RegExp(`\\.${G.RAQUO}\\.`, 'g')],
@@ -183,20 +197,33 @@ export const punctmarkGroup = {
         /([a-zа-яё0-9])(!|\.)(!|\.|\?)(\s|$|<)/giu,
         /([a-zа-яё0-9])(\?)(\?)(\s|$|<)/giu
       ],
-      replacement: ['$1.$2', '$1$2$4', '$1$2$4']
+      replacement: [
+        '$1.$2',
+        (m) => {
+          const [full, letter, first, second, after, offset, source] = m;
+
+          return first === '.' && second !== '.' && endsAbbreviation(source, offset + 2)
+            ? full
+            : `${letter}${first}${after}`;
+        },
+        '$1$2$4'
+      ]
     },
     {
       id: 'trim_bracket_terminal_punct',
       requires: F.PAREN,
       description: 'Удаление случайной пунктуации перед закрывающей скобкой',
-      regexes: [BRACKET_SPACE_RE, WORD_RE, REFERENCE_TAIL_RE],
-      handler: (ctx) => trimBracketPunct(ctx.text)
+      regexes: [BRACKET_SPACE_RE, WORD_RE, ...CHARACTER_REFERENCE_PATTERNS],
+      handler: (ctx) => trimBracketPunct(ctx.text, ctx.checkBudget)
     },
     {
       id: 'bracket_spaces',
       requires: F.PAREN | F.SPACE,
       description: 'Лишние пробелы внутри скобок',
-      pattern: [/(?<![:;=])(\()( |\t)+/g, /(?<![ \t])( |\t)+(\))/g],
+      pattern: [
+        /(?<![:;=])(\()( |\t)+/g,
+        new RegExp(`(?<![ \\t])${NOT_AFTER_LONE_QUOTE}( |\\t)+(\\))`, 'g')
+      ],
       replacement: ['$1', '$2']
     },
     {

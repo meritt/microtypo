@@ -27,8 +27,8 @@ export class Vault {
 
   // The same content returns the same placeholder, which rules that build a sample tag and re-scan
   // the text depend on.
-  store(content) {
-    const existing = this.#byContent.get(content);
+  store(content, byContent = this.#byContent) {
+    const existing = byContent.get(content);
 
     if (existing != null) {
       return `${OPEN}${this.#prefix}${existing}${CLOSE}`;
@@ -43,7 +43,7 @@ export class Vault {
 
     const id = this.#entries.length;
     this.#entries.push(content);
-    this.#byContent.set(content, id);
+    byContent.set(content, id);
 
     return `${OPEN}${this.#prefix}${id}${CLOSE}`;
   }

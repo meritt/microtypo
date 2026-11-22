@@ -544,3 +544,27 @@ describe('presets on/off', () => {
     assert.equal(microtypo('Право &copy; Дворкина', NOP), expected);
   });
 });
+
+test('prospective spacing observes selector changes made before its group and on reuse', () => {
+  const typo = new MicroTypo();
+  let punctuation = false;
+  typo.registerRuleGroup(
+    {
+      rules: [
+        {
+          id: 'selection',
+          handler: (ctx) => {
+            typo.applyOptions({ rules: { 'space.space_after_punctuation': punctuation } });
+            return ctx.text;
+          }
+        }
+      ]
+    },
+    { name: 'selection', position: 'before:space' }
+  );
+  assert.equal(typo.process('x:y.слово'), 'x:y.слово');
+  punctuation = true;
+  assert.equal(typo.process('x:y.слово'), 'x: y. слово');
+  punctuation = false;
+  assert.equal(typo.process('x:y.слово'), 'x:y.слово');
+});

@@ -1,6 +1,7 @@
 import { MicroTypoInputError } from '../errors/index.js';
 import { G } from '../lib/glyphs.js';
-import { isFlowSpace, lineView, skipSpaces } from '../lib/strings.js';
+import { isBackslashEscaped, isFlowSpace, lineView, skipSpaces } from '../lib/strings.js';
+import { EMAIL_REGEX, URL_REGEX } from '../lib/url-email-regex.js';
 import { CLOSE, OPEN } from '../protect/placeholders.js';
 import { LINKABLE_SOURCE } from '../protect/sequences.js';
 import {
@@ -14,7 +15,7 @@ import {
 } from '../protect/tag-spans.js';
 import { scanLeadingHeader } from './frontmatter.js';
 import { esmReader, mdxReader, mdxTagSpans } from './mdx.js';
-import { collectSpans } from './span-path.js';
+import { collectSpans, precedesInline } from './span-path.js';
 
 // Per-attempt scan bound that keeps link-destination scanning linear; an overrun destination
 // fails closed.
@@ -23,6 +24,104 @@ const MAX_LINK_SCAN = 8192;
 // A scan stopped by the bound, as opposed to no close before EOF, where literal prose is correct.
 const OVERLIMIT = Symbol('md-link-overlimit');
 const LINKABLE_RE = new RegExp(LINKABLE_SOURCE, 'g');
+
+// CommonMark §6.5 has two autolink forms. A URI may have any absolute scheme;
+// an email may have a single DNS label. Bare addresses in prose have another grammar.
+const DNS_LABEL = '[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?';
+const EMAIL_LOCAL = "[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+";
+const URI = '[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\\x00-\\x20<>]*';
+const AUTOLINK = new RegExp(`<(?:${URI}|${EMAIL_LOCAL}@${DNS_LABEL}(?:\\.${DNS_LABEL})*)>`, 'g');
+
+function* autolinksWithBackticks(text, checkBudget) {
+  let count = 0;
+  for (const match of text.matchAll(AUTOLINK)) {
+    if ((count++ & 1023) === 0) {
+      checkBudget?.('md-address');
+    }
+    if (match[0].includes('`') && !isBackslashEscaped(text, match.index)) {
+      const end = match.index + match[0].length;
+      yield [match.index, end, end, 'autolink'];
+    }
+  }
+}
+
+// An address which starts before a backtick in its local part competes with other
+// inline owners at its real opening. A code span already open may still close on it.
+function addressWithBacktickReader(text, checkBudget) {
+  const emails = text.matchAll(EMAIL_REGEX);
+  const urls = text.matchAll(URL_REGEX);
+  let url;
+  let count = 0;
+  return (from) => {
+    for (const email of emails) {
+      if ((count++ & 1023) === 0) {
+        checkBudget?.('md-address');
+      }
+      const tick = email[0].indexOf('`');
+      if (tick === -1) {
+        continue;
+      }
+      let start = email.index;
+      let end = start + email[0].length;
+      if (end <= from) {
+        continue;
+      }
+      // The sequence layer recognises URLs before emails. A local part starting in
+      // another URL cannot claim a delimiter beyond the end of that URL.
+      url ??= urls.next();
+      while (!url.done && url.value.index + url.value[0].length <= start) {
+        url = urls.next();
+      }
+      if (!url.done && url.value.index <= start) {
+        if (!/^mailto:/iu.test(url.value[0]) || !url.value[0].includes('`')) {
+          continue;
+        }
+        start = url.value.index;
+        end = start + url.value[0].length;
+      } else if (tick === 0) {
+        continue;
+      }
+      if (start >= from) {
+        // Other Markdown readers may have an earlier opener. Advance past the
+        // address only once it wins, and leave its bytes to the sequence layer.
+        return [start, end, end, 'address', false];
+      }
+    }
+    return null;
+  };
+}
+
+// The ordinary delimiter reader supplies both physical fences. A local part already
+// underway owns an interior backtick, except where both fences immediately enclose
+// the rest of the address as a complete code span. An enclosing code or element
+// consumes its range first: a candidate that started in that range cannot win later.
+export function documentCodeSpanReader(text, checkBudget) {
+  const code = codeSpanReader(text, checkBudget);
+  if (!text.includes('`') || (!text.includes('@') && !text.includes('<'))) {
+    return code;
+  }
+  const nextAddress = addressWithBacktickReader(text, checkBudget);
+  const autolinks = autolinksWithBackticks(text, checkBudget);
+  let autolink = autolinks.next().value;
+  let address;
+  return (from) => {
+    const span = code(from);
+    while (autolink && autolink[0] < from) {
+      autolink = autolinks.next().value;
+    }
+    const opener = span === null ? Infinity : span[0] - (span[2] - span[1]);
+    if (autolink && autolink[0] < opener) {
+      return autolink;
+    }
+    if (span === null) {
+      return null;
+    }
+    while (address === undefined || (address && (address[1] <= opener || address[0] < from))) {
+      address = nextAddress(from);
+    }
+    return address && address[0] < opener && span[1] !== address[1] ? address : span;
+  };
+}
 
 // Markdown measures indentation in columns and a tab advances to the next multiple of four, so a
 // character's index is not the column it stands in. CommonMark §2.2.
@@ -131,14 +230,20 @@ function* eachLine(text, label, checkBudget) {
 // bytes and never from a masked copy, where a blanked-out region reads as ordinary text to whichever
 // scanner is handed it.
 export function opaqueInline(codeReaderFor, templateReaderFor = null, owned = []) {
-  return (text, checkBudget, resolve) => {
+  return (text, checkBudget, resolve, codeEdges = false) => {
     const readers = [];
 
     for (const readerFor of [codeReaderFor, templateReaderFor]) {
       if (readerFor !== null) {
         const reader = readerFor(text, checkBudget, resolve);
         const next = reader.next ?? reader;
-        readers.push({ next, read: reader.read, at: next(0), report: true });
+        readers.push({
+          next,
+          read: reader.read,
+          at: next(0),
+          report: true,
+          code: readerFor === codeReaderFor
+        });
       }
     }
 
@@ -166,7 +271,7 @@ export function opaqueInline(codeReaderFor, templateReaderFor = null, owned = []
       let won = null;
 
       for (const reader of readers) {
-        if (reader.at !== null && (won === null || reader.at[0] < won.at[0])) {
+        if (precedesInline(reader.at, won?.at)) {
           won = reader;
         }
       }
@@ -176,7 +281,13 @@ export function opaqueInline(codeReaderFor, templateReaderFor = null, owned = []
         spans.push(syntax);
       }
       if (won.report && span[4] !== false) {
-        spans.push(span[3] === 'tail' ? [span[0], span[1], 'tail'] : [span[0], span[1]]);
+        const interval = [span[0], span[1]];
+        if (won.code && codeEdges && span[2] > span[1]) {
+          interval.push('inline-code', span[2] - span[1]);
+        } else if (span[3] === 'tail') {
+          interval.push('tail');
+        }
+        spans.push(interval);
       }
 
       // Past the construct's last byte, which for a code span is behind the backticks that closed it.
@@ -396,12 +507,6 @@ function backtickRuns(text) {
     // A backslash escapes only the backtick behind it, so an escaped run opens with a delimiter one
     // shorter. It says nothing about closing: inside a span a backslash is literal content. Hence two
     // lengths per run, and the one a run is looked up by is not the one it is stored under.
-    let slashes = 0;
-
-    while (i - slashes - 1 >= 0 && text[i - slashes - 1] === '\\') {
-      slashes += 1;
-    }
-
     const start = i;
 
     while (i < n && text[i] === '`') {
@@ -410,7 +515,7 @@ function backtickRuns(text) {
 
     const len = i - start;
 
-    runs.push({ start, len, openLen: slashes % 2 === 1 ? len - 1 : len, close: -1 });
+    runs.push({ start, len, openLen: isBackslashEscaped(text, start) ? len - 1 : len, close: -1 });
   }
 
   let boundary = paragraphs.length - 1;
@@ -1024,8 +1129,12 @@ function markerEnd(text, i, end) {
 export function scanLinePrefix(source, checkBudget) {
   const text = lineView(source);
   const spans = [];
+  const containers = [];
+  let paragraphOpen = false;
 
   for (const [start, end] of eachLine(text, 'md-line-prefix', checkBudget)) {
+    const { fresh, paragraphOpen: after } = walkLine(text, start, end, containers, paragraphOpen);
+    paragraphOpen = after;
     let i = skipSpaces(text, start, end);
     let cut = i;
     let structural = false;
@@ -1034,13 +1143,13 @@ export function scanLinePrefix(source, checkBudget) {
     // holding a list.
     for (;;) {
       if (i < end && text[i] === '>') {
-        const after = skipSpaces(text, i + 1, end);
+        const content = skipSpaces(text, i + 1, end);
 
         // The whole run, tab and all: a character left outside the span as a left boundary for the
         // rules could be a tab, and collapsing that to one column moves the content column under it.
         // The end of a protected span is that boundary instead.
-        cut = after;
-        i = after;
+        cut = content;
+        i = content;
         structural = true;
         continue;
       }
@@ -1061,7 +1170,7 @@ export function scanLinePrefix(source, checkBudget) {
     // A whitespace-only line carries no content to indent; leave it to the blank-line trim. A line
     // carrying a container marker is not one of those, even when nothing follows the marker.
     if (cut > start && (structural || i < end)) {
-      spans.push([start, cut]);
+      spans.push(structural && (fresh || !after) ? [start, cut, 'line-block'] : [start, cut]);
     }
   }
 
@@ -1142,7 +1251,7 @@ export function scanTableDelimiters(source, checkBudget) {
       columns === header.columns &&
       chain.at(-1) === header.parent
     ) {
-      spans.push([start, end]);
+      spans.push([start, end, 'table-delimiter']);
       table = true;
       header = null;
       paragraphOpen = false;
@@ -1238,12 +1347,15 @@ function normalizeLabel(raw, resolve) {
 }
 
 // The ranges replaced by spaces, so every other offset survives.
-function blankRanges(text, ranges) {
+function blankRanges(text, ranges, keepLines = false) {
   const parts = [];
   let cursor = 0;
 
   for (const [start, end] of ranges) {
-    parts.push(text.slice(cursor, start), ' '.repeat(end - start));
+    const blank = keepLines
+      ? text.slice(start, end).replace(/[^\r\n]+/gu, (part) => ' '.repeat(part.length))
+      : ' '.repeat(end - start);
+    parts.push(text.slice(cursor, start), blank);
     cursor = end;
   }
 
@@ -1776,7 +1888,7 @@ function referenceLabelEnd(text, at, resolve) {
 // destination behind the one and the `]` that closes the label behind the other, read as
 // `scanLinkDestinations` reads them. The sequence layer runs before this scanner and must not take
 // any of them into an address.
-export function linkSyntaxCuts(text) {
+export function linkSyntaxCuts(text, hidden) {
   const n = text.length;
   const cuts = [];
 
@@ -1788,6 +1900,7 @@ export function linkSyntaxCuts(text) {
 
       if (label !== -1) {
         cuts.push(at, label);
+        hidden?.push([at, label + 1]);
         at = label;
       }
 
@@ -1808,11 +1921,54 @@ export function linkSyntaxCuts(text) {
 
     if (end !== -1) {
       cuts.push(end - 1);
+      hidden?.push([at, end]);
       at = end - 1;
+    } else {
+      hidden?.push([at, at + 1]);
     }
   }
 
   return cuts;
+}
+
+// Keep source offsets while exposing only what a quotation can see. A destination
+// limits the lexical URL beside it, but does not end the paragraph around the label.
+export function markdownAddressSyntax(text, scanInline, readElements, checkBudget, mdx) {
+  const hidden = [];
+  const cuts = linkSyntaxCuts(text, hidden);
+  return {
+    cuts,
+    prose() {
+      let visible = blankRanges(text, scanInline(text, checkBudget), true);
+      const elements = readElements(visible, checkBudget);
+      const ranges = [];
+      for (let at = elements.next(0); at !== null;) {
+        const span = elements.read(at[0]);
+        if (span[4] !== false) {
+          ranges.push([span[0], span[1]]);
+        }
+        at = elements.next(span[2]);
+      }
+      visible = blankRanges(visible, ranges, true);
+      let destinations = hidden;
+      if (cuts.length && visible !== text) {
+        destinations = [];
+        linkSyntaxCuts(visible, destinations);
+      }
+      visible = blankRanges(visible, destinations, true);
+      if (!/[\r\n]/u.test(text)) {
+        return visible;
+      }
+      const { paragraph } = proseParagraphs(text, false, checkBudget, mdx);
+      let line = 0;
+      return visible.replace(/\r\n|[\r\n]/gu, (ending) => {
+        const current = paragraph[line++];
+        return current >= 0 && current === paragraph[line]
+          ? ending
+          : '\u2029'.repeat(ending.length);
+      });
+    }
+  };
 }
 
 // Every address in the text, as `[start, end]` in order. No address can start inside another, so
@@ -1850,7 +2006,7 @@ function linkTextAddresses(addresses, from, to, spans) {
 
   for (; k < addresses.length && addresses[k][0] < to; k += 1) {
     if (addresses[k][1] <= to) {
-      spans.push([addresses[k][0], addresses[k][1]]);
+      spans.push([addresses[k][0], addresses[k][1], 'label-address']);
     }
   }
 }
@@ -2279,6 +2435,18 @@ function setextUnderline(text, i, end) {
   return skipSpaces(text, j, end) === end;
 }
 
+// Called at the start of the line immediately after visible prose. A thematic break or a
+// setext underline supplies no quoted words to that preceding line.
+export function isMarkdownDividerAt(text, at) {
+  const ch = text[at];
+  if (ch !== '-' && ch !== '*' && ch !== '_' && ch !== '=') {
+    return false;
+  }
+  const newline = text.indexOf('\n', at);
+  const end = newline === -1 ? text.length : newline;
+  return isThematicBreak(thematicTail(text, at, end), at) || setextUnderline(text, at, end);
+}
+
 // The delimiter row under a table's header row: cells of hyphens, each with an optional colon on
 // either side, parted by pipes. A row with no pipe is a setext underline or a thematic break. GFM §4.10.
 //
@@ -2361,15 +2529,7 @@ function hardBreakAt(text, start, end) {
     j -= 1;
   }
 
-  if (j !== end) {
-    return end - j >= 2;
-  }
-
-  while (j > start && text[j - 1] === '\\') {
-    j -= 1;
-  }
-
-  return (end - j) % 2 === 1;
+  return j === end ? isBackslashEscaped(text, end) : end - j >= 2;
 }
 
 // The paragraphs a renderer reads at the top level of the document, outside every container and
@@ -2587,7 +2747,8 @@ export function markdownCommentCloser(source, checkBudget) {
 
 // The first of Markdown's closed HTML comments opening at or past `from`, as `[start, end, end]`
 // through its `-->`. A `<!--` inside a tag, such as in a quoted attribute value, is part of that tag
-// and opens nothing.
+// and opens nothing. Tags are read as the Markdown tag vault reads them, as fragments: a stray `<`
+// in front of the comment opens no tag that would swallow it.
 export function commentReader(source, checkBudget) {
   const text = lineView(source);
   const seen = new Map();
@@ -2601,7 +2762,7 @@ export function commentReader(source, checkBudget) {
         checkBudget?.('md-comment');
       }
 
-      tags ??= tagSpans(text, undefined, false, markdownCommentCloser(text));
+      tags ??= tagSpans(text, undefined, false, markdownCommentCloser(text), FRAGMENT_READING);
 
       if (insideTag(text, tags, tagCursor, at)) {
         at = text.indexOf(COMMENT_OPEN, at + COMMENT_OPEN.length);

@@ -1,3 +1,4 @@
+import { xmlConstructEnd } from '../input/xml.js';
 import { VOID_TAG_NAMES } from '../lib/block-tags.js';
 import { isTagNameStart } from '../lib/tag-name.js';
 
@@ -83,7 +84,7 @@ function rawTextNameAt(text, at, rawText, caseSensitive) {
 // element's tag stops at an unquoted `<`.
 export const DOCUMENT_READING = 0;
 export const FRAGMENT_READING = 1;
-export const MARKDOWN_READING = 2;
+const MARKDOWN_READING = 2;
 
 const NAME = 0;
 const BEFORE_ATTR = 1;
@@ -708,16 +709,29 @@ function rawTextClose(text, from, name, caseSensitive, checkBudget) {
 // tag that closes itself there opens nothing, which its span says with a third element, `true`, and
 // one of a raw-text name there is no raw text. A comment's span runs to its `-->`, so a tag inside
 // one is no span, and a tag inside a CDATA section changes nothing there.
+//
+// `limitAt` gives where the paragraph of a tag ends in a format whose tags do not run past it: one
+// the paragraph does not end is no span, and the tags behind it are read on their own.
 export function tagSpans(
   text,
   rawText,
   caseSensitive = false,
   readComment,
   mode = DOCUMENT_READING,
-  opaque = []
+  opaque = [],
+  limitAt = null,
+  xmlNames = false
 ) {
   const spans = [];
-  const reader = tagSpanReader(text, rawText, caseSensitive, readComment, mode);
+  const reader = tagSpanReader(
+    text,
+    rawText,
+    caseSensitive,
+    readComment,
+    mode,
+    undefined,
+    xmlNames
+  );
   const atomEnds = new Map(opaque.map(([start, end]) => [start, end]));
   const atomEnd = opaque.length === 0 ? undefined : (at) => atomEnds.get(at) ?? -1;
   let from = 0;
@@ -731,7 +745,12 @@ export function tagSpans(
       from = opaque[skip][1];
       continue;
     }
-    const { span, after } = reader.read(candidate[0], undefined, atomEnd);
+    const { span, after } = reader.read(
+      candidate[0],
+      undefined,
+      atomEnd,
+      limitAt?.(candidate[0]) ?? undefined
+    );
     if (span !== null) {
       spans.push(span);
     }
@@ -748,7 +767,8 @@ export function tagSpanReader(
   caseSensitive = false,
   readComment,
   mode = DOCUMENT_READING,
-  checkBudget
+  checkBudget,
+  xmlNames = false
 ) {
   const n = text.length;
   const scanRaw = rawText !== undefined && rawText.size > 0;
@@ -791,7 +811,7 @@ export function tagSpanReader(
       for (let at = text.indexOf('<', from); at !== -1; at = text.indexOf('<', at + 1)) {
         checkBudget?.('tag-opener');
         const nameStart = at + (text[at + 1] === '/' ? 2 : 1);
-        if (isTagNameStart(text.codePointAt(nameStart))) {
+        if (isTagNameStart(text.codePointAt(nameStart), xmlNames)) {
           return [at, at, at];
         }
       }
@@ -806,10 +826,15 @@ export function tagSpanReader(
       const inline = limit !== undefined && !opensDeclaration(text[nameStart]);
       const syntaxMode = inline ? MARKDOWN_READING : mode;
       const flavor = (readAtom === undefined ? 0 : 1) + (inline ? 2 : 0);
+      const xmlEnd =
+        xmlNames && opensDeclaration(text[start + 1])
+          ? xmlConstructEnd(text, start, checkBudget)
+          : -1;
 
-      // Inside SVG or MathML a CDATA section is text up to its `]]>`, whatever tags, quotes and `>`
-      // it holds, and its span says so.
-      if (foreign?.cdata && start >= quietUntil && text.startsWith('<![CDATA[', start)) {
+      if (xmlEnd !== -1) {
+        i = xmlEnd - 1;
+      } else if (foreign?.cdata && start >= quietUntil && text.startsWith('<![CDATA[', start)) {
+        // In HTML, only foreign content admits CDATA.
         const close = text.indexOf(']]>', start + 9);
 
         i = close === -1 ? n : close + 2;

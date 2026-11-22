@@ -1,5 +1,11 @@
-import { lineReader } from './span-path.js';
+import { BLOCK_TAG_NAMES, VOID_BLOCK_TAG_NAMES } from '../lib/block-tags.js';
+import { isBackslashEscaped, skipSpaces } from '../lib/strings.js';
+import { lineReader, precedesInline } from './span-path.js';
 
+const NATIVE_BLOCK_AT = new RegExp(
+  `</?(?:p|${[...BLOCK_TAG_NAMES, ...VOID_BLOCK_TAG_NAMES].join('|')})(?=[\\s/>])`,
+  'uy'
+);
 const NAME_START = /[A-Za-z]/u;
 const NAME_PART = /[A-Za-z0-9_.:-]/u;
 const VALUE_PREFIX = new Set([
@@ -30,11 +36,7 @@ function paragraphEnds(text, checkBudget) {
     if (at < text.length && text[at] !== '\n' && text[at] !== '\r') {
       continue;
     }
-    let content = start;
-    while (content < at && (text[content] === ' ' || text[content] === '\t')) {
-      content += 1;
-    }
-    if (content === at) {
+    if (skipSpaces(text, start, at) === at) {
       endings.push({ end: previous, next: start });
     }
     previous = at;
@@ -56,14 +58,6 @@ export function paragraphEndReader(text, checkBudget) {
     }
     return boundaries[cursor]?.end ?? text.length;
   };
-}
-
-function escaped(text, at) {
-  let start = at;
-  while (start > 0 && text[start - 1] === '\\') {
-    start -= 1;
-  }
-  return (at - start) % 2 === 1;
 }
 
 const expressionFrame = (at, statementBody = false, returnsValue = true) => ({
@@ -108,22 +102,15 @@ export function mdxReader(text, checkBudget) {
   const jsxTags = new Map();
   const jsxTrees = new Map();
   const caches = { expression: expressions, template: templates, tag: jsxTags, jsx: jsxTrees };
-  const boundaries = paragraphEnds(text, checkBudget);
+  const blockEnd = paragraphEndReader(text, checkBudget);
   const lastTagClose = text.lastIndexOf('>');
   const opener = /\{|<(?:\/?[A-Za-z]|\/?>)/g;
-  let boundary = 0;
   let nextCheck = 0;
   const tick = (at) => {
     if (at >= nextCheck) {
       checkBudget?.('mdx');
       nextCheck = at + 1024;
     }
-  };
-  const blockEnd = (at) => {
-    while (boundary < boundaries.length && boundaries[boundary].end <= at) {
-      boundary += 1;
-    }
-    return boundaries[boundary]?.end ?? text.length;
   };
   const quoted = (at, multiline = false) => {
     const cache = multiline ? attributes : strings;
@@ -447,7 +434,7 @@ export function mdxReader(text, checkBudget) {
       opener.lastIndex = from;
       for (let match; (match = opener.exec(text)) !== null;) {
         tick(match.index);
-        if (escaped(text, match.index)) {
+        if (isBackslashEscaped(text, match.index)) {
           continue;
         }
         return [match.index, match.index, match.index];
@@ -510,9 +497,10 @@ export function esmReader(text, checkBudget) {
   };
 }
 
-export function mdxLineReader(codeReader, templateReader, owned = []) {
+// Without `withMdx` it reads code spans, templates and what the owners keep, as Markdown does.
+export function mdxLineReader(codeReader, templateReader, owned = [], withMdx = true) {
   return (text, checkBudget) => {
-    const mdx = mdxReader(text, checkBudget);
+    const mdx = withMdx ? mdxReader(text, checkBudget) : null;
     const readers = [];
     for (const factory of [codeReader, templateReader]) {
       if (factory !== null) {
@@ -524,13 +512,15 @@ export function mdxLineReader(codeReader, templateReader, owned = []) {
       const reader = factory(text, checkBudget, mdx);
       readers.push(reader.next === undefined ? { next: reader } : reader);
     }
-    readers.push({ next: mdx.next, read: mdx.read });
+    if (mdx !== null) {
+      readers.push({ next: mdx.next, read: mdx.read });
+    }
     return lineReader(readers);
   };
 }
 
 export function opaqueMdx(codeReader, templateReader, owned, reportTags = true) {
-  return (text, checkBudget, resolve) => {
+  return (text, checkBudget, resolve, codeEdges = false) => {
     const readers = [];
     const mdx = mdxReader(text, checkBudget);
     for (const readerFor of [codeReader, templateReader]) {
@@ -539,7 +529,13 @@ export function opaqueMdx(codeReader, templateReader, owned, reportTags = true) 
       }
       const reader = readerFor(text, checkBudget, resolve);
       const next = reader.next ?? reader;
-      readers.push({ next, read: reader.read, at: next(0), report: true });
+      readers.push({
+        next,
+        read: reader.read,
+        at: next(0),
+        report: true,
+        code: readerFor === codeReader
+      });
     }
     for (const readerFor of owned) {
       const reader = readerFor(text, checkBudget, mdx);
@@ -555,7 +551,7 @@ export function opaqueMdx(codeReader, templateReader, owned, reportTags = true) 
       }
       let first = null;
       for (const reader of readers) {
-        if (reader.at !== null && (first === null || reader.at[0] < first.at[0])) {
+        if (precedesInline(reader.at, first?.at)) {
           first = reader;
         }
       }
@@ -567,7 +563,19 @@ export function opaqueMdx(codeReader, templateReader, owned, reportTags = true) 
         }
       }
       if (((first.report && span[4] !== false) || span[4] === true) && (reportTags || !markup)) {
-        spans.push(span[3] === 'tail' ? [span[0], span[1], 'tail'] : [span[0], span[1]]);
+        const interval = [span[0], span[1]];
+        if (first.code && codeEdges && span[2] > span[1]) {
+          interval.push('inline-code', span[2] - span[1]);
+        } else if (span[3] === 'tail') {
+          interval.push('tail');
+        } else if (markup && text[span[0]] === '<') {
+          // Uppercase names are components: only a native HTML block has a known display role.
+          NATIVE_BLOCK_AT.lastIndex = span[0];
+          if (NATIVE_BLOCK_AT.test(text)) {
+            interval.push('line-block');
+          }
+        }
+        spans.push(interval);
       }
       for (const reader of readers) {
         if (reader.at !== null && reader.at[0] < span[2]) {

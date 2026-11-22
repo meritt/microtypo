@@ -172,6 +172,20 @@ describe('subscript and superscript', () => {
 });
 
 describe('en range', () => {
+  test('a dash reference between XML numbers follows the same range grammar', () => {
+    for (const entities of [true, false]) {
+      const options = { input: 'xml', entities };
+      const output = `<p>5${entities ? '&#8211;' : '–'}7</p>`;
+      for (const mark of ['&#8212;', '&#x2014;', '&#X002014;', '&#8722;']) {
+        assert.equal(microtypo(`<p>5${mark}7</p>`, options), output);
+        assert.equal(microtypo(output, options), output);
+        const chain = `<p>5${mark}7${mark}9</p>`;
+        assert.equal(microtypo(chain, options), chain);
+      }
+      const otherReference = '<p>5&#169;7</p>';
+      assert.equal(microtypo(otherReference, options), otherReference);
+    }
+  });
   test('en-range normalizes an em-dash input between digits', () => {
     assert.equal(microtypo('12—19'), '12–19');
   });
@@ -428,10 +442,12 @@ describe('currency', () => {
     assert.equal(microtypo('10 руб.'), `10${NBSP}₽.`);
   });
 
-  test('a currency sign after its amount does not bind to the next number', () => {
+  test('a currency sign after its amount binds to the next number too, keeping the sum whole', () => {
     for (const [src, want] of [
-      ['3 руб. 20 коп.', `3${NBSP}₽ 20 коп.`],
-      ['3 руб. 20 коп. и 5 руб.', `3${NBSP}₽ 20 коп. и${NBSP}5${NBSP}₽.`]
+      ['3 руб. 20 коп.', `3${NBSP}₽${NBSP}20 коп.`],
+      ['3 руб. 20 коп. и 5 руб.', `3${NBSP}₽${NBSP}20 коп. и${NBSP}5${NBSP}₽.`],
+      ['(168 750 ₽ 00 коп.)', `(168${NNBSP}750${NBSP}₽${NBSP}00 коп.)`],
+      ['Курс 3 € 20 центов', `Курс 3${NBSP}€${NBSP}20 центов`]
     ]) {
       const once = microtypo(src);
 
@@ -447,9 +463,17 @@ describe('currency', () => {
     const xml = new MicroTypo({ input: 'xml', entities: true });
 
     for (const [typo, src, want] of [
-      [html, 'ГОСТ5руб 5', `<p><span style="white-space:nowrap;">ГОСТ 5</span>${NBSP}₽ 5</p>`],
-      [html, '0.2.2.2$5', `<p><span style="white-space:nowrap;">0.2.2.2</span>${NBSP}$5</p>`],
-      [xml, '<doc><p>6$6</p></doc>', '<doc><p>6&#160;$6</p></doc>'],
+      [
+        html,
+        'ГОСТ5руб 5',
+        `<p><span style="white-space:nowrap;">ГОСТ 5</span>${NBSP}₽${NBSP}5</p>`
+      ],
+      [
+        html,
+        '0.2.2.2$5',
+        `<p><span style="white-space:nowrap;">0.2.2.2</span>${NBSP}$${NBSP}5</p>`
+      ],
+      [xml, '<doc><p>6$6</p></doc>', '<doc><p>6&#160;$&#160;6</p></doc>'],
       [html, 'ГОСТ 7 долл. США', '<p><span style="white-space:nowrap;">ГОСТ 7 долл</span>. США</p>']
     ]) {
       const once = typo.process(src);
@@ -505,7 +529,7 @@ describe('number.thin_space_triads — G8 phone-tail guard', () => {
   // Digits stuck to a word are part of that word: without the guard `ab12 345 конец` reads as
   // `12 345`, and `ab12 345678` comes out two ways over two passes.
   test('digits ending a word are not the leading triad of what follows', () => {
-    for (const src of ['ab12 345 конец', 'файл7 100 644 байт', 'ab12 345678']) {
+    for (const src of ['ab12 345 конец', 'ab12 345678']) {
       const once = microtypo(src, cfg);
 
       assert.equal(once, src, `grouped a word tail: ${JSON.stringify(once)}`);
@@ -514,6 +538,7 @@ describe('number.thin_space_triads — G8 phone-tail guard', () => {
   });
 
   test('a real number after a word still groups', () => {
+    assert.equal(microtypo('файл7 100 644 байт', cfg), `файл7 100${NNBSP}644 байт`);
     assert.equal(microtypo('Корвин 345 678 монет', cfg), `Корвин 345${NNBSP}678 монет`);
     assert.equal(microtypo('дом 12 345 монет', cfg), `дом 12${NNBSP}345 монет`);
   });

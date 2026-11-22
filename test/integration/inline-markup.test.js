@@ -6,6 +6,7 @@ import { microtypo, MicroTypo } from '../../src/index.js';
 // Expectations are written with the signs of the brief: `⍽` a no-break space, `⎵` a narrow one.
 const nb = (text) => text.replaceAll('⍽', '\u{A0}').replaceAll('⎵', '\u{202F}');
 const NOWRAP = '<span style="white-space:nowrap;">';
+const stripTags = (text) => text.replace(/<[^>]*>/gu, '');
 
 const HTML = { input: 'html', html: false };
 const TEXT = { input: 'text', html: false };
@@ -148,15 +149,15 @@ describe('inline markup is transparent to the rules that bind words', () => {
 
     assert.deepEqual(twice(config, nb('<i>о</i>⍽16.06.27⍽р⍽9.8.6.7⍽<b><span>е</span></b>⍽е⍽x 6')), [
       nb(
-        `<p><i>о</i>⍽${NOWRAP}16.06.27</span>⍽${NOWRAP}р 9.8.6.7 <b><span>е</span></b> е x</span> 6</p>`
+        `<p><i>о</i>⍽${NOWRAP}16.06.27</span>⍽₽⍽${NOWRAP}9.8.6.7 <b><span>е</span></b> е x</span> 6</p>`
       ),
       nb(
-        `<p><i>о</i>⍽${NOWRAP}16.06.27</span>⍽${NOWRAP}р 9.8.6.7 <b><span>е</span></b> е x</span> 6</p>`
+        `<p><i>о</i>⍽${NOWRAP}16.06.27</span>⍽₽⍽${NOWRAP}9.8.6.7 <b><span>е</span></b> е x</span> 6</p>`
       )
     ]);
     assert.equal(
       typeset(config, nb('о⍽16.06.27⍽р⍽9.8.6.7⍽е⍽е⍽x 6')),
-      nb(`<p>${NOWRAP}о 16.06.27</span>⍽${NOWRAP}р 9.8.6.7 е е x</span> 6</p>`)
+      nb(`<p>${NOWRAP}о 16.06.27</span>⍽₽⍽${NOWRAP}9.8.6.7 е е x</span> 6</p>`)
     );
   });
 
@@ -559,6 +560,121 @@ describe("the engine's wrappers and the author's elements, html: true", () => {
     for (const open of ['<span style="white-space:nowrap">', '<span class="nowrap">']) {
       assert.equal(microtypo(`${open}и т.д.</span> там`, WRAPPERS), `${open}и т. д.</span> там`);
     }
+  });
+
+  test('a name in a no-break wrapper takes no second one beside an element with a class, pass after pass', () => {
+    const bare = { html: true, rules: { other: false } };
+    const nobr = { ...bare, render: { nowrap: 'nobr' } };
+    const markdown = { ...bare, input: 'markdown' };
+
+    for (const [config, text, expected] of [
+      [
+        { ...markdown, render: { nowrap: 'nobr' } },
+        'К.Б.Кй<tt class=>.</tt> Ка С.С.',
+        '<nobr>К.⍽Б. Кй</nobr><tt class=>.</tt> <nobr>Ка С. С.</nobr>'
+      ],
+      [
+        markdown,
+        '<d class=><small>с</small> Т.Б.От Кашфы П.К.',
+        `<d class=><small>с</small> ${NOWRAP}Т.⍽Б. От</span> ${NOWRAP}Кашфы П. К.</span>`
+      ],
+      [
+        { ...bare, input: 'html' },
+        '<d class=""> Может А.И. <mark>ь Г.Л.Фа</mark>',
+        `<p><d class=""> ${NOWRAP}Может А. И.</span> <mark>ь Г.⍽Л.⍽Фа</mark></p>`
+      ],
+      [
+        nobr,
+        '<i class="x">а</i> Т.Б.От <nobr>Кашфы П.К.</nobr>',
+        '<p><i class="x">а</i> <nobr>Т.⍽Б. От</nobr> <nobr>Кашфы П. К.</nobr></p>'
+      ],
+      [
+        bare,
+        `<b class="x">Т.Б.От</b> ${NOWRAP}Кашфы П.К.</span>`,
+        `<p><b class="x">Т.⍽Б.⍽От</b> ${NOWRAP}Кашфы П. К.</span></p>`
+      ],
+      [
+        bare,
+        `Т.Б.От ${NOWRAP}Кашфы <b class="x">П.К.</b></span>`,
+        `<p>${NOWRAP}Т.⍽Б. От</span> ${NOWRAP}Кашфы <b class="x">П. К.</b></span></p>`
+      ],
+      [
+        bare,
+        `${NOWRAP}Т.Б.От <b class="x">и</b> Кашфы П.К.</span>`,
+        `<p>${NOWRAP}Т.⍽Б. От <b class="x">и</b>⍽Кашфы П. К.</span></p>`
+      ],
+      [
+        bare,
+        `Т.Б.От ${NOWRAP}<b class="x">Кашфы П.К.</b></span>`,
+        `<p>${NOWRAP}Т.⍽Б. От</span> ${NOWRAP}<b class="x">Кашфы⍽П.⍽К.</b></span></p>`
+      ]
+    ]) {
+      assert.deepEqual(twice(config, text), [nb(expected), nb(expected)], text);
+    }
+  });
+
+  test('a word glued to the end of a wrapper stays apart from the next one with markup further on, as without it', () => {
+    for (const tail of ['<strong>Да</strong>', 'Да']) {
+      const settled = nb(`<p>ё⍽ж?.. ${NOWRAP}ГОСТ 76</span>x гончая ${tail}</p>`);
+
+      assert.deepEqual(twice({ html: true }, `ё ж?..Гост76x гончая ${tail}`), [settled, settled]);
+    }
+  });
+
+  test('a short word after a word glued to the end of a wrapper binds to the next one', () => {
+    const config = { html: true };
+    const wrapped = `${NOWRAP}ГОСТ 76</span>`;
+
+    for (const [text, expected] of [
+      [
+        'ё ж?..Гост76x x г-о <strong>Да</strong>',
+        `<p>ё⍽ж?.. ${wrapped}x x⍽г-о <strong>Да</strong></p>`
+      ],
+      ['ё ж?..Гост76x x г-о Да', `<p>ё⍽ж?.. ${wrapped}x x⍽г-о Да</p>`],
+      ['Гост76x и <b>доме</b> там', `<p>${wrapped}x и⍽<b>доме</b> там</p>`],
+      ['Гост76x гончая там', `<p>${wrapped}x гончая там</p>`],
+      ['Гост 76 и доме', `<p>${wrapped} и⍽доме</p>`]
+    ]) {
+      assert.deepEqual(twice(config, text), [nb(expected), nb(expected)], text);
+    }
+  });
+
+  test('a label before a label keeps its gap inside a wrapper and binds it outside, with markup before, between and after', () => {
+    const config = { html: true, input: 'html' };
+
+    for (const [text, expected] of [
+      [
+        `<i>а</i> ${NOWRAP}в г. пр. Ленина</span> ул. пр. Мира`,
+        `<p><i>а</i> ${NOWRAP}в г. пр. Ленина</span> ул.⍽пр.⍽Мира</p>`
+      ],
+      ['<i>а</i> в г. пр. Ленина ул. пр. Мира', '<p><i>а</i> в г.⍽пр.⍽Ленина ул.⍽пр.⍽Мира</p>'],
+      [
+        `${NOWRAP}в г. <b>пр.</b> Ленина</span> и в г. <b>пр.</b> Мира`,
+        `<p>${NOWRAP}в г. <b>пр.</b> Ленина</span> и в г.⍽<b>пр.</b>⍽Мира</p>`
+      ],
+      [
+        `<b>а</b> ${NOWRAP}ул. пр. <i>Мира</i></span> г. пр. <u>Ленина</u>`,
+        `<p><b>а</b> ${NOWRAP}ул. пр. <i>Мира</i></span> г.⍽пр.⍽<u>Ленина</u></p>`
+      ]
+    ]) {
+      assert.deepEqual(twice(config, text), [nb(expected), nb(expected)], text);
+    }
+  });
+
+  test('an earlier wrapper of the engine on a line the rule wraps again keeps the element transparent', () => {
+    const config = { input: 'html', html: true };
+    const marked = 'EUR 6/3 Бт М.К.\n<strong>Вадения</strong> начертать Б.А.\nСп 2.4.8.2 Д.Н.Аб';
+
+    assert.equal(
+      microtypo(marked, config),
+      nb(
+        `<p>EUR 6/3 Бт ${NOWRAP}М. К. <strong>Вадения</strong></span> начертать ${NOWRAP}Б. А. Сп</span>⍽${NOWRAP}2.4.8.2</span> ${NOWRAP}Д. Н. Аб</span></p>`
+      )
+    );
+    assert.equal(
+      stripTags(microtypo(marked, config)),
+      stripTags(microtypo(stripTags(marked), config))
+    );
   });
 });
 

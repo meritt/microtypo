@@ -1,5 +1,5 @@
 import { MicroTypoConfigError } from '../errors/index.js';
-import { skipSpaces } from '../lib/strings.js';
+import { isBackslashEscaped, skipSpaces } from '../lib/strings.js';
 import { TAG_NAME_RE } from '../lib/tag-name.js';
 import { CLOSE, OPEN } from './placeholders.js';
 import {
@@ -46,24 +46,6 @@ export function scanHtmlComments(text, checkBudget) {
   }
 
   return spans;
-}
-
-export function htmlCommentReader(text, checkBudget) {
-  let tags;
-  let cursor = 0;
-  return (from) => {
-    tags ??= tagSpans(text);
-    while (cursor < tags.length) {
-      const [start, end] = tags[cursor++];
-      if ((cursor & 0x3fff) === 0) {
-        checkBudget?.('html-comment');
-      }
-      if (start >= from && text.startsWith(COMMENT_OPEN, start) && text[end] === '>') {
-        return [start, end + 1, end + 1];
-      }
-    }
-    return null;
-  };
 }
 
 // The spaces and tabs a line opens with, when something follows them on that line: the author's
@@ -154,10 +136,11 @@ function openCommentAt(text, tags, opaque) {
 }
 
 // Where each tag starts in `text`, as `tagSpans` reads it, mapped to its span.
-function tagIndex(text, rawText, caseSensitive, readComment) {
+function tagIndex(text, rawText, caseSensitive, readComment, reading, limitAt, xmlNames) {
   const index = new Map();
+  const spans = tagSpans(text, rawText, caseSensitive, readComment, reading, [], limitAt, xmlNames);
 
-  for (const span of tagSpans(text, rawText, caseSensitive, readComment)) {
+  for (const span of spans) {
     index.set(span[0], span);
   }
 
@@ -329,6 +312,10 @@ export class SafeBlocks {
   #tailVault = new Vault('E');
   #hiddenTailVault = new Vault('F');
   #blocks = [];
+  #labelAddresses = new Set();
+  #lineBlocks = new Set();
+  #lineBlockContents = new Map();
+  #tableDelimiters = new Set();
   // The elements this instance protects as raw text, which is also the set the tag scanner must not
   // read markup inside. Derived from `nests` rather than declared twice: the option that routes a
   // tag to #protectRawText is the same fact.
@@ -345,17 +332,29 @@ export class SafeBlocks {
   #caseSensitive;
   #readComments;
   #reading;
+  #readLimit;
+  #xmlNames;
 
-  constructor(caseSensitive = false, readComments = null, reading = DOCUMENT_READING) {
+  // `readLimit(text)` gives where the paragraph at a place ends, in a format whose tags end with
+  // their paragraph: the element reader and the tag index read a tag the same way.
+  constructor(
+    caseSensitive = false,
+    readComments = null,
+    reading = DOCUMENT_READING,
+    readLimit = null,
+    xmlNames = false
+  ) {
     this.#caseSensitive = caseSensitive;
     this.#readComments = readComments;
     this.#reading = reading;
+    this.#readLimit = readLimit;
+    this.#xmlNames = xmlNames;
   }
 
   // A body with nothing in it shows the reader nothing, whatever element holds it — the same fact
   // the hidden vault stands for, and the reason every protection path stores through here.
-  #store(body, vault = this.#vault) {
-    return (showsNothing(body) ? this.#hiddenVault : vault).store(body);
+  #store(body, vault = this.#vault, scope) {
+    return (showsNothing(body) ? this.#hiddenVault : vault).store(body, scope);
   }
 
   // unsafeRegex treats open/close as raw regex source — a ReDoS footgun.
@@ -415,7 +414,8 @@ export class SafeBlocks {
       this.#caseSensitive,
       this.#readComments?.(text, checkBudget),
       this.#reading,
-      checkBudget
+      checkBudget,
+      this.#xmlNames
     );
     const anchored = new Map();
     const matches = (re, at) => {
@@ -443,6 +443,10 @@ export class SafeBlocks {
       read: (at) => {
         if (!syntax && !this.#openers.some((entry) => matches(entry.openRe, at))) {
           return [at, at + 1, at + 1];
+        }
+        if (mdx !== null && isBackslashEscaped(text, at)) {
+          // The JSX reader skips escaped openings when it searches on its own.
+          return [at, at + 1, at + 1, null, false];
         }
         const jsx = mdx !== null && /[A-Za-z/]/.test(text[at + 1] ?? '') ? mdx.read(at) : null;
         const limit = paragraphEnd?.(at);
@@ -594,6 +598,10 @@ export class SafeBlocks {
   // Keep #blocks (compiled regexes); only vault entry state resets between process() calls.
   reset() {
     this.#vault.reset();
+    this.#labelAddresses.clear();
+    this.#lineBlocks.clear();
+    this.#lineBlockContents.clear();
+    this.#tableDelimiters.clear();
     this.#hiddenVault.reset();
     this.#indentVault.reset();
     this.#tailVault.reset();
@@ -606,7 +614,12 @@ export class SafeBlocks {
   // so `<script/>` opens a script there. Everywhere else — XML, or a tag the caller registered,
   // which may be foreign like `svg` — a tag ending in `/>` is an empty element that opens nothing.
   // Which built-in tag inside `<svg>` or `<math>` is still an HTML element is `tagSpans`' answer.
-  addTag(tag, { renders = true, nests = true, formFeed = false, slashOpens = false } = {}) {
+  // `typeset` marks a raw-text element whose body a reader sees as text: what the caller hands
+  // `protect` for it typesets the body before it goes into the vault.
+  addTag(
+    tag,
+    { renders = true, nests = true, formFeed = false, slashOpens = false, typeset = false } = {}
+  ) {
     if (typeof tag !== 'string' || !TAG_NAME_RE.test(tag)) {
       throw new TypeError(
         `addSafeTag: invalid tag name ${JSON.stringify(tag)} — must match ${TAG_NAME_RE.source}`
@@ -633,10 +646,10 @@ export class SafeBlocks {
     this.#openers.push(opener);
     this.#blocks.push({
       id: tag,
-      apply: (text, checkBudget) =>
+      apply: (text, checkBudget, resolve, afterInline, typesetBody) =>
         nests
           ? this.#protectNesting(text, opener, checkBudget)
-          : this.#protectRawText(text, opener, checkBudget)
+          : this.#protectRawText(text, opener, checkBudget, typeset ? typesetBody : null)
     });
   }
 
@@ -644,7 +657,7 @@ export class SafeBlocks {
   // opener ends it, found by looking for that tag and nothing else: through the generic tag parser a
   // quote in the element's own text would open an attribute running past the real closer. Only the
   // opener is filtered there, because a `<script>` inside someone else's attribute value is no tag.
-  #protectRawText(text, { openRe, closeRe, vault, slashOpens }, checkBudget) {
+  #protectRawText(text, { openRe, closeRe, vault, slashOpens }, checkBudget, typesetBody) {
     if (!text.includes('<')) {
       return text;
     }
@@ -664,7 +677,7 @@ export class SafeBlocks {
         checkBudget?.('safeBlocks.tag');
       }
 
-      index ??= tagIndex(text, this.#rawTextTags, this.#caseSensitive, this.#readComments?.(text));
+      index ??= this.#tagIndex(text);
 
       const start = bodyStart(text, index, open.index, slashOpens);
 
@@ -680,8 +693,9 @@ export class SafeBlocks {
         break;
       }
 
+      const body = text.slice(start, close.index);
       parts.push(text.slice(cursor, start));
-      parts.push(this.#store(text.slice(start, close.index), vault));
+      parts.push(this.#store(typesetBody ? typesetBody(body) : body, vault));
       parts.push(close[0]);
       cursor = closeRe.lastIndex;
       openRe.lastIndex = cursor;
@@ -719,12 +733,7 @@ export class SafeBlocks {
 
     // Only delimiters that begin a real tag span are kept, so a `</code>` inside a quoted attribute
     // is not read as markup.
-    const index = tagIndex(
-      text,
-      this.#rawTextTags,
-      this.#caseSensitive,
-      this.#readComments?.(text)
-    );
+    const index = this.#tagIndex(text);
     const kept = events.filter((ev) => {
       if (!ev.open) {
         return closingEnd(text, index, ev.index) !== -1;
@@ -788,15 +797,77 @@ export class SafeBlocks {
   // text. A scanner that only recognises shapes never needs it; one that has to decide whether two
   // stretches of the document are the same content does — two spellings of one address are two
   // placeholders, and comparing those compares ids rather than what the author wrote.
-  addScanner(id, scan) {
+  addScanner(id, scan, lineBlock = false) {
     this.#blocks.push({
       id,
       apply: (text, checkBudget, resolve) =>
-        this.#vaultSpans(text, scan(text, checkBudget, resolve))
+        this.#vaultSpans(text, scan(text, checkBudget, resolve), undefined, lineBlock)
     });
   }
 
-  #vaultSpans(text, spans, store = (body) => this.#store(body)) {
+  addInlineScanner(id, scan) {
+    this.#blocks.push({
+      id,
+      apply: (text, checkBudget, resolve, afterInline) => {
+        const cuts = afterInline && [];
+        const spans = scan(text, checkBudget, resolve, Boolean(cuts));
+        const hidden = this.#vaultSpans(text, spans, undefined, false, cuts);
+        return afterInline ? afterInline(hidden, cuts) : hidden;
+      }
+    });
+  }
+
+  // Only an address already recognised in a visible Markdown label has this lexical edge.
+  labelAddressBefore(text, end) {
+    if (this.#labelAddresses.size === 0) {
+      return false;
+    }
+    const tail = text.slice(Math.max(0, end - 12), end);
+    const start = tail.lastIndexOf(OPEN);
+    return start !== -1 && this.#labelAddresses.has(tail.slice(start));
+  }
+
+  // A lexer-owned Markdown block can start the line after a quotation. A quoted inline
+  // code span in the same position still supplies content.
+  lineBlockAt(text, at, afterBreak) {
+    if (afterBreak && this.#tableDelimiters.size > 0) {
+      const next = text.indexOf('\n', at) + 1;
+      if (next > 0 && this.#markedAt(this.#tableDelimiters, text, next)) {
+        return true;
+      }
+    }
+    return this.#markedAt(this.#lineBlocks, text, at);
+  }
+
+  #markedAt(tokens, text, at) {
+    return text[at] === OPEN && tokens.size > 0 && tokens.has(this.#tokenAt(text, at));
+  }
+
+  #tokenAt(text, at) {
+    let token = OPEN;
+    for (let i = at + 1; i < text.length && token.length < 12; i++) {
+      token += text[i];
+      if (text[i] === CLOSE) {
+        return token;
+      }
+    }
+    return '';
+  }
+
+  // The payload of a Markdown hard break is protected even on a whitespace-only
+  // line. Its exact spelling stays in the vault while the quotation reads its width.
+  horizontalSpaceEnd(text, at) {
+    const kind = text[at + 1];
+    if (kind !== 'N' && kind !== 'W') {
+      return at;
+    }
+    const token = this.#tokenAt(text, at);
+    const vault = kind === 'N' ? this.#hiddenVault : this.#indentVault;
+    const raw = token && vault.retrieve(Number(token.slice(2, -1)));
+    return raw && /^[ \t]+$/u.test(raw) ? at + token.length : at;
+  }
+
+  #vaultSpans(text, spans, store = (body) => this.#store(body), lineBlock = false, cuts) {
     if (spans.length === 0) {
       return text;
     }
@@ -804,14 +875,35 @@ export class SafeBlocks {
     const parts = [];
     let cursor = 0;
 
-    for (const [start, end, kind] of spans) {
+    let shift = 0;
+    for (const [start, end, kind, fenceWidth] of spans) {
       parts.push(text.slice(cursor, start));
       const body = text.slice(start, end);
-      parts.push(
-        kind === 'tail'
-          ? (showsNothing(body) ? this.#hiddenTailVault : this.#tailVault).store(body)
-          : store(body)
-      );
+      const startsBlock = lineBlock || kind === 'line-block';
+      let token;
+      if (kind === 'tail') {
+        token = (showsNothing(body) ? this.#hiddenTailVault : this.#tailVault).store(body);
+      } else if (startsBlock) {
+        // The same prefix can start one blockquote and continue the next line of that
+        // blockquote. Keep its occurrence's role when the vault interns equal spellings.
+        token = this.#store(body, this.#vault, this.#lineBlockContents);
+        this.#lineBlocks.add(token);
+      } else {
+        token = store(body);
+      }
+      if (kind === 'table-delimiter') {
+        this.#tableDelimiters.add(token);
+      }
+      if (kind === 'label-address') {
+        this.#labelAddresses.add(token);
+      }
+      parts.push(token);
+      if (cuts) {
+        if (kind === 'inline-code') {
+          cuts.push(start + shift - fenceWidth, start + shift + token.length + fenceWidth);
+        }
+        shift += token.length - (end - start);
+      }
       cursor = end;
     }
 
@@ -833,24 +925,40 @@ export class SafeBlocks {
     this.#indents = scan;
   }
 
-  protect(text, checkBudget, resolve) {
+  protect(text, checkBudget, resolve, afterInline, typesetBody = null) {
     let result = text;
 
     this.#unclosed = false;
 
     for (const block of this.#blocks) {
-      result = block.apply(result, checkBudget, resolve);
+      result = block.apply(result, checkBudget, resolve, afterInline, typesetBody);
     }
 
     if (this.#tail !== null) {
       result = this.#protectTail(result, checkBudget);
     }
 
+    return this.#vaultIndents(result, checkBudget);
+  }
+
+  #vaultIndents(text, checkBudget) {
     return this.#indents === null
-      ? result
-      : this.#vaultSpans(result, this.#indents(result, checkBudget), (indent) =>
+      ? text
+      : this.#vaultSpans(text, this.#indents(text, checkBudget), (indent) =>
           this.#indentVault.store(indent)
         );
+  }
+
+  #tagIndex(text) {
+    return tagIndex(
+      text,
+      this.#rawTextTags,
+      this.#caseSensitive,
+      this.#readComments?.(text),
+      this.#reading,
+      this.#readLimit?.(text),
+      this.#xmlNames
+    );
   }
 
   // A browser reads an element or comment never closed as running to the end of the document, and a
@@ -867,7 +975,16 @@ export class SafeBlocks {
     // no `-->` behind it.
     const lastComment = text.lastIndexOf(COMMENT_OPEN);
     const openComment = lastComment !== -1 && commentCloseAt(text, lastComment) === -1;
-    const tags = tagSpans(text, this.#rawTextTags, this.#caseSensitive);
+    const tags = tagSpans(
+      text,
+      this.#rawTextTags,
+      this.#caseSensitive,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      this.#xmlNames
+    );
     // The scan stops at a tag the text never ends, which its span runs to the end of.
     const last = tags.at(-1);
     const unended = last !== undefined && last[1] === text.length ? last[0] : -1;
@@ -914,6 +1031,17 @@ export class SafeBlocks {
     const hidden = vault === this.#hiddenVault || showsNothing(rest);
 
     return text.slice(0, firstEnd) + (hidden ? this.#hiddenTailVault : this.#tailVault).store(rest);
+  }
+
+  // These are the W-indents lift/settle expose before final trimming. A W already at the
+  // fragment start remains protected, as it does at the final edge. Other vaults stay opaque.
+  trimSource(text, trim, checkBudget) {
+    const view = text.replace(INDENT_RE, (_, token) => `\n${this.#indentVault.restoreAll(token)}`);
+    const result = trim(view);
+    if (result === view) {
+      return text;
+    }
+    return this.#vaultIndents(result, checkBudget);
   }
 
   // A rule reads the start of a line as `^`, a line break or white space, never as a placeholder, so

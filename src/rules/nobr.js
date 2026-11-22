@@ -1,15 +1,44 @@
-import { CONTENT_END_LOOKAHEAD, CONTENT_OPEN_BRACKETS, CONTENT_START } from '../lib/boundaries.js';
+import {
+  DOTTED_INITIAL_PAIR,
+  DOTTED_INITIALS,
+  followsCompleteName,
+  hasDottedLocationAfter,
+  startsWithCompactName,
+  SURNAME
+} from '../lib/abbreviation-grammar.js';
+import {
+  BLOCK_CONTENT_START,
+  CONTENT_END_LOOKAHEAD,
+  CONTENT_OPEN_BRACKETS,
+  CONTENT_START,
+  NOT_AFTER_LONE_QUOTE
+} from '../lib/boundaries.js';
 import { G } from '../lib/glyphs.js';
+import { inlineTagStart } from '../lib/inline-boundaries.js';
+import { TEMPERATURE_SCALES } from '../lib/measurement-units.js';
+import {
+  canonicalNowrapContentStart,
+  canonicalNowrapOpen,
+  heldBeforeNowrapEnd,
+  nowrap
+} from '../lib/nowrap-context.js';
 import { F } from '../lib/rule-features.js';
-import { CLOSE } from '../protect/placeholders.js';
+import { CLOSE, OPEN, vaultedReference } from '../protect/placeholders.js';
+import { EMPHATIC_HEAD, EMPHATIC_PARTICLE } from './dash.js';
 import { PARTICLE } from './space.js';
 
 // What a short word glues itself to: an optional second short word, then a word or a digit.
 const SHORT_WORD_TAIL = `([a-zа-яё]{1,2}[ \\t]+)?(?!-+(?![a-zа-яё0-9-]))([a-zа-яё0-9-]{2,}|[0-9])`;
 
+const RUSSIAN_LETTER_RE = /[А-ЯЁа-яё]/u;
+
 const WORD_START_RE = /[\p{L}\p{N}]/uy;
 const ACRONYM_AHEAD_RE = /[A-ZА-ЯЁ]{2}(?=[\s;.?!:("»“]|$)/uy;
 const SHORT_WORD_AHEAD_RE = new RegExp(`[a-zа-яё]{1,2}[ \\t]+${SHORT_WORD_TAIL}`, 'iuy');
+// The end tag of the engine's own wrapper starts a short word only where what the wrapper holds last
+// does: `3:15–9:05</span>с пр` glues no more than `9:05с пр` did before `other.en_time_range` wrapped it.
+const SHORT_WORD_LEAD_RE = new RegExp(`[ \\t\\n\\r${CONTENT_OPEN_BRACKETS}>${CLOSE}]`, 'u');
+const TEMPERATURE_LEAD_RE = new RegExp(`[${CONTENT_START}+${G.PLUSMN}]`, 'u');
 
 const startsWith = (re, source, at) => {
   re.lastIndex = at;
@@ -30,50 +59,144 @@ function takesGlueBack(source, at) {
 }
 
 function wrapPhone(ctx, m) {
-  const [, p1, p2, , p4, , p6, , p8, , p10, p11] = m;
+  const [, p1, p2, , p4, , p6, , p8, , p10] = m;
   const inner = `${p2} ${p4} ${p6}-${p8}-${p10}`;
 
-  return tagPhone(ctx, p1, inner, p11);
+  return tagPhone(ctx, p1, inner, m);
 }
 
-function tagPhone(ctx, left, inner, right) {
-  if (left === '>' || right === '<') {
-    return `${left}${inner}${right}`;
+// A phone glued to a digit is no phone, and inline tags between them change nothing: on the next pass
+// the engine's own wrapper around the phone before stands there.
+function digitBehindTags(source, end) {
+  let at = end;
+  for (let start = inlineTagStart(source, at); start !== -1; start = inlineTagStart(source, at)) {
+    at = start;
+  }
+  return /\d/u.test(source[at - 1] ?? '');
+}
+
+function tagPhone(ctx, left, inner, m, guardEdges = true) {
+  const source = m.at(-1);
+  const start = m.at(-2) + left.length;
+  const end = m.at(-2) + m[0].length;
+  if (left === '>' && digitBehindTags(source, start)) {
+    return m[0];
+  }
+  if (ctx.html && guardEdges && (left === '>' || source[end] === '<')) {
+    return `${left}${inner}`;
   }
 
-  return `${left}${ctx.tag(inner, 'span', { class: 'nowrap' })}${right}`;
+  return `${left}${nowrap(ctx, inner, source, start, end)}`;
 }
 
 function wrapCompactPlusPhone(ctx, m) {
-  const [, p1, area, lead, mid, tail, p6] = m;
+  const [, p1, area, lead, mid, tail] = m;
 
-  return tagPhone(ctx, p1, `+7 ${area} ${lead}-${mid}-${tail}`, p6);
+  return tagPhone(ctx, p1, `+7 ${area} ${lead}-${mid}-${tail}`, m);
 }
 
 function wrapCompactLocalPhone(ctx, m) {
-  const [, p1, label, area, lead, mid, tail, p7] = m;
+  const [, p1, label, area, lead, mid, tail] = m;
   const inner = `8 ${area} ${lead}-${mid}-${tail}`;
-
-  if (p7 === '<') {
-    return `${p1}${label}${inner}${p7}`;
+  const source = m.at(-1);
+  const start = m.at(-2) + p1.length + label.length;
+  const end = m.at(-2) + m[0].length;
+  if (ctx.html && source[end] === '<') {
+    return `${p1}${label}${inner}`;
   }
 
-  return `${p1}${label}${ctx.tag(inner, 'span', { class: 'nowrap' })}${p7}`;
+  return `${p1}${label}${nowrap(ctx, inner, source, start, end)}`;
 }
 
-function ipNowrap(ctx, ip) {
+function ipNowrap(ctx, m) {
+  const ip = m[2];
   for (const part of ip.split('.')) {
     if (Number.parseInt(part, 10) > 255) {
-      return ip;
+      return m[0];
     }
   }
 
-  return ctx.tag(ip, 'span', { class: 'nowrap' });
+  return wrapOwned(m, ctx, ip);
 }
 
 function degreeUnit(unit) {
   return unit === 'С' ? 'C' : unit;
 }
+
+// A letter glued after the last octet makes the whole run one token, which a wrapper would cut in two
+// for the next pass to read apart.
+export const IP_ADDRESS = '\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}(?![\\d\\p{L}]|\\.\\d)';
+
+export const EXTENDED_PHONE = new RegExp(
+  `(^|[\\s(${G.LAQUO}${G.BDQUO},;:]|${BLOCK_CONTENT_START})(\\+7[ \\t${G.NBSP}]+\\(\\d{3}\\)[ \\t${G.NBSP}]+\\d{3}[ \\t${G.NBSP}]+\\d{2}[ \\t${G.NBSP}]+\\d{2}|(?:8|\\+7)-\\d{3}-\\d{3}-\\d{2}-\\d{2})${CONTENT_END_LOOKAHEAD}`,
+  'gu'
+);
+
+const INITIAL_GAP = `[ \\t${G.NBSP}]+`;
+
+const FAMILY_AFTER_GAP_RE = new RegExp(`${INITIAL_GAP}${SURNAME}${CONTENT_END_LOOKAHEAD}`, 'uy');
+
+function surnameBeforeInitials(m, ctx) {
+  const [, , surname, gap, first, dot, , second] = m;
+  // Across a wider gap an already complete pair can belong to the surname immediately after it.
+  // The plain form of that name carries the same no-break spaces as a name supplied by the author.
+  if (
+    gap.length > 1 &&
+    dot &&
+    m[0].endsWith('.') &&
+    startsWith(FAMILY_AFTER_GAP_RE, m.at(-1), m.at(-2) + m[0].length)
+  ) {
+    return m[0];
+  }
+  return wrapName(m, ctx, `${surname} ${first}. ${second}.`, true);
+}
+
+function wrapName(m, ctx, body, addsDots = false) {
+  // The engine's own open tag is a name boundary as well, even before an adjacent
+  // word joins it across a no-break space. Other markup keeps its original boundaries.
+  if (m[1] === '>') {
+    const open = ctx.html && canonicalNowrapOpen(ctx);
+    const source = m.at(-1);
+    const start = m.at(-2) + 1;
+    if (
+      !open ||
+      !source.endsWith(open, start) ||
+      (addsDots && startsWithCompactName(source, start))
+    ) {
+      return m[0];
+    }
+  }
+  return wrapOwned(m, ctx, body);
+}
+
+function wrapOwned(m, ctx, body, tail = '') {
+  const start = m.at(-2) + m[1].length;
+  const end = m.at(-2) + m[0].length - tail.length;
+  return `${m[1]}${nowrap(ctx, body, m.at(-1), start, end)}${tail}`;
+}
+
+// The gap this rule writes reads back in its serialized form too: a phone it cannot find again leaves
+// its last group for the next pass to take as the country code of whatever follows.
+const PHONE_GAP = `( |${G.NBSP}|${G.THINSP}|${vaultedReference(G.NBSP)})`;
+
+// Each phone ends on a lookahead: the character after it is the left boundary of the next one.
+export const FORMATTED_PHONE_PATTERNS = [
+  new RegExp(
+    `([^\\d+]|^)(\\+?[0-9]{1,3})${PHONE_GAP}([0-9]{3,4}|\\([0-9]{3,4}\\))${PHONE_GAP}([0-9]{2,3})([-${G.MINUS}])([0-9]{2})([-${G.MINUS}])([0-9]{2})(?!\\d)`,
+    'gu'
+  ),
+  new RegExp(
+    `([^\\d+]|^)(\\+?[0-9]{1,3})${PHONE_GAP}([0-9]{3,4})${PHONE_GAP}([0-9]{2,3})([-${G.MINUS}])([0-9]{2})([-${G.MINUS}])([0-9]{2})(?!\\d)`,
+    'gu'
+  )
+];
+
+export const COMPACT_PHONE_PATTERNS = [
+  /([^\d+]|^)\+7([0-9]{3})([0-9]{3})([0-9]{2})([0-9]{2})(?!\d)/gu,
+  /(^|[^a-zа-яё0-9+])((?:тел|телефон)\.?:?\s*)8([0-9]{3})([0-9]{3})([0-9]{2})([0-9]{2})(?!\d)/giu
+];
+export const ALT_PHONE_PATTERN =
+  /([^\d]|^)\+\s?([0-9]{1})\s?\(([0-9]{3,4})\)\s?(\d{3})(\d{2})(\d{2})(?!\d)/gi;
 
 export const nobrGroup = {
   title: 'Неразрывные конструкции',
@@ -81,6 +204,7 @@ export const nobrGroup = {
   rules: [
     {
       id: 'nbsp_short_word',
+      projectSpacedYears: 'gaps',
       requires: F.SPACE,
       description: 'Привязка союзов и предлогов к следующему слову',
       // Not `CONTENT_START`: that one starts with `\s`, which matches a non-breaking space, and this
@@ -96,8 +220,14 @@ export const nobrGroup = {
         `([ \\t\\n\\r]|^|[${CONTENT_OPEN_BRACKETS}]|>|${CLOSE}|${G.MDASH}${G.NBSP})([a-zа-яё]{1,2}(?<!${G.NBSP}${G.MDASH}${G.NBSP}(?:${PARTICLE}))[ \\t]+)${SHORT_WORD_TAIL}`,
         'giu'
       ),
-      replacement: (m) => {
-        const [, p1, p3, p4, p5] = m;
+      replacement: (m, ctx) => {
+        const [full, p1, p3, p4, p5] = m;
+        const held = p1 === '>' ? heldBeforeNowrapEnd(ctx, m.at(-1), m.at(-2)) : null;
+        // The word glued to the end of a wrapper is not a short one, but the short word after it is
+        // still glued to the next: the match took that one in, so no later match reaches it.
+        if (held !== null && !SHORT_WORD_LEAD_RE.test(held)) {
+          return p4 ? `${p1}${p3}${p4.trim()}${G.NBSP}${p5}` : full;
+        }
 
         return `${p1}${p3.trim()}${G.NBSP}${p4 ? p4.trim() + G.NBSP : ''}${p5}`;
       }
@@ -106,7 +236,8 @@ export const nobrGroup = {
       id: 'nbsp_final_word',
       requires: F.SPACE | F.PERIOD,
       description: 'Привязка предлогов к предыдущему слову в конце предложения',
-      pattern: /((?<![a-zа-яё0-9-])[a-zа-яё0-9-]{3,}) ([a-zа-яё]{1,2})\.( [A-ZА-ЯЁ]|$)/gu,
+      // An abbreviation keeps its period before the sentence's own `?` or `!`.
+      pattern: /((?<![a-zа-яё0-9-])[a-zа-яё0-9-]{3,}) ([a-zа-яё]{1,2})\.([?!]?(?: [A-ZА-ЯЁ]|$))/gu,
       replacement: `$1${G.NBSP}$2.$3`
     },
     {
@@ -114,12 +245,7 @@ export const nobrGroup = {
       requires: F.DIGIT,
       requiresPattern: /[-−+]|тел/iu,
       description: 'Неразрывные номера телефонов',
-      pattern: [
-        /([^\d+]|^)(\+?[0-9]{1,3})( |\u{00A0}|\u{2009})([0-9]{3,4}|\([0-9]{3,4}\))( |\u{00A0}|\u{2009})([0-9]{2,3})([-−])([0-9]{2})([-−])([0-9]{2})([^\d]|$)/gu,
-        /([^\d+]|^)(\+?[0-9]{1,3})( |\u{00A0}|\u{2009})([0-9]{3,4}|[0-9]{3,4})( |\u{00A0}|\u{2009})([0-9]{2,3})([-−])([0-9]{2})([-−])([0-9]{2})([^\d]|$)/gu,
-        /([^\d+]|^)\+7([0-9]{3})([0-9]{3})([0-9]{2})([0-9]{2})([^\d]|$)/gu,
-        /(^|[^a-zа-яё0-9+])((?:тел|телефон)\.?:?\s*)8([0-9]{3})([0-9]{3})([0-9]{2})([0-9]{2})([^\d]|$)/giu
-      ],
+      pattern: [...FORMATTED_PHONE_PATTERNS, ...COMPACT_PHONE_PATTERNS],
       replacement: [
         (m, ctx) => wrapPhone(ctx, m),
         (m, ctx) => wrapPhone(ctx, m),
@@ -131,19 +257,19 @@ export const nobrGroup = {
       id: 'nowrap_phone_alt',
       requires: F.DIGIT | F.MATH | F.PAREN,
       description: 'Доп. формат номеров телефонов',
-      pattern: /([^\d]|^)\+\s?([0-9]{1})\s?\(([0-9]{3,4})\)\s?(\d{3})(\d{2})(\d{2})([^\d]|$)/gi,
+      pattern: ALT_PHONE_PATTERN,
       replacement: (m, ctx) => {
-        const [, p1, p2, p3, p4, p5, p6, p7] = m;
+        const [, p1, p2, p3, p4, p5, p6] = m;
 
-        return `${p1}${ctx.tag(`+${p2} ${p3} ${p4}-${p5}-${p6}`, 'span', { class: 'nowrap' })}${p7}`;
+        return tagPhone(ctx, p1, `+${p2} ${p3} ${p4}-${p5}-${p6}`, m, false);
       }
     },
     {
       id: 'nowrap_ip',
       requires: F.DIGIT | F.PERIOD,
       description: 'Объединение IP-адресов',
-      pattern: /(\s|\u{00A0}|^)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/gu,
-      replacement: (m, ctx) => `${m[1]}${ipNowrap(ctx, m[2])}`
+      pattern: new RegExp(`(\\s|${G.NBSP}|^)(${IP_ADDRESS})`, 'gu'),
+      replacement: (m, ctx) => ipNowrap(ctx, m)
     },
     {
       id: 'initials_dots',
@@ -151,15 +277,14 @@ export const nobrGroup = {
       requiresPattern: /[А-ЯЁ](?![а-яёА-ЯЁ])/u,
       description: 'Простановка точек к инициалам у фамилии',
       enabled: false,
+      // A run of spaces is one gap, as `nowrap_initials` reads it.
       pattern: [
-        /(\s|^|\.|,|;|:|\?|!)([А-ЯЁ])\.?(\s)?([А-ЯЁ])(\s)([А-ЯЁ][а-яё]+)(\s|$|\.|,|;|:|\?|!)/gu,
-        /(\s|^|\.|,|;|:|\?|!)([А-ЯЁ][а-яё]+)(\s)([А-ЯЁ])\.?(\s)?([А-ЯЁ])\.?(\s|$|\.|,|;|:|\?|!)/gu
+        /(\s|^|[.,;:?!>])([А-ЯЁ])\.?(\s[ \t\u{00A0}]*)?([А-ЯЁ])(\s[ \t\u{00A0}]*)([А-ЯЁ][а-яё]+)(?=\s|$|[.,;:?!)\]»“<])/gu,
+        /(\s|^|[.,;:?!>])([А-ЯЁ][а-яё]+)(\s[ \t\u{00A0}]*)([А-ЯЁ])(\.?)(\s[ \t\u{00A0}]*)?([А-ЯЁ])(?:\.|(?!\.))(?=\s|$|[.,;:?!)\]»“<])/gu
       ],
       replacement: [
-        (m, ctx) =>
-          `${m[1]}${ctx.tag(`${m[2]}. ${m[4]}. ${m[6]}`, 'span', { class: 'nowrap' })}${m[7]}`,
-        (m, ctx) =>
-          `${m[1]}${ctx.tag(`${m[2]} ${m[4]}. ${m[6]}.`, 'span', { class: 'nowrap' })}${m[7]}`
+        (m, ctx) => wrapName(m, ctx, `${m[2]}. ${m[4]}. ${m[6]}`, true),
+        surnameBeforeInitials
       ]
     },
     {
@@ -168,20 +293,25 @@ export const nobrGroup = {
       requiresPattern: /[А-ЯЁ](?![а-яёА-ЯЁ])/u,
       description: 'Привязка инициалов к фамилиям',
       pattern: [
-        /(\s|^|\.|,|;|:|\?|!)([А-ЯЁ])\.(\s)?([А-ЯЁ])\.(\s)?([А-ЯЁ][а-яё]+)(\s|$|\.|,|;|:|\?|!)/gu,
-        /(\s|^|\.|,|;|:|\?|!)([А-ЯЁ][а-яё]+)(\s)([А-ЯЁ])\.(\s)?([А-ЯЁ])\.(\s|$|\.|,|;|:|\?|!)/gu,
-        /(\s|^|\.|,|;|:|\?|!)([А-ЯЁ])(\s)?([А-ЯЁ])(\s)([А-ЯЁ][а-яё]+)(\s|$|\.|,|;|:|\?|!)/gu,
-        /(\s|^|\.|,|;|:|\?|!)([А-ЯЁ][а-яё]+)(\s)([А-ЯЁ])(\s)?([А-ЯЁ])(\s|$|\.|,|;|:|\?|!)/gu
+        // The surname takes the emphatic particle `dash.emphatic_particle` joined to it, `К.С.Бл-кась`,
+        // as it stood beside the particle written apart.
+        new RegExp(
+          `(\\s|^|[.,;:?!>])${DOTTED_INITIAL_PAIR}([А-ЯЁ][а-яё]+(?:-(?:${EMPHATIC_PARTICLE}))?)(?=\\s|$|[.,;:?!)\\]${G.RAQUO}${G.LDQUO}<])`,
+          'gu'
+        ),
+        new RegExp(
+          `(\\s|^|[.,;:?!>])(${SURNAME})(\\s)${DOTTED_INITIALS}(?=\\s|$|[.,;:?!)\\]${G.RAQUO}${G.LDQUO}<])`,
+          'gu'
+        ),
+        // A run of spaces is one gap, as between dotted initials.
+        /(\s|^|\.|,|;|:|\?|!|>)([А-ЯЁ])(\s[ \t\u{00A0}]*)?([А-ЯЁ])(\s[ \t\u{00A0}]*)([А-ЯЁ][а-яё]+)(?=\s|$|\.|,|;|:|\?|!)/gu,
+        /(\s|^|\.|,|;|:|\?|!|>)([А-ЯЁ][а-яё]+)(\s[ \t\u{00A0}]*)([А-ЯЁ])(\s[ \t\u{00A0}]*)?([А-ЯЁ])(?=\s|$|\.|,|;|:|\?|!)/gu
       ],
       replacement: [
-        (m, ctx) =>
-          `${m[1]}${ctx.tag(`${m[2]}. ${m[4]}. ${m[6]}`, 'span', { class: 'nowrap' })}${m[7]}`,
-        (m, ctx) =>
-          `${m[1]}${ctx.tag(`${m[2]} ${m[4]}. ${m[6]}.`, 'span', { class: 'nowrap' })}${m[7]}`,
-        (m, ctx) =>
-          `${m[1]}${ctx.tag(`${m[2]}${m[3] ? ' ' : ''}${m[4]}${m[5] ? ' ' : ''}${m[6]}`, 'span', { class: 'nowrap' })}${m[7]}`,
-        (m, ctx) =>
-          `${m[1]}${ctx.tag(`${m[2]} ${m[4]}${m[5] ? ' ' : ''}${m[6]}`, 'span', { class: 'nowrap' })}${m[7]}`
+        (m, ctx) => wrapName(m, ctx, `${m[2]}. ${m[4]}. ${m[6]}`),
+        (m, ctx) => wrapName(m, ctx, `${m[2]} ${m[4]}. ${m[6]}.`),
+        (m, ctx) => wrapName(m, ctx, `${m[2]}${m[3] ? ' ' : ''}${m[4]}${m[5] ? ' ' : ''}${m[6]}`),
+        (m, ctx) => wrapName(m, ctx, `${m[2]} ${m[4]}${m[5] ? ' ' : ''}${m[6]}`)
       ]
     },
     {
@@ -194,17 +324,27 @@ export const nobrGroup = {
       cycled: true,
       pattern: [
         new RegExp(
-          `(?<![ \\t])( |\\t)+(${PARTICLE})(?:(${G.NBSP})|(?=[.,:;${G.HELLIP}?\\s]))`,
+          `(?<![ \\t])${NOT_AFTER_LONE_QUOTE}( |\\t)+(${PARTICLE})(?:(${G.NBSP})|(?=[.,:;${G.HELLIP}?\\s]))`,
           'gu'
         ),
         /(?<=\p{L})[ \t]+(ли|бы|б|же|ж)(?=!|\)|$)/gu
       ],
       replacement: [
-        (m) => {
+        (m, ctx) => {
           const [match, , particle, glue, offset, source] = m;
+          if (
+            particle === 'Б' &&
+            hasDottedLocationAfter(source, offset + match.length) &&
+            followsCompleteName(ctx, source, offset)
+          ) {
+            return match;
+          }
           const after = glue === undefined ? '' : G.NBSP;
+          // `nbsp_short_word` leaves a particle alone only behind a dash in its em form, `⍽—`; a dash
+          // written apart or opening a line keeps the particle glued on, as the next pass reads it.
+          const keepsGlue = source[offset - 1] === G.MDASH && source[offset - 2] !== G.NBSP;
 
-          return `${G.NBSP}${particle}${glue !== undefined && takesGlueBack(source, offset + match.length) ? ' ' : after}`;
+          return `${G.NBSP}${particle}${glue !== undefined && !keepsGlue && takesGlueBack(source, offset + match.length) ? ' ' : after}`;
         },
         `${G.NBSP}$1`
       ]
@@ -214,11 +354,25 @@ export const nobrGroup = {
       requires: F.SPACE | F.DASH,
       requiresPattern: /-/u,
       description: 'Неразрывный пробел после усилительной частицы: Поди-кась так → Поди-кась так',
-      // The leading boundary anchors the match start, so the greedy `[а-яё]+` cannot retry from every
-      // offset. Both boundaries are only looked at: the word after the gap may be the next particle
-      // word, `е-ка ь-ка к`, and it needs the gap as its own left boundary.
-      pattern: /(?<=\s|^|>)([а-яё]+-(?:кась|тка|тко|ка|де)) (?=[а-яё])/giu,
-      replacement: `$1${G.NBSP}`
+      // The left boundary is the one `dash.emphatic_particle` joins the chain behind, `«Поди-кась так»`
+      // included. It anchors the match start, and a hyphen after a letter is inside the head rather
+      // than before it, so the greedy `[а-яё]+` cannot retry from every offset. Both boundaries are
+      // only looked at: the word after the gap may be the next particle word, `е-ка ь-ка к`, and it
+      // needs the gap as its own left boundary.
+      pattern: new RegExp(
+        `(?<=^|[${CONTENT_START}])(?<![а-яё]-)(${EMPHATIC_HEAD}-(?:${EMPHATIC_PARTICLE})) (?=[а-яё]|<${OPEN}T\\d{1,9}${CLOSE}>)`,
+        'giu'
+      ),
+      replacement: ([match, word, offset, source], ctx) => {
+        const next = offset + match.length;
+        if (source[next] === '<') {
+          const start = canonicalNowrapContentStart(ctx, source, next, { skipPadding: false });
+          if (start === -1 || !RUSSIAN_LETTER_RE.test(source[start])) {
+            return match;
+          }
+        }
+        return `${word}${G.NBSP}`;
+      }
     },
     {
       id: 'nbsp_namely',
@@ -236,10 +390,17 @@ export const nobrGroup = {
       // reading is still a reading, and `±` opens content nowhere else — and the closer stays a
       // lookahead so a range binds both ends.
       pattern: new RegExp(
-        `(^|[${CONTENT_START}+${G.PLUSMN}])(\\d+)( |${G.NBSP})?${G.DEG}(C|С|F)${CONTENT_END_LOOKAHEAD}`,
+        `(^|[${CONTENT_START}+${G.PLUSMN}])(\\d+)( |${G.NBSP})?${G.DEG}(${TEMPERATURE_SCALES})${CONTENT_END_LOOKAHEAD}`,
         'gu'
       ),
-      replacement: (m) => `${m[1]}${m[2]}${G.NBSP}${G.DEG}${degreeUnit(m[4])}`
+      // Behind the end of the engine's wrapper the number starts only where what the wrapper holds
+      // last would start it: a later group writes the wrapper, `26.02.18г.2 °F`.
+      replacement: (m, ctx) => {
+        const held = m[1] === '>' ? heldBeforeNowrapEnd(ctx, m.at(-1), m.at(-2)) : null;
+        return held !== null && !TEMPERATURE_LEAD_RE.test(held)
+          ? m[0]
+          : `${m[1]}${m[2]}${G.NBSP}${G.DEG}${degreeUnit(m[4])}`;
+      }
     },
     {
       id: 'nowrap_hyphen_short',
@@ -249,7 +410,7 @@ export const nobrGroup = {
       cycled: true,
       pattern:
         /(\s|>|^)([a-zа-яё]{1}-[a-zа-яё]{4}|[a-zа-яё]{2}-[a-zа-яё]{3}|[a-zа-яё]{3}-[a-zа-яё]{2}|[a-zа-яё]{4}-[a-zа-яё]{1}|когда-то|кое-как|кой-кого|вс[её]-таки|[а-яё]+-(кась|ка|де))(\s|\.|,|!|\?|…|$)/giu,
-      replacement: (m, ctx) => `${m[1]}${ctx.tag(m[2], 'span', { class: 'nowrap' })}${m[4]}`
+      replacement: (m, ctx) => wrapOwned(m, ctx, m[2], m[4])
     },
     {
       id: 'nowrap_hyphen',
@@ -257,9 +418,13 @@ export const nobrGroup = {
       description: 'Отмена переноса слова с дефисом',
       enabled: false,
       cycled: true,
-      pattern: /(\u{00A0}|\s|>|^)([a-zа-яё]+)((-([a-zа-яё]+)){1,2})(\s|\.|,|!|\?|\u{00A0}|…|$)/giu,
-      replacement: (m, ctx) =>
-        `${m[1]}${ctx.tag(`${m[2]}${m[3]}`, 'span', { class: 'nowrap' })}${m[6]}`
+      // An opening bracket or quote starts the word as a gap does: the hanging punctuation drawn round
+      // it later leaves a `>` there, which starts it on the next pass.
+      pattern: new RegExp(
+        `(${G.NBSP}|\\s|>|^|[${CONTENT_OPEN_BRACKETS}])([a-zа-яё]+)((-([a-zа-яё]+)){1,2})(\\s|\\.|,|!|\\?|${G.NBSP}|${G.HELLIP}|$)`,
+        'giu'
+      ),
+      replacement: (m, ctx) => wrapOwned(m, ctx, `${m[2]}${m[3]}`, m[6])
     }
   ]
 };

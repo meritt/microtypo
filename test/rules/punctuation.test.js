@@ -315,3 +315,51 @@ describe('punctuation.space_before_bracket', () => {
     assert.equal(microtypo('см.(тут)'), 'см.(тут)');
   });
 });
+
+describe('character-reference terminators are not repeated punctuation', () => {
+  test('XML preserves one author semicolon and collapses only the literal run', () => {
+    for (const entities of [false, true]) {
+      const typo = new MicroTypo({ input: 'xml', entities });
+      for (const [body, expected] of [
+        ['&amp;;', '&amp;;'],
+        ['&#8381;;', '&#8381;;'],
+        ['&#x20BD;;', '&#x20BD;;'],
+        ['&#0008381;;', '&#0008381;;'],
+        ['&#X000020bd;;;', '&#X000020bd;;'],
+        ['&#160;;;', '&#160;;'],
+        ['x;;;', 'x;'],
+        [`&#${'0'.repeat(80)}8381;;`, `&#${'0'.repeat(80)}8381;;`],
+        ['(&amp;)', '(&amp;)'],
+        ['(&#8381;)', '(&#8381;)']
+      ]) {
+        const output = `<doc>${expected}</doc>`;
+        assert.equal(typo.process(`<doc>${body}</doc>`), output, body);
+        assert.equal(typo.process(output), output, `repeat ${body}`);
+      }
+    }
+  });
+  test('malformed numeric heads and names remain literal punctuation', () => {
+    for (const config of [{}, { input: 'xml' }]) {
+      const typo = new MicroTypo(config);
+      for (const body of ['&#bad', '&123', '&#xGG']) {
+        const source = `(${body};)`;
+        const expected = `(${body})`;
+        assert.equal(typo.process(source), expected);
+        assert.equal(typo.process(expected), expected);
+      }
+      assert.equal(typo.process('(&unfinished;)'), '(&unfinished;)');
+    }
+  });
+  test('a generated numeric reference retains the following authored semicolon', () => {
+    const typo = new MicroTypo({ input: 'xml', entities: true });
+    const expected = '<doc>0&#160;&#8381;;</doc>';
+    assert.equal(typo.process('<doc>0р;</doc>'), expected);
+    assert.equal(typo.process(expected), expected);
+    assert.equal(typo.process('<doc>&amp;;;x</doc>'), '<doc>&amp;;x</doc>');
+    const disabled = new MicroTypo({
+      input: 'xml',
+      rules: { 'punctuation.collapse_repeated': false }
+    });
+    assert.equal(disabled.process('<doc>&amp;;;x</doc>'), '<doc>&amp;;;x</doc>');
+  });
+});

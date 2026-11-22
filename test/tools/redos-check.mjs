@@ -2,7 +2,13 @@ import { execFileSync } from 'node:child_process';
 
 import { isSafePattern } from 'redos-detector';
 
-import { EMAIL_REGEX, IPV6_REGEX, URL_REGEX, UUID_REGEX } from '../../src/lib/url-email-regex.js';
+import {
+  EMAIL_REGEX,
+  IPV6_REGEX,
+  URL_REGEX,
+  URL_UNBRACKETED_START_REGEX,
+  UUID_REGEX
+} from '../../src/lib/url-email-regex.js';
 import { abbrGroup } from '../../src/rules/abbr.js';
 import { dashGroup } from '../../src/rules/dash.js';
 import { dateGroup } from '../../src/rules/date.js';
@@ -52,6 +58,7 @@ const GROUPS = [
 // patterns run before any rule group here.
 const regexes = [
   ['url', URL_REGEX],
+  ['url-unbracketed', URL_UNBRACKETED_START_REGEX],
   ['email', EMAIL_REGEX],
   ['ipv6', IPV6_REGEX],
   ['uuid', UUID_REGEX]
@@ -66,6 +73,10 @@ const ALLOWLIST = new Map([
   [
     'url',
     'hardened linear body (no nested quantifier); passing adversarial test/security/redos.test.js'
+  ],
+  [
+    'url-unbracketed',
+    "url's body anchored at the start of a url match; <1ms at 30k chars, linear to 120k"
   ],
   [
     'email',
@@ -83,10 +94,6 @@ const ALLOWLIST = new Map([
     'Дефисы и тире/hyphenated_particle[0]',
     'fixed 19-way pronoun/adverb alternation (prefix overlap but no repetition), no nested ' +
       'quantifier; linear to 30k chars (empirically verified <1ms at adversarial worst-case shapes)'
-  ],
-  [
-    'Числа, дроби, математические знаки/times[0]',
-    'bounded x/х alternation, no nested quantifier; linear to 30k chars'
   ],
   [
     'Сокращения/nbsp_data_unit[0]',
@@ -118,7 +125,17 @@ const ALLOWLIST = new Map([
       'ambiguous month-hyphen runs, near-miss gerunds, long non-matching cyrillic runs, dense ' +
       'hyphen chains) at up to 132k chars and a 30k-char mixed worst case: all linear, ~1ms ' +
       'at 30k chars'
-  ]
+  ],
+  ...['em[0]', 'em[1]', 'em_line_start[0]', 'em_after_sentence[0]', 'em_after_sentence[1]'].map(
+    (rule) => [
+      `Дефисы и тире/${rule}`,
+      'redos-detector scores any run of leading zeros as unbounded (hitMaxScore), here those of a ' +
+        'dash reference, `&#0*8212`: the run starts only behind `&#`, which it cannot contain, and ' +
+        'ends at a non-zero digit, so a reference backtracks over its own run once; the rest is ' +
+        'the shape the rule had without the reference, which passed. Linear at 4N/N 3.6–3.7 to ' +
+        '2.4M chars of dense references and to 1M of zero runs'
+    ]
+  )
 ]);
 
 // `regexes` is how a handler rule stays under this gate: the runner never reads the field, so a rule

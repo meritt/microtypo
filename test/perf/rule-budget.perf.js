@@ -136,7 +136,8 @@ test('the lifted run checks its budget before invoking the next rule', () => {
     mints: null,
     near: null,
     loose: null,
-    cache: null
+    cache: null,
+    mintLog: new Set()
   };
 
   assert.throws(
@@ -300,7 +301,8 @@ test('a lifted rewrite cannot trigger another rule pass after the budget expires
     mints: null,
     near: null,
     loose: null,
-    cache: null
+    cache: null,
+    mintLog: new Set()
   };
 
   assert.throws(

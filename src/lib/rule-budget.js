@@ -1,6 +1,7 @@
 import { ruleTraceOf } from './rule-trace.js';
+import { sessionMap } from './session-maps.js';
 
-const CHECKERS = new WeakMap();
+const CHECKERS = sessionMap();
 
 export function bindRuleBudget(ctx, checkBudget) {
   CHECKERS.set(ctx, checkBudget);
@@ -10,7 +11,7 @@ export function ruleBudgetOf(ctx) {
   return CHECKERS.get(ctx);
 }
 
-export function executeRule(rule, text, ctx, checkBudget, projection) {
+function executeRule(rule, text, ctx, checkBudget, projection) {
   const trace = ruleTraceOf(ctx);
   const output =
     trace === undefined
@@ -23,4 +24,11 @@ export function executeRule(rule, text, ctx, checkBudget, projection) {
         );
   checkBudget?.(rule.budgetStage);
   return output;
+}
+
+// `keep(before, after, rerun)` settles what the rule's change leaves in the text; see
+// `SafeSequences.keep`.
+export function executeKeptRule(rule, text, ctx, keep, checkBudget, projection) {
+  const output = executeRule(rule, text, ctx, checkBudget, projection);
+  return keep === null ? output : keep(text, output, (t) => executeRule(rule, t, ctx, checkBudget));
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { microtypo } from '../../src/index.js';
+import { microtypo, MicroTypo } from '../../src/index.js';
 
 const NBSP = '\u{00A0}';
 const NOP = { html: true, render: { paragraphs: false } };
@@ -298,5 +298,30 @@ describe('fahrenheit toggle', () => {
         'Дворкин &lsquo;Амбер&rsquo; вечен'
       );
     });
+  });
+});
+
+describe('copyright before a neutral quote', () => {
+  test('does not create quote content from a punctuation-only tail', () => {
+    const typo = new MicroTypo({ entities: true, input: 'html', rules: { 'quote.open': false } });
+    const output = typo.process('&copy; &quot;.');
+    assert.equal(output, '&copy; ".');
+    assert.equal(typo.process(output), output);
+  });
+
+  test('still binds quoted names and years and respects authored no-break space', () => {
+    for (const [open, input, expected] of [
+      [true, '© "Амбер"', '©\u{00A0}«Амбер»'],
+      [true, '© "2026"', '©\u{00A0}«2026»'],
+      [false, '© "Амбер"', '©\u{00A0}"Амбер"'],
+      [false, '© "2026"', '©\u{00A0}"2026″'],
+      [false, '© "', '©\u{00A0}"'],
+      [false, '©\u{00A0}".', '©\u{00A0}«.']
+    ]) {
+      const typo = new MicroTypo({ rules: { 'quote.open': open } });
+      const output = typo.process(input);
+      assert.equal(output, expected);
+      assert.equal(typo.process(output), output);
+    }
   });
 });

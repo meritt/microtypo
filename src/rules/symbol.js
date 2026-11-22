@@ -1,4 +1,5 @@
 import { G } from '../lib/glyphs.js';
+import { nowrap } from '../lib/nowrap-context.js';
 import { F } from '../lib/rule-features.js';
 import { CLOSE, OPEN, TRANSPARENT_TAG_KINDS } from '../protect/placeholders.js';
 
@@ -14,6 +15,7 @@ function copyrightSpace(match, offset, source) {
   return `${G.COPY}${
     next === OPEN ||
     next === '<' ||
+    (next === '"' && /[.,;:!?…)]/u.test(source[offset + match.length + 1] ?? '')) ||
     GENERATED_SYMBOLS.has(next) ||
     hasNextCopyrightToken(source, offset + match.length)
       ? ' '
@@ -33,8 +35,9 @@ const COPYRIGHT_MARK = String.raw`(?<=(?<![\p{L}\d])[Cc][Oo][Pp][Yy][Rr][Ii][Gg]
 
 // The end of a paragraph, or an item of an enumeration in it: after `(a)` or `(b)` a `(c)` is the next
 // item. A closing block tag ends a paragraph and `<br>` does not, and only a close tells them apart.
+// The item is read through the inline markup a hanging bracket is drawn into later, `<span>(</span>б)`.
 const COPYRIGHT_SCAN_RE = new RegExp(
-  String.raw`(\n[ \t]*\n|<\/${OPEN}L\d+${CLOSE}>)|(\([abаб]\))|${COPYRIGHT_MARK}`,
+  String.raw`(\n[ \t]*\n|<\/${OPEN}L\d+${CLOSE}>)|(\(${INLINE_MARKUP}{0,4}[abаб]\))|${COPYRIGHT_MARK}`,
   'gu'
 );
 
@@ -112,7 +115,11 @@ export const symbolGroup = {
       requires: F.DIGIT | F.LATIN,
       description: 'Градусы по Фаренгейту',
       pattern: /(?<!\d)([0-9]+)F($|\s|\.|,|;|:|\u{00A0}|\?|!)/gu,
-      replacement: (m, ctx) => `${ctx.tag(`${m[1]} ${G.DEG}F`, 'span', { class: 'nowrap' })}${m[2]}`
+      replacement: (m, ctx) => {
+        const end = m.at(-2) + m[1].length + 1;
+
+        return `${nowrap(ctx, `${m[1]} ${G.DEG}F`, m.at(-1), m.at(-2), end)}${m[2]}`;
+      }
     },
     {
       id: 'arrows',

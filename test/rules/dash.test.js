@@ -163,7 +163,7 @@ describe('a dash settles in one pass around an abbreviation', () => {
   test('a sum before a dangling dash settles in one pass', () => {
     const once = microtypo('100 руб. 100 руб. -', P);
 
-    assert.equal(once, `100${NBSP}₽ 100${NBSP}₽${NBSP}—`);
+    assert.equal(once, `100${NBSP}₽${NBSP}100${NBSP}₽${NBSP}—`);
     assert.equal(microtypo(once, P), once);
   });
 
@@ -305,7 +305,7 @@ describe('dash behind an inline end tag', () => {
     for (const [source, expected] of [
       [
         '<p>24 900 руб. <s>29 900 руб.</s> - скидка 17%</p>',
-        `<p>24${NNBSP}900${NBSP}₽ <s>29${NNBSP}900${NBSP}₽</s>${NBSP}— скидка 17%</p>`
+        `<p>24${NNBSP}900${NBSP}₽${NBSP}<s>29${NNBSP}900${NBSP}₽</s>${NBSP}— скидка 17%</p>`
       ],
       ['<p><b><s>5 долл.</s></b> - скидка</p>', `<p><b><s>5${NBSP}$</s></b>${NBSP}— скидка</p>`]
     ]) {
@@ -337,6 +337,24 @@ describe('dash after a non-breaking space', () => {
 
   test('an existing em dash after an nbsp is left alone', () => {
     assert.equal(microtypo(`Корвин${NBSP}— принц.`, NOP), `Корвин${NBSP}— принц.`);
+  });
+
+  test('a dash after no-break spaces at the start of a line converts as at the start of an element', () => {
+    const paragraphs = new MicroTypo({ html: true });
+    for (const [source, expected] of [
+      [`.\n\n${NBSP}${NBSP}-`, `<p>.</p>\n\n<p>${NBSP}—</p>`],
+      [`.\n\n${NBSP}${NBSP}– б`, `<p>.</p>\n\n<p>${NBSP}— б</p>`]
+    ]) {
+      const once = paragraphs.process(source);
+      assert.equal(once, expected);
+      assert.equal(paragraphs.process(once), once);
+    }
+    assert.equal(
+      microtypo(`<p>${NBSP}${NBSP}-</p>`, { html: true, input: 'html' }),
+      `<p>${NBSP}—</p>`
+    );
+    assert.equal(microtypo(`а\n${NBSP}- б`), `а\n${NBSP}— б`);
+    assert.equal(microtypo(`а\n${NBSP}-5 и`), `а\n${NBSP}-5 и`);
   });
 
   test('a thematic break is still not an em dash', () => {

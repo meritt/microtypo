@@ -16,18 +16,16 @@ import { G } from './glyphs.js';
 // Every glyph the engine emits also has to decode back, or it cannot read its own entity-mode output.
 export const CHARS_TABLE = Object.freeze({
   '"': {
-    html: ['&ldquo;', '&quot;', '&#8220;', '&#34;'],
-    utf8: [0x201c]
+    html: ['&quot;', '&#34;']
   },
-  // The utf8 list above deliberately leaves « and » out, so a raw guillemet keeps the direction its
-  // author chose, and their entity spellings have to agree. `„` and `‟` join the opening guillemet
-  // for the same reason: they open and nothing else, so the pair they mark is knowable without
-  // guessing. `“` stays neutral because it does not say which way it points — it closes a Russian
-  // `„…“` and opens an English `“…”`.
+  // Raw guillemets retain their direction. Low/high quotes retain their spellings until the
+  // quote-role owner resolves a matched nested pair; an unmatched high quote remains neutral.
   [G.LAQUO]: {
-    html: ['&laquo;', '&#171;', '&bdquo;', '&#8222;', '&#8223;'],
-    utf8: [0x00ab, 0x201e, 0x201f]
+    html: ['&laquo;', '&#171;', '&#8223;'],
+    utf8: [0x00ab, 0x201f]
   },
+  [G.BDQUO]: { html: ['&bdquo;', '&#8222;'], utf8: [0x201e] },
+  [G.LDQUO]: { html: ['&ldquo;', '&#8220;'], utf8: [0x201c] },
   // `”` joins the closing guillemet on the same reasoning: it closes and nothing else, in English as
   // in Russian.
   [G.RAQUO]: { html: ['&raquo;', '&#187;', '&rdquo;', '&#8221;'], utf8: [0x00bb, 0x201d] },

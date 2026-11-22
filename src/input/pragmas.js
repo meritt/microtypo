@@ -7,15 +7,36 @@ import {
 } from '../protect/tag-spans.js';
 import { commentReader } from './markdown.js';
 
+// A comment that starts its line and whose own `>` is what ends the tag around it stands in no
+// attribute value: the tag is a `<` left open in the text before it, `x <y`, and the pragma on the
+// next line is the author's all the same.
+function endsStrayTag(text, span, at) {
+  const close = span[1] - COMMENT_CLOSE.length + 1;
+  if (!text.startsWith(COMMENT_CLOSE, close) || commentCloseAt(text, at) !== close) {
+    return false;
+  }
+  let before = at;
+  while (text[before - 1] === ' ' || text[before - 1] === '\t') {
+    before -= 1;
+  }
+  return before > span[0] && (text[before - 1] === '\n' || text[before - 1] === '\r');
+}
+
 function htmlCommentReader(text) {
   let tags;
+  let tried = -1;
   const cursor = { i: 0 };
   return (from) => {
     for (let at = text.indexOf(COMMENT_OPEN, from); at !== -1;) {
       tags ??= tagSpans(text);
       if (insideTag(text, tags, cursor, at)) {
-        at = text.indexOf(COMMENT_OPEN, at + COMMENT_OPEN.length);
-        continue;
+        // Only the first comment of a tag can be the one whose end ends it.
+        const first = tried !== cursor.i;
+        tried = cursor.i;
+        if (!first || !endsStrayTag(text, tags[cursor.i], at)) {
+          at = text.indexOf(COMMENT_OPEN, at + COMMENT_OPEN.length);
+          continue;
+        }
       }
       const close = commentCloseAt(text, at);
       if (close === -1) {

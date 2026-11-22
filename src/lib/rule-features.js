@@ -1,3 +1,5 @@
+import { WHITESPACE } from './strings.js';
+
 export const F = Object.freeze({
   SPACE: 1 << 0,
   DIGIT: 1 << 1,
@@ -34,10 +36,7 @@ export const F = Object.freeze({
 
 const BY_CODE = new Uint32Array(0x10000);
 const CHARACTER_SETS = [
-  [
-    F.SPACE,
-    ' \t\n\r\v\f\u{00A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{2028}\u{2029}\u{202F}\u{205F}\u{3000}\u{FEFF}'
-  ],
+  [F.SPACE, WHITESPACE],
   [F.DIGIT, '0123456789'],
   [F.QUOTE, '"«»„“'],
   [F.DASH, '-—–−'],
@@ -78,36 +77,60 @@ for (const [feature, characters] of CHARACTER_SETS) {
     BY_CODE[character.codePointAt(0)] |= feature;
   }
 }
+// Any other non-ASCII unit may be a letter of either script; each surrogate gets the same
+// conservative mask as the astral code point it may form.
+for (let code = 0x80; code < BY_CODE.length; code += 1) {
+  BY_CODE[code] ||= F.LATIN | F.CYRILLIC;
+}
 
-export function featureMask(text, features) {
+// The scan of `text` the last two texts asked about left: `{ text, mask, at }`, its features in the
+// first `at` code units. A text is read only as far as the question asked of it needs: a feature
+// found stays found, so a mask that already answers the question answers it for the whole text.
+function scanOf(text, features) {
   if (text === features.text) {
-    return features.mask;
+    return features.scan;
   }
   if (text === features.previousText) {
-    return features.previousMask;
+    return features.previousScan;
   }
 
-  let mask = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    // Each surrogate has the same conservative mask as the astral code point it may form.
-    // oxlint-disable-next-line unicorn/prefer-code-point
-    const code = text.charCodeAt(index);
-    const known = BY_CODE[code];
-    mask |= known || (code >= 0x80 ? F.LATIN | F.CYRILLIC : 0);
-  }
-
+  const scan = { mask: 0, at: 0 };
   features.previousText = features.text;
-  features.previousMask = features.mask;
+  features.previousScan = features.scan;
   features.text = text;
-  features.mask = mask;
+  features.scan = scan;
+  return scan;
+}
+
+// Reads on until the mask holds all of `required` and some of `any` (0 for none asked), or the
+// text ends.
+function scanFor(text, scan, required, any) {
+  let { mask, at } = scan;
+  for (; at < text.length; at += 1) {
+    if ((mask & required) === required && (any === 0 || (mask & any) !== 0)) {
+      break;
+    }
+    // oxlint-disable-next-line unicorn/prefer-code-point
+    mask |= BY_CODE[text.charCodeAt(at)];
+  }
+  scan.mask = mask;
+  scan.at = at;
   return mask;
+}
+
+export function featureMask(text, features) {
+  return scanFor(text, scanOf(text, features), -1, 0);
+}
+
+export function holdsAnyFeature(text, features, any) {
+  return (scanFor(text, scanOf(text, features), 0, any) & any) !== 0;
 }
 
 export function hasRequiredFeatures(rule, text, features, lexical = true) {
   const required = rule.requires ?? 0;
   const any = rule.requiresAny ?? 0;
   if (required !== 0 || any !== 0) {
-    const mask = featureMask(text, features);
+    const mask = scanFor(text, scanOf(text, features), required, any);
     if ((mask & required) !== required || (any !== 0 && (mask & any) === 0)) {
       return false;
     }

@@ -4,6 +4,8 @@
 // smoke limits elsewhere.
 
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { clearSpecialChars } from '../../src/clear-special.js';
@@ -52,21 +54,12 @@ test('long input ~50 paragraphs processes < 50ms', () => {
   assert.ok(ms < 50, `Got ${ms.toFixed(1)}ms (expected < 50)`);
 });
 
-test('memory: 5000 unique inputs on shared instance does not leak', () => {
-  const typo = new MicroTypo();
-  const before = process.memoryUsage().heapUsed;
-
-  for (let i = 0; i < 5000; i++) {
-    typo.process(`<pre>amber-${i}</pre> http://amber.example/${i} corwin${i}@amber.example "${i}"`);
-  }
-  if (globalThis.gc) {
-    globalThis.gc();
-  }
-
-  const after = process.memoryUsage().heapUsed;
-  const growthMB = (after - before) / 1024 / 1024;
-  // Without --expose-gc this is fuzzy; just a GB-land sanity check.
-  assert.ok(growthMB < 50, `Heap grew ${growthMB.toFixed(2)} MB`);
+test('memory: 5000 unique inputs on shared instance does not leak', (t) => {
+  const probe = join(import.meta.dirname, 'retained-heap.mjs');
+  const bytes = execFileSync(process.execPath, ['--expose-gc', probe], { encoding: 'utf8' });
+  const growthMiB = JSON.parse(bytes) / 1024 ** 2;
+  t.diagnostic(`Retained heap grew by ${growthMiB.toFixed(2)} MiB`);
+  assert.ok(growthMiB < 50, `Heap grew ${growthMiB.toFixed(2)} MiB`);
 });
 
 test('clearSpecialChars: 29K mixed-glyph input processes well under threshold', () => {

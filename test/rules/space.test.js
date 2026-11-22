@@ -47,6 +47,8 @@ describe('IP no-wrap', () => {
   });
 });
 
+describe('space.space_after_year', () => {});
+
 describe('short-word gluing and paragraph breaks', () => {
   test('trailing short word stays in its paragraph', () => {
     const html = microtypo('Корвин шёл. и\n\nАмбер ждал.', { html: true });

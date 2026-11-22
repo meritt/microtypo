@@ -1,10 +1,90 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { microtypo } from '../../src/index.js';
+import { MicroTypo, microtypo } from '../../src/index.js';
 
 const NOP = { html: true, render: { paragraphs: false } };
 const NBSP = ' ';
+
+test('the last group of a number does not start a day range in XML', () => {
+  for (const entities of [true, false]) {
+    const typo = new MicroTypo({
+      input: 'xml',
+      entities,
+      rules: { 'date.nowrap_day_range': true }
+    });
+    const en = entities ? '&#8211;' : '–';
+    const gap = entities ? '&#160;' : NBSP;
+    const narrow = entities ? '&#8239;' : '\u202f';
+    for (const [number, written] of [
+      ['12&#x202f;345', '12&#x202f;345'],
+      ['1&#0008239;234', '1&#0008239;234'],
+      ['1&#50;&#x202f;345', '1&#50;&#x202f;345'],
+      ['1&#X000032;&#8239;345', '1&#X000032;&#8239;345'],
+      ['1&#050;\u202f345', `1&#050;${narrow}345`],
+      ['123&#8239;456&#X000202F;789', '123&#8239;456&#X000202F;789'],
+      ['12\u202f345', `12${narrow}345`]
+    ]) {
+      const expected = `<p>${written}${en}7${gap}июля&#44; далее</p>`;
+      assert.equal(typo.process(`<p>${number}-7 июля&#44; далее</p>`), expected);
+      assert.equal(typo.process(expected), expected);
+    }
+  }
+});
+
+test('the boundary of a month reads the same in XML text and numeric references', () => {
+  for (const entities of [false, true]) {
+    const typo = new MicroTypo({ input: 'xml', entities, rules: { 'date.*': true } });
+    const em = entities ? '&#8212;' : '—';
+    const en = entities ? '&#8211;' : '–';
+    const gap = entities ? '&#160;' : NBSP;
+    for (const [tail, written, dash] of [
+      [' -', `${gap}${em}`, em],
+      [' слово', ' слово', em],
+      ['&#x00a0;слово', '&#x00a0;слово', em],
+      ['&#32;слово', '&#32;слово', em],
+      ['&#44; далее', '&#44; далее', em],
+      [', далее', ', далее', em],
+      ['<i>слово</i>', '<i>слово</i>', em],
+      ['я', 'я', en],
+      ['&#1103;', '&#1103;', en]
+    ]) {
+      const source = `<doc><title>1-5 июля${tail}</title></doc>`;
+      const expected = `<doc><title>1${dash}5${gap}июля${written}</title></doc>`;
+      assert.equal(typo.process(source), expected);
+      assert.equal(typo.process(expected), expected);
+    }
+  }
+});
+
+test('a day range reads its dash and month separator in each output spelling', () => {
+  for (const input of ['text', 'html', 'xml']) {
+    for (const entities of [false, true]) {
+      const typo = new MicroTypo({ input, entities, rules: { 'date.nowrap_day_range': true } });
+      const number = new MicroTypo({ input, entities, rules: { 'date.nowrap_day_range': false } });
+      const document = (body) => (input === 'text' ? body : `<p>${body}</p>`);
+      const em = entities ? (input === 'xml' ? '&#8212;' : '&mdash;') : '—';
+      const en = entities ? (input === 'xml' ? '&#8211;' : '&ndash;') : '–';
+      const gap = entities ? (input === 'xml' ? '&#160;' : '&nbsp;') : NBSP;
+      const expected = document(`6${em}8${gap}декабря`);
+      for (const range of [
+        '6-8 декабря',
+        '6—8 декабря',
+        '6&#8212;8&#160;декабря',
+        '6&#x02013;8&#x00A0;декабря'
+      ]) {
+        assert.equal(typo.process(document(range)), expected);
+      }
+      assert.equal(typo.process(expected), expected);
+      assert.equal(typo.process(document('6-8 яблок')), document(`6${en}8 яблок`));
+      const monthGap = input === 'text' ? gap : ' ';
+      assert.equal(number.process(document('6-8 декабря')), document(`6${en}8${monthGap}декабря`));
+      const result = typo.process(document('6-8 декабря'), { trace: true });
+      assert.equal(result.text, expected);
+      assert.equal(result.trace.find(({ rule }) => rule === 'date.nowrap_day_range').count, 1);
+    }
+  }
+});
 
 describe('date.nowrap_date', () => {
   test('wraps date + г. in nowrap', () => {
@@ -74,7 +154,7 @@ describe('г. after a year or a date is the year (A10)', () => {
 
   test('a comma after the index, a glued г, a lowercase word and any other number read as before', () => {
     assert.equal(microtypo('125009, г. Москва'), `125\u{202F}009, г.${NBSP}Москва`);
-    assert.equal(microtypo('125009г. Москва'), `125\u{202F}009${NBSP}г. Москва`);
+    assert.equal(microtypo('125009г. Москва'), `125009 г.${NBSP}Москва`);
     assert.equal(microtypo('125009 г. москва'), `125\u{202F}009${NBSP}г. москва`);
     assert.equal(microtypo('5 г. соли'), `5${NBSP}г. соли`);
     assert.equal(microtypo('1983 г. Москва стала'), `1983${NBSP}г. Москва стала`);
@@ -96,7 +176,7 @@ describe('a date with its year mark settles in one pass', () => {
     for (const [source, expected] of [
       ['12.05.20г XX 2', `12.05.20${NBSP}г. XX${NBSP}2`],
       ['21.10.72г.я о', `21.10.72${NBSP}г. я о`],
-      [`30.07.30г${NBSP}P.p.s.н`, `30.07.30${NBSP}г.${NBSP}P.p.s.н`],
+      [`30.07.30г${NBSP}P.p.s.н`, `30.07.30${NBSP}г.${NBSP}P.${NBSP}p.${NBSP}s. н`],
       ['29.10.97г ли 2', `29.10.97${NBSP}г.${NBSP}ли 2`],
       ['02.12.01г 02.10.59г(', `02.12.01${NBSP}г. 02.10.59${NBSP}г. (`],
       ['05.07.41г Ж. Д.Т.Чё', `05.07.41${NBSP}г.${NBSP}Ж. Д.${NBSP}Т.${NBSP}Чё`],
@@ -134,6 +214,25 @@ describe('a date with its year mark settles in one pass', () => {
 });
 
 describe('date.year_range', () => {
+  test('the year range and terminal punctuation switches remain independent inside quotes', () => {
+    for (const [rules, input, expected] of [
+      [
+        { 'date.year_range': false },
+        '«й <span>по</span> 2020–2020гг.».',
+        '«й <span>по</span> 2020–2020гг».'
+      ],
+      [
+        { 'punctuation.drop_terminal_garbage': false },
+        '«Сведения <i>в</i> 2023 г.».',
+        '«Сведения <i>в</i> 2023 г.».'
+      ]
+    ]) {
+      const typo = new MicroTypo({ input: 'html', rules });
+      assert.equal(typo.process(input), expected);
+      assert.equal(typo.process(expected), expected);
+    }
+  });
+
   test('does not double the period after гг.', () => {
     const out = microtypo('© 2012-2015 гг.');
     assert.ok(!out.includes('гг..'), `doubled period: ${out}`);

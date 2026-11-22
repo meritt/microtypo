@@ -1,7 +1,7 @@
 import { MicroTypoConfigError } from './errors/index.js';
 import { applyRule, beginGroup, endGroup, mayLift } from './inline-lift.js';
 import { deepFreeze } from './lib/deep-freeze.js';
-import { executeRule } from './lib/rule-budget.js';
+import { executeKeptRule } from './lib/rule-budget.js';
 import { hasRequiredFeatures } from './lib/rule-features.js';
 import { ruleTraceOf, stringReplacement } from './lib/rule-trace.js';
 import { cycle } from './lib/strings.js';
@@ -94,6 +94,9 @@ function compileRule(rule, groupName) {
     defaultEnabled: rule.enabled !== false,
     description: rule.description ?? '',
     htmlOnly: Boolean(rule.htmlOnly),
+    changesInlineBoundary: Boolean(rule.changesInlineBoundary),
+    projectEdits: Boolean(rule.projectEdits),
+    projectSpacedYears: rule.projectSpacedYears,
     requires: rule.requires ?? 0,
     requiresAny: rule.requiresAny ?? 0,
     requiresPattern:
@@ -134,13 +137,10 @@ function makeApplyFn(rule, groupName) {
     );
   }
 
-  const patterns = (Array.isArray(rule.pattern) ? rule.pattern : [rule.pattern]).map((pattern) =>
-    pattern instanceof RegExp || pattern === null || typeof pattern !== 'object'
-      ? pattern
-      : dataPattern(pattern)
-  );
-  const hasDataPattern = (Array.isArray(rule.pattern) ? rule.pattern : [rule.pattern]).some(
-    (pattern) => pattern !== null && typeof pattern === 'object' && !(pattern instanceof RegExp)
+  const written = Array.isArray(rule.pattern) ? rule.pattern : [rule.pattern];
+  const hasDataPattern = written.some(isDataPattern);
+  const patterns = written.map((pattern) =>
+    isDataPattern(pattern) ? dataPattern(pattern) : pattern
   );
   if (
     hasDataPattern &&
@@ -180,52 +180,28 @@ function makeApplyFn(rule, groupName) {
 
   const steps = patterns.map((pattern, index) => {
     const re = ensureGlobal(pattern);
-    const replacement = replacements[index];
-
-    if (typeof replacement === 'string' || replacement == null) {
-      return (result, ctx) => {
-        const trace = ruleTraceOf(ctx);
-        if (trace !== undefined) {
-          re.lastIndex = 0;
-          return trace.replace(result, re, (args) => stringReplacement(replacement ?? '', args));
-        }
-        if (typeof result === 'string') {
-          re.lastIndex = 0;
-          if (!re.test(result)) {
-            return result;
-          }
-          re.lastIndex = 0;
-        }
-        return result.replace(re, replacement ?? '');
-      };
-    }
-
-    if (typeof replacement !== 'function') {
-      return (result, ctx) => {
-        const trace = ruleTraceOf(ctx);
-        if (trace !== undefined) {
-          re.lastIndex = 0;
-          const template = `${replacement}`;
-          return trace.replace(result, re, (args) => stringReplacement(template, args));
-        }
-        return result.replace(re, replacement);
-      };
-    }
+    const replacement = replacements[index] ?? '';
+    const called = typeof replacement === 'function';
 
     return (result, ctx) => {
+      re.lastIndex = 0;
       const trace = ruleTraceOf(ctx);
       if (trace !== undefined) {
-        re.lastIndex = 0;
-        return trace.replace(result, re, (args) => replacement(args, ctx));
+        return trace.replace(
+          result,
+          re,
+          called
+            ? (args) => replacement(args, ctx)
+            : (args) => stringReplacement(`${replacement}`, args)
+        );
       }
       if (typeof result === 'string') {
-        re.lastIndex = 0;
         if (!re.test(result)) {
           return result;
         }
         re.lastIndex = 0;
       }
-      return result.replace(re, (...args) => replacement(args, ctx));
+      return result.replace(re, called ? (...args) => replacement(args, ctx) : replacement);
     };
   });
 
@@ -244,11 +220,26 @@ function makeApplyFn(rule, groupName) {
   };
 }
 
-// Always a fresh RegExp, never the caller's: handing back their object leaves the compiled rule
+function isDataPattern(pattern) {
+  return pattern !== null && typeof pattern === 'object' && !(pattern instanceof RegExp);
+}
+
+// Always a RegExp of our own, never the caller's: handing back their object leaves the compiled rule
 // reading a live reference — the same door the captured handler above closes — and inherits
-// whatever lastIndex they left on it.
+// whatever lastIndex they left on it. The copy is made once per expression and shared by every
+// engine: it is never handed out, every run sets its lastIndex before reading it, and a replace
+// collects its matches before it calls back. A caller who recompiles their expression gets a new copy.
+const COPIES = new WeakMap();
+
 function ensureGlobal(re) {
-  return new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`);
+  const { source, flags } = re;
+  const known = COPIES.get(re);
+  if (known !== undefined && known.source === source && known.flags === flags) {
+    return known.copy;
+  }
+  const copy = new RegExp(source, flags.includes('g') ? flags : `${flags}g`);
+  COPIES.set(re, { source, flags, copy });
+  return copy;
 }
 
 // A step `{ id, apply }` the engine takes on a fragment before its groups, run as a rule of a builtin
@@ -269,22 +260,26 @@ function runStepBody(step, text, ctx, keep, inline, features, checkBudget) {
     if (features !== null && !hasRequiredFeatures(step, text, features)) {
       return text;
     }
-    const output = executeRule(step, text, ctx, checkBudget);
-    ruleTraceOf(ctx)?.accept();
-    return output;
+    return executeKept(step, text, ctx, keep, checkBudget);
   }
 
   const lifted = beginGroup(text, inline, ctx);
 
   if (lifted === null) {
-    const output = executeRule(step, text, ctx, checkBudget);
-    ruleTraceOf(ctx)?.accept();
-    return output;
+    return executeKept(step, text, ctx, keep, checkBudget);
   }
 
   applyRule(lifted, step, ctx, keep, inline, features, checkBudget);
 
   return endGroup(lifted, inline);
+}
+
+// A step on text with nothing lifted settles what it leaves of a placeholder as a rule of a group
+// does: a step that moves a word across markup can cut one as well.
+function executeKept(step, text, ctx, keep, checkBudget) {
+  const next = executeKeptRule(step, text, ctx, keep, checkBudget);
+  ruleTraceOf(ctx)?.accept();
+  return next;
 }
 
 // `keep(before, after, rerun)` settles what one rule's change leaves in the text; see
@@ -331,14 +326,10 @@ export function runRuleGroup(
       continue;
     }
 
-    const input = ctx.text;
-    trace?.begin(rule, input);
-    const output = executeRule(rule, input, ctx, checkBudget);
-    const next =
-      keep === null ? output : keep(input, output, (t) => executeRule(rule, t, ctx, checkBudget));
-    ctx.text = next;
+    trace?.begin(rule, ctx.text);
+    ctx.text = executeKeptRule(rule, ctx.text, ctx, keep, checkBudget);
     trace?.accept();
-    trace?.finish(next);
+    trace?.finish(ctx.text);
   }
 
   if (lifted !== null) {
@@ -362,10 +353,14 @@ export function describeRuleGroup(compiled) {
   });
 }
 
-export function isRuleOn(compiled, id) {
+export function enabledRule(compiled, id) {
   const rule = compiled.compiledRules.find((r) => r.id === id);
 
-  return rule !== undefined && isRuleEnabled(compiled, rule);
+  return rule !== undefined && isRuleEnabled(compiled, rule) ? rule : null;
+}
+
+export function isRuleOn(compiled, id) {
+  return enabledRule(compiled, id) !== null;
 }
 
 export function canRunRuleGroup(compiled, text, features, html) {

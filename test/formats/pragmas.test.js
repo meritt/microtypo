@@ -151,3 +151,45 @@ test('a closed pragma still permits paragraphs after its matching end', () => {
   assert.ok(output.endsWith('<p>Корвин\u{00A0}— принц</p>'));
   assert.equal(typo.process(output), output);
 });
+
+for (const format of ['markdown', 'frontmatter']) {
+  test(`${format} a stray < glued to a pragma opens no tag that would swallow it`, () => {
+    const region = `${START}\nКод - "текст"\n${END}`;
+    for (const stray of ['<е', '<e', '<a b=1 ']) {
+      const input = `${stray}${region}\nЭрик - король`;
+      const expected = `${stray}${region}\nЭрик\u{00A0}— король`;
+      assert.equal(microtypo(input, config(format)), expected);
+      assert.equal(microtypo(expected, config(format)), expected);
+    }
+    for (const quote of ['"', "'"]) {
+      const input = `Корвин - принц <a title=${quote}${START}${quote}>x</a> Эрик - король`;
+      const expected = `Корвин\u{00A0}— принц <a title=${quote}${START}${quote}>x</a>\u{00A0}Эрик\u{00A0}— король`;
+      assert.equal(microtypo(input, config(format)), expected);
+    }
+  });
+}
+
+test('a vaulted blockquote prefix does not hide a later pragma behind a malformed tag', () => {
+  const input = `a <<a я\n\n> X\n\n~~~\ncode\n~~~\n${START}\nКод - "текст"\n${END}`;
+  const typo = new MicroTypo(config('markdown'));
+  assert.equal(typo.process(input), input);
+  assert.equal(typo.process(typo.process(input)), input);
+});
+
+for (const format of ['text', 'html']) {
+  test(`${format} a pragma on its own line holds behind a < left open in the text before it`, () => {
+    const region = `${START}\nКод - "текст"\n${END}`;
+    for (const stray of ['при x <y всё хорошо', 'a <b c', 'x <y z=1']) {
+      const input = `${stray}\n${region}`;
+      assert.equal(microtypo(input, config(format)), input);
+    }
+  });
+
+  test(`${format} a pragma inside a quoted attribute value is still no pragma`, () => {
+    const input = `<a title="\n${START}">Код - "текст"</a>\n${END}`;
+    assert.equal(
+      microtypo(input, config(format)),
+      `<a title="\n${START}">Код\u{00A0}— «текст»</a>\n${END}`
+    );
+  });
+}

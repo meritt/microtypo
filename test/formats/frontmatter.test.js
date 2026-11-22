@@ -200,6 +200,19 @@ describe('frontmatter with paragraphs and breakline on', () => {
       }
     }
   });
+
+  test('markup in a header value leaves the line breaks of the body as they are without it', () => {
+    const options = { html: true, input: { format: 'frontmatter' }, render: { breakline: true } };
+    for (const [src, out] of [
+      ['---\nо"<a>\n---\n&laquo;"\nа""', '---\nо"<a>\n---\n«„<br>\nа“»'],
+      ['---\nо"<b>\n---\n«„<br>\nа“»', '---\nо"<b>\n---\n«„<br>\nа“»'],
+      ["+++\nt='''<n>“ “'''\n+++\n&quot;<br>&quot;,", "+++\nt='''<n>«»'''\n+++\n«<br>»,"],
+      ["+++\nt='''<n>«»'''\n+++\n«<br>»,", "+++\nt='''<n>«»'''\n+++\n«<br>»,"]
+    ]) {
+      assert.equal(microtypo(src, options), out, src);
+      assert.equal(microtypo(out, options), out, src);
+    }
+  });
 });
 
 describe('splitFrontmatter: leading-block detection', () => {

@@ -13,6 +13,37 @@ describe('abbr.nbsp_organization', () => {
     assert.ok(microtypo('ООО Грейсвандир', NOP).includes(`ООО${NBSP}Грейсвандир`));
   });
 
+  test('a numeric nowrap neighbour is not an organization name', () => {
+    for (const nowrap of ['span', 'nobr']) {
+      const cfg = { ...NOP, render: { paragraphs: false, nowrap } };
+      const wrap = (body) =>
+        nowrap === 'span'
+          ? `<span style="white-space:nowrap;">${body}</span>`
+          : `<nobr>${body}</nobr>`;
+      for (const [source, expected] of [
+        ['НИИ 07.04.19', `НИИ ${wrap('07.04.19')}`],
+        ['ООО 8 (286) 39-76-89', `ООО ${wrap('8 (286) 39-76-89')}`],
+        ['НИИ 5:05–2:00', `НИИ ${wrap('5:05–2:00')}`]
+      ]) {
+        assert.equal(microtypo(source, cfg), expected);
+        assert.equal(microtypo(expected, cfg), expected);
+      }
+      const nestedCfg = { ...cfg, rules: { 'other.drop_nested_nowrap': false } };
+      const nested = `НИИ ${wrap(wrap('07.04.19'))}`;
+      assert.equal(microtypo(nested, nestedCfg), nested);
+      assert.equal(microtypo(microtypo(nested, nestedCfg), nestedCfg), nested);
+      const authorCfg = { ...cfg, rules: { 'other.strip_nbsp_in_nowrap': false } };
+      for (const name of ['Амбер', '«Амбер»']) {
+        assert.equal(microtypo(`НИИ ${wrap(name)}`, authorCfg), `НИИ${NBSP}${wrap(name)}`);
+      }
+      assert.equal(
+        microtypo(`НИИ ${wrap('+7 570 542-41-95')}`, authorCfg),
+        `НИИ ${wrap('+7 570 542-41-95')}`
+      );
+      assert.equal(microtypo('НИИ <em>Амбер</em>', cfg), `НИИ${NBSP}<em>Амбер</em>`);
+    }
+  });
+
   test('leaves plain space when off', () => {
     const out = microtypo('ООО Грейсвандир', {
       ...NOP,
@@ -439,6 +470,47 @@ describe('abbr word forms — shared content boundaries', () => {
       const out = microtypo(source, { html: true, ...layout });
 
       assert.equal(out, `<p>${source}</p>`, JSON.stringify(out));
+    }
+  });
+});
+
+describe('a label after an initial the no-break wrapper closes', () => {
+  test('stays apart on the next pass as on the first, a label after a word still binds', () => {
+    for (const [source, expected, config] of [
+      [
+        'Це И Ж. Г.М',
+        '<p><span style="white-space:nowrap;">Це И Ж</span>. Г. М</p>',
+        { html: true }
+      ],
+      [
+        `Б.Р.Бл${NBSP}Н.${NBSP}С. 9`,
+        `<p><span style="white-space:nowrap;">Б. Р. Бл Н</span>.${NBSP}С. 9</p>`,
+        { input: 'html', html: true }
+      ],
+      [
+        'Пушкин А. С., с. 9',
+        `<p><span style="white-space:nowrap;">Пушкин А. С.</span>, с.${NBSP}9</p>`,
+        { html: true }
+      ]
+    ]) {
+      const once = microtypo(source, config);
+      assert.equal(once, expected, source);
+      assert.equal(microtypo(once, config), once, source);
+    }
+  });
+});
+
+describe('a name with a thin space before its last initials', () => {
+  test('is complete on the first pass as with a space, a name still open keeps the label apart', () => {
+    const THIN = '\u{2009}';
+    for (const [source, expected, config] of [
+      [`К.И.От${THIN}П. Г.А`, `К.${NBSP}И.${NBSP}От${NBSP}П.${NBSP}Г.${NBSP}А`, { input: 'html' }],
+      [`К. И.${THIN}От П. Г. А`, `К.${NBSP}И.${NBSP}От${NBSP}П.${NBSP}Г.${NBSP}А`, {}],
+      [`От${THIN}П. Г.А`, `От${NBSP}П.${NBSP}Г. А`, {}]
+    ]) {
+      const once = microtypo(source, config);
+      assert.equal(once, expected, source);
+      assert.equal(microtypo(once, config), once, source);
     }
   });
 });

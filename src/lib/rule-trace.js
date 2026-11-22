@@ -1,10 +1,15 @@
 import { replacementEdits } from './diff.js';
 import { representedMap } from './provenance.js';
+import { sessionMap } from './session-maps.js';
 
-const TRACES = new WeakMap();
+const TRACES = sessionMap();
 
 export function bindRuleTrace(ctx, trace) {
   TRACES.set(ctx, trace);
+}
+
+export function unbindRuleTrace(ctx) {
+  TRACES.delete(ctx);
 }
 
 export function ruleTraceOf(ctx) {

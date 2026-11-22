@@ -44,6 +44,151 @@ test('markdown mode preserves single-backtick code spans', () => {
   assert.doesNotMatch(out.replace(/`[^`]*`/g, ''), /—/);
 });
 
+test('an email cannot take a delimiter from either adjacent Markdown code span', () => {
+  for (const format of ['markdown', 'mdx']) {
+    for (const html of [false, true]) {
+      const config = { input: format, html, render: { paragraphs: false } };
+      for (const [source, expected] of [
+        ['Сравните `a@b.ru` и `5 - 3`.', 'Сравните `a@b.ru` и\u00a0`5 - 3`.'],
+        [
+          'Код: ``a`b@host.ru``, ``x = "a" + 5 - 3``. Название "Лес".',
+          'Код: ``a`b@host.ru``, ``x = "a" + 5 - 3``. Название «Лес».'
+        ],
+        ['[`a@b.ru` и `5 - 3`](/том) "Лес".', '[`a@b.ru` и\u00a0`5 - 3`](/том) «Лес».'],
+        [
+          'Письмо mailto:o`b@host.ru. Название "Лес".',
+          html
+            ? 'Письмо <a href="mailto:o`b@host.ru">mailto:o`b@host.ru</a>. Название «Лес».'
+            : 'Письмо mailto:o`b@host.ru. Название «Лес».'
+        ]
+      ]) {
+        const first = microtypo(source, config);
+        assert.equal(first, expected, source);
+        assert.equal(microtypo(first, config), expected, source);
+      }
+    }
+  }
+});
+
+test('a backtick in an earlier address leaves the following code span intact', () => {
+  for (const input of ['markdown', 'mdx']) {
+    const config = { input, html: true, render: { paragraphs: false } };
+    for (const address of ['post`tag@city.ru', 'mailto:post`tag@city.ru']) {
+      const source = `${address} затем \`"метка"\`. Заголовок "Лес".`;
+      const expected = `<a href="mailto:post\`tag@city.ru">${address}</a> затем \`"метка"\`. Заголовок «Лес».`;
+      assert.equal(microtypo(source, config), expected, source);
+      assert.equal(microtypo(expected, config), expected, expected);
+    }
+    for (const [source, expected] of [
+      ['<post`tag@city.ru> затем `"метка"`.', '<post`tag@city.ru> затем `"метка"`.'],
+      [
+        '[Контакт](mailto:post`tag@city.ru) затем `"метка"`.',
+        '[Контакт](mailto:post`tag@city.ru) затем `"метка"`.'
+      ],
+      ['Код =`a@b.ru` и `"метка"`.', 'Код =`a@b.ru` и\u00a0`"метка"`.'],
+      ['Код`a@b.ru` и `"метка"`.', 'Код`a@b.ru` и\u00a0`"метка"`.'],
+      [
+        'Сайт https://museum.ru/a%60b, `a@b.ru`, `"метка"`.',
+        'Сайт <a href="https://museum.ru/a%60b">museum.ru/a%60b</a>, `a@b.ru`, `"метка"`.'
+      ]
+    ]) {
+      assert.equal(microtypo(source, config), expected, source);
+      assert.equal(microtypo(expected, config), expected, expected);
+    }
+  }
+  const config = { input: { format: 'markdown', template: 'twig' } };
+  const source = '{{title}}`m@city.ru и "Лес"` затем `"метка"`.';
+  assert.equal(microtypo(source, config), source);
+});
+
+test('an angle email owns its leading backticks before the following Markdown code', () => {
+  for (const input of ['markdown', 'mdx']) {
+    for (const html of [false, true]) {
+      const config = { input, html, render: { paragraphs: false } };
+      for (const fence of ['`', '``']) {
+        const email = `${fence}p@host.ru`;
+        const code = `${fence}mode = "x"; 7 - 3${fence}`;
+        for (const prefix of [
+          `<${email}> Затем ${code}`,
+          `<${fence}p@e> ${code}`,
+          `<p${fence}q@host.a> ${code}`,
+          `<${email}>${code}`,
+          `\\\\<${email}> ${code}`,
+          `${code} <${email}> ${code}`,
+          `<a href="mailto:${email}">Почта</a> ${code}`
+        ]) {
+          const source = `${prefix} Дальше - "пример".`;
+          const expected = `${prefix} Дальше\u00a0— «пример».`;
+          const first = microtypo(source, config);
+          assert.equal(first, expected, source);
+          assert.equal(microtypo(first, config), expected, source);
+        }
+      }
+
+      for (const source of [
+        '\\<`p@host.ru> отсюда "код"`',
+        '<`p@host.ru отсюда "код"`',
+        '< `p@host.ru> отсюда "код"`',
+        '<`p@host..ru> отсюда "код"`',
+        '<`п@host.ru> отсюда "код"`',
+        '<`p@-host.ru> отсюда "код"`',
+        '``<`p@host.ru> текст "код"`` затем `"метка"`'
+      ]) {
+        const first = microtypo(source, config);
+        assert.equal(first, source);
+        assert.equal(microtypo(first, config), source);
+      }
+    }
+  }
+});
+
+test('the scheme of a Markdown autolink opens before a backtick in its URI', () => {
+  const code = '`"внутри" - код`';
+  for (const input of ['markdown', 'mdx']) {
+    for (const html of [false, true]) {
+      const config = { input, html, render: { paragraphs: false } };
+      for (const address of [
+        '<mailto:`q@x>',
+        '<MAILTO:q`@127.0.0.1>',
+        '<https://host.ru/a`b--c>',
+        '<ab:p`x>',
+        `<${'a'.repeat(32)}:p\`x>`,
+        '<news:p`x\u00a0y>'
+      ]) {
+        const source = `${address} Затем ${code} Дальше - "текст".`;
+        const expected = `${address} Затем ${code} Дальше\u00a0— «текст».`;
+        const first = microtypo(source, config);
+        assert.equal(first, expected, source);
+        assert.equal(microtypo(first, config), expected, source);
+      }
+      for (const source of [
+        '\\<mailto:`q@x> внутри "код"`',
+        '<1a:`q@x> внутри "код"`',
+        '<news:`q<x> внутри "код"`',
+        '``<mailto:`q@x> внутри "код"``',
+        '<Box addr="mailto:`q@x">Почта</Box> затем `"метка"`'
+      ]) {
+        const first = microtypo(source, config);
+        assert.equal(first, source);
+        assert.equal(microtypo(first, config), source);
+      }
+    }
+  }
+});
+
+test('Markdown leaves malformed angle URIs open to ordinary code spans', () => {
+  for (const source of [
+    '<a:`q@x> внутри "код"`',
+    `<${'a'.repeat(33)}:\`q@x> внутри "код"\``,
+    '<mailto:`q @x> внутри "код"`',
+    '<news:q`x без конца "код"`'
+  ]) {
+    const first = microtypo(source, md);
+    assert.equal(first, source);
+    assert.equal(microtypo(first, md), source);
+  }
+});
+
 test('markdown mode preserves triple-backtick fences', () => {
   const out = microtypo('Корвин\n```\nlet x = a -- b\n```\nЭрик', md);
   assert.match(out, /a -- b/);
@@ -429,6 +574,29 @@ describe('a leading YAML or TOML header', () => {
     assert.equal(
       microtypo('+++\ntitle = "Амбер - город"\n---\nТекст', md),
       `+++\ntitle = «Амбер${NBSP}— город»\n---\nТекст`
+    );
+  });
+
+  test('a thematic break before prose opens no header, and the prose is typeset', () => {
+    assert.equal(
+      microtypo('---\n\nГлава - первая, "начало"\n\n---\n\nДальше - текст', md),
+      `---\n\nГлава${NBSP}— первая, «начало»\n\n---\n\nДальше${NBSP}— текст`
+    );
+    assert.equal(
+      microtypo('---\nГлава - первая\n---\n\nДальше - текст', md),
+      `---\nГлава${NBSP}— первая\n---\n\nДальше${NBSP}— текст`
+    );
+    assert.equal(
+      microtypo('---\nГлава - первая\n---\n\nДальше - текст', { ...md, input: 'mdx' }),
+      `---\nГлава${NBSP}— первая\n---\n\nДальше${NBSP}— текст`
+    );
+  });
+
+  test('an empty header and one opening with a comment are headers', () => {
+    assert.equal(microtypo('---\n---\nТекст - тире', md), `---\n---\nТекст${NBSP}— тире`);
+    assert.equal(
+      microtypo('---\n# заметка\ntitle: "a - b"\n---\nТекст - тире', md),
+      `---\n# заметка\ntitle: "a - b"\n---\nТекст${NBSP}— тире`
     );
   });
 
@@ -2909,5 +3077,23 @@ describe('Markdown emphasis and links are transparent', () => {
   test('a line ending and an escaped marker stay as they were', () => {
     assert.equal(microtypo('Он в\n*доме*', md), 'Он в\n*доме*');
     assert.equal(microtypo('Он в \\*доме\\*', md), 'Он в \\*доме\\*');
+  });
+});
+
+describe('equal maximal backtick runs', () => {
+  test('protects the first real span and typesets prose after it', () => {
+    const input = '`я```,`` три ` прошил - "x" ``';
+    const typo = new MicroTypo({ input: 'frontmatter' });
+    const output = typo.process(input);
+    assert.equal(output, '`я```,`` три ` прошил\u{00A0}— «x» ``');
+    assert.equal(typo.process(output), output);
+  });
+
+  test('preserves a real two-backtick span containing a single backtick', () => {
+    const typo = new MicroTypo({ input: 'markdown' });
+    const input = '`` три ` прошил - "x" `` далее - "текст"';
+    const output = typo.process(input);
+    assert.equal(output, '`` три ` прошил - "x" `` далее\u{00A0}— «текст»');
+    assert.equal(typo.process(output), output);
   });
 });

@@ -23,7 +23,7 @@ function readTagName(masked, i, n) {
   //
   // The whole code point, not one UTF-16 unit: XML admits names from U+10000 upward, and half a
   // surrogate pair is not a letter.
-  if (nameStart >= n || !isTagNameStart(masked.codePointAt(nameStart))) {
+  if (nameStart >= n || !isTagNameStart(masked.codePointAt(nameStart), true)) {
     return null;
   }
 
@@ -256,6 +256,14 @@ export function scanDoctype(text, checkBudget) {
   return spans;
 }
 
+export function xmlConstructEnd(text, at, checkBudget) {
+  if (text.startsWith('<!DOCTYPE', at)) {
+    return doctypeEnd(text, at, checkBudget);
+  }
+  const block = xmlBlocks.find(({ open }) => text.startsWith(open, at));
+  return block ? blockEnd(text, block, at, checkBudget) : -1;
+}
+
 export function xmlConstructReader(text, checkBudget) {
   let nextCheck = 0;
   return (from) => {
@@ -265,18 +273,7 @@ export function xmlConstructReader(text, checkBudget) {
         nextCheck = i + 0x4000;
       }
 
-      let end = -1;
-
-      if (text.startsWith('<!DOCTYPE', i)) {
-        end = doctypeEnd(text, i, checkBudget);
-      } else {
-        const block = xmlBlocks.find(({ open }) => text.startsWith(open, i));
-
-        if (block) {
-          end = blockEnd(text, block, i, checkBudget);
-        }
-      }
-
+      const end = xmlConstructEnd(text, i, checkBudget);
       if (end === -1) {
         continue;
       }

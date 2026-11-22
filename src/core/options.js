@@ -151,7 +151,7 @@ function applyRender(opts, out) {
   }
 }
 
-export const KNOWN_GROUPS = new Set([
+const KNOWN_GROUPS = new Set([
   'quote',
   'dash',
   'symbol',

@@ -73,6 +73,18 @@ test('number/date groups keep no-digit prose within budget', () => {
   assert.ok(ms < 80, `no-digit prose took ${ms.toFixed(1)}ms`);
 });
 
+test('an incomplete dimension chain is read once', () => {
+  const engine = new MicroTypo({ maxInputLength: 100_000 });
+  const run = (n) => {
+    const text = `${'1x 1x '.repeat(n)}1xL`;
+    assert.equal(engine.process(text), text);
+  };
+  run(500);
+  const one = best(run, 2500);
+  const two = best(run, 5000);
+  assert.ok(two < Math.max(one, 0.5) * 3.5, `N ${one} ms, 2N ${two} ms`);
+});
+
 // `URL_REGEX` goes quadratic on dotted and hyphenated ASCII runs, which V8 does not Latin1-mask.
 for (const unit of ['a.', '1.', 'a-', '1.0.']) {
   test(`${JSON.stringify(unit)}×N scales ~linearly`, () => {

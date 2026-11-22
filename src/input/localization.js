@@ -1,3 +1,6 @@
+import { readCharacterReferenceAt } from '../lib/character-reference.js';
+import { isWhitespaceCode } from '../lib/strings.js';
+
 const OPEN = '{';
 const CLOSE = '}';
 const COMPLEX_TYPES = new Set(['plural', 'selectordinal', 'select']);
@@ -6,12 +9,11 @@ const NUMBER = /[+-]?(?:\d+(?:\.\d*)?|\.\d+)/y;
 const PRINTF_FLAGS = new Set(['-', '+', ' ', '#', '0', "'"]);
 const PRINTF_TYPES = new Set('diuoxXfFeEgGaAcspn@');
 
-const whitespace = (ch) => ch !== undefined && /\s/u.test(ch);
 const digit = (ch) => ch >= '0' && ch <= '9';
 
 function spaces(text, at, end) {
   let next = at;
-  while (next < end && whitespace(text[next])) {
+  while (next < end && isWhitespaceCode(text.codePointAt(next))) {
     next += 1;
   }
   return next;
@@ -110,7 +112,12 @@ function branches(text, start, end, paired, type) {
   const result = [];
   while (at < end) {
     const selector = at;
-    while (at < end && !whitespace(text[at]) && text[at] !== OPEN && text[at] !== CLOSE) {
+    while (
+      at < end &&
+      !isWhitespaceCode(text.codePointAt(at)) &&
+      text[at] !== OPEN &&
+      text[at] !== CLOSE
+    ) {
       at += 1;
     }
     if (at === selector) {
@@ -127,7 +134,7 @@ function branches(text, start, end, paired, type) {
   return result.length === 0 ? null : result;
 }
 
-function markIcu(text, mask, checkBudget) {
+function markIcu(text, mask, xml, checkBudget) {
   const paired = bracePairs(text, checkBudget);
   const queue = [{ start: 0, end: text.length, plural: false }];
   for (let task = 0; task < queue.length; task += 1) {
@@ -154,7 +161,10 @@ function markIcu(text, mask, checkBudget) {
         continue;
       }
       if (range.plural && text[at] === '#') {
-        mask[at] = 1;
+        // XML owns a numeric reference in its entirety, even within a plural branch.
+        if (!xml || text[at - 1] !== '&' || readCharacterReferenceAt(text, at - 1) === null) {
+          mask[at] = 1;
+        }
       }
       const end = paired[at];
       if (text[at] !== OPEN || end < at || end >= range.end) {
@@ -250,7 +260,7 @@ function markInterpolation(text, mask, checkBudget) {
   }
 }
 
-export function localizationScanner(mode) {
+export function localizationScanner(mode, xml) {
   if (mode === 'off') {
     return null;
   }
@@ -263,7 +273,7 @@ export function localizationScanner(mode) {
       markPrintf(text, mask, checkBudget);
     }
     if (mode === 'all' || mode === 'icu') {
-      markIcu(text, mask, checkBudget);
+      markIcu(text, mask, xml, checkBudget);
     }
     const spans = [];
     for (let at = 0; at < mask.length; at += 1) {

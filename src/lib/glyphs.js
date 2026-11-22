@@ -10,6 +10,7 @@ export const G = Object.freeze({
   LSQUO: '‘',
   RSQUO: '’',
   PRIME: '″',
+  SINGLE_PRIME: '′',
 
   MDASH: '—',
   NDASH: '–',
@@ -36,6 +37,9 @@ export const G = Object.freeze({
 
   LARR: '←',
   RARR: '→',
+  HARR: '↔',
+  RIMPL: '⇒',
+  HEQUIV: '⇔',
 
   SUP2: '²',
   SUP3: '³',
@@ -43,6 +47,12 @@ export const G = Object.freeze({
   FRAC12: '½',
   FRAC14: '¼',
   FRAC34: '¾',
+  FRAC13: '⅓',
+  FRAC23: '⅔',
+  FRAC18: '⅛',
+  FRAC38: '⅜',
+  FRAC58: '⅝',
+  FRAC78: '⅞',
 
   COMBINING_ACUTE: '\u{0301}' // combining acute accent
 });
@@ -91,6 +101,18 @@ export const GLYPH_TO_ENTITY = Object.freeze({
 // Escaped per glyph: an unescaped `-`, `]` or `^` added to `G` later would silently redefine the
 // class.
 const GLYPH_RE = new RegExp(`[${Object.keys(GLYPH_TO_ENTITY).map(RegExp.escape).join('')}]`, 'gu');
+
+// A numeric character reference up to its `;`: the hexadecimal digits in group 1, decimal in 2.
+export const NUMERIC_REFERENCE_HEAD = '&#(?:[xX]([0-9A-Fa-f]+)|([0-9]+))';
+
+export const EXTENDED_FRACTION_GLYPHS = [
+  G.FRAC13,
+  G.FRAC23,
+  G.FRAC18,
+  G.FRAC38,
+  G.FRAC58,
+  G.FRAC78
+];
 
 export function unicodeToEntities(text) {
   return text.replace(GLYPH_RE, (g) => GLYPH_TO_ENTITY[g] ?? g);

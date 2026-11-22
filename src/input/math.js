@@ -1,6 +1,6 @@
+import { isWhitespaceCode } from '../lib/strings.js';
 import { quotedAttributeSpans, tagSpans } from '../protect/tag-spans.js';
 
-const whitespace = (value) => value !== undefined && /\s/u.test(value);
 const digit = (value) => value >= '0' && value <= '9';
 const SLASH_KIND = { '(': 2, ')': 2, '[': 3, ']': 3 };
 
@@ -65,8 +65,9 @@ export function scanMath(text, checkBudget) {
         width,
         kind: width - 1,
         line,
-        open: width === 2 || (end < text.length && !whitespace(text[end])),
-        close: width === 2 || (i > 0 && !whitespace(text[i - 1]) && !digit(text[end])),
+        open: width === 2 || (end < text.length && !isWhitespaceCode(text.codePointAt(end))),
+        close:
+          width === 2 || (i > 0 && !isWhitespaceCode(text.codePointAt(i - 1)) && !digit(text[end])),
         end: null
       });
     }

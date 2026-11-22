@@ -14,6 +14,17 @@ export function collectSpans(next) {
   return spans;
 }
 
+// The earliest opener owns the overlap. An address may start on punctuation also
+// opening a template: explicit markup wins a tie over the address's local-part alphabet.
+export function precedesInline(candidate, first) {
+  return (
+    candidate !== null &&
+    (first == null ||
+      candidate[0] < first[0] ||
+      (candidate[0] === first[0] && first[3] === 'address'))
+  );
+}
+
 export function lineReader(readers) {
   let through = 0;
   return (from, to) => {
@@ -24,7 +35,7 @@ export function lineReader(readers) {
         if (reader.at === undefined || (reader.at !== null && reader.at[0] < cursor)) {
           reader.at = reader.next(cursor);
         }
-        if (reader.at !== null && (first === null || reader.at[0] < first.at[0])) {
+        if (precedesInline(reader.at, first?.at)) {
           first = reader;
         }
       }

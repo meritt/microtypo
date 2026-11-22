@@ -1,8 +1,11 @@
-import { VOID_TAG_NAMES } from './lib/block-tags.js';
+import { VOID_TAGS } from './lib/block-tags.js';
+import { replacementEdits } from './lib/diff.js';
 import { G } from './lib/glyphs.js';
-import { executeRule } from './lib/rule-budget.js';
+import { bindNowrapSource } from './lib/nowrap-context.js';
+import { executeKeptRule } from './lib/rule-budget.js';
 import { hasRequiredFeatures } from './lib/rule-features.js';
 import { ruleTraceOf } from './lib/rule-trace.js';
+import { count, isBackslashEscaped, isWhitespaceCode as isSpace } from './lib/strings.js';
 import { CLOSE, OPEN } from './protect/placeholders.js';
 
 // Inline markup lifted out of the text a builtin rule reads, so that a rule binding words sees them
@@ -19,7 +22,6 @@ const GT = 0x3e;
 const SLASH = 0x2f;
 const NL = 0x0a;
 const BACKTICK = 0x60;
-const BACKSLASH = 0x5c;
 const UNDERSCORE = 0x5f;
 const STAR = 0x2a;
 const TILDE = 0x7e;
@@ -33,7 +35,7 @@ const BANG = 0x21;
 
 // A protected inline element — a `<code>` span, a Markdown code span — is one word to a rule binding
 // words, and this is the word it reads in its place.
-export const STAND_IN = 'слово';
+const STAND_IN = 'слово';
 
 const CLOSER = 1;
 const STANDS_IN = 2;
@@ -42,25 +44,6 @@ const STANDS_IN = 2;
 // may read across.
 const PIN = -2;
 const EDGE = -1;
-
-const VOID_NAMES = new Set(VOID_TAG_NAMES);
-
-// The white space a rule's `\s` reads.
-export function isSpace(c) {
-  return (
-    c === 32 ||
-    (c >= 9 && c <= 13) ||
-    c === 0xa0 ||
-    c === 0x1680 ||
-    (c >= 0x2000 && c <= 0x200a) ||
-    c === 0x2028 ||
-    c === 0x2029 ||
-    c === 0x202f ||
-    c === 0x205f ||
-    c === 0x3000 ||
-    c === 0xfeff
-  );
-}
 
 const WORD_RE = /[\p{L}\p{N}\p{M}]/u;
 
@@ -93,9 +76,6 @@ const QUOTES = new Set(
 const isEdge = (c) => c === EDGE || isSpace(c);
 const isPua = (c) => c >= 0xe000 && c <= 0xf8ff;
 
-// ---------------------------------------------------------------------------------------------
-// Markdown: the emphasis markers and link brackets a reader never sees.
-
 const ASCII_PUNCT = new Set([...'!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~'].map((c) => c.codePointAt(0)));
 const PUNCT_RE = /[\p{P}\p{S}]/u;
 
@@ -113,16 +93,6 @@ function mdPunct(c) {
   return !mdSpace(c) && !isWordChar(c) && PUNCT_RE.test(String.fromCodePoint(c));
 }
 
-function escaped(text, at, from) {
-  let n = 0;
-
-  for (let i = at - 1; i >= from && text.codePointAt(i) === BACKSLASH; i--) {
-    n++;
-  }
-
-  return n % 2 === 1;
-}
-
 // Links whose text a reader sees: `[text](⟦B⟧)` and `[text][⟦B⟧]`, the target vaulted by the
 // Markdown reader. An image is left whole.
 // Brackets pair as they nest, and a link's text opens at the bracket its closing one pairs with.
@@ -132,7 +102,7 @@ function findLinks(text, from, to, out) {
   for (let i = from; i < to; i++) {
     const c = text.codePointAt(i);
 
-    if ((c !== LBRACKET && c !== RBRACKET) || escaped(text, i, from)) {
+    if ((c !== LBRACKET && c !== RBRACKET) || isBackslashEscaped(text, i)) {
       continue;
     }
 
@@ -262,7 +232,7 @@ function matchEmphasis(text, from, to, skip, marks) {
 
     const c = text.codePointAt(i);
 
-    if (escaped(text, i, from)) {
+    if (isBackslashEscaped(text, i)) {
       continue;
     }
 
@@ -409,9 +379,6 @@ function markdownMarks(text) {
   return marks;
 }
 
-// ---------------------------------------------------------------------------------------------
-// Lifting.
-
 // Every placeholder in the text: tags `<⟦T0⟧>`, `</⟦A1⟧>` and bare ones `⟦B0⟧`.
 function scanPlaceholders(text) {
   const items = [];
@@ -556,7 +523,7 @@ function pinEngineWrappers(text, items, cx) {
       continue;
     }
 
-    if (VOID_NAMES.has(name)) {
+    if (VOID_TAGS.has(name)) {
       continue;
     }
 
@@ -584,7 +551,7 @@ function pairTags(text, items, cx) {
 
     const name = tagName(text, item, cx);
 
-    if (name === null || VOID_NAMES.has(name)) {
+    if (name === null || VOID_TAGS.has(name)) {
       continue;
     }
 
@@ -870,9 +837,49 @@ function liftLinks(text, cx) {
   return { visible: parts.join(''), pos, toks: { str, flag, partner } };
 }
 
+// Formatting may also split a digit or a letter inside an expression a rule reads as a whole.
+// Locate those intervals on text with paired author markup lifted. Everything opaque remains in
+// the projection and therefore interrupts a match. Other words retain their usual lifting rules.
+function liftYearRanges(text, all, pattern) {
+  if (!pattern || !/[-—−–]/u.test(text) || !all.some((p) => isCandidate(p) && !p.lift)) {
+    return;
+  }
+  const parts = [];
+  const positions = new Map();
+  let start = 0;
+  let length = 0;
+  for (const p of all) {
+    if (!isCandidate(p)) {
+      continue;
+    }
+    parts.push(text.slice(start, p.start));
+    length += p.start - start;
+    positions.set(p, length);
+    start = p.end;
+  }
+  parts.push(text.slice(start));
+  const matches = parts.join('').matchAll(pattern);
+  let match = matches.next().value;
+  for (const [p, offset] of positions) {
+    if (p.close) {
+      continue;
+    }
+    while (match && match.index + match[0].length <= offset) {
+      match = matches.next().value;
+    }
+    if (!match) {
+      break;
+    }
+    if (match.index < positions.get(p.mate)) {
+      p.lift = true;
+      p.mate.lift = true;
+    }
+  }
+}
+
 // Lifts the inline markup out of `text`: `{ visible, pos, toks }`, `pos[k]` the offset in `visible`
 // token `k` stood at, or null when there is nothing to lift.
-export function lift(text, cx) {
+function lift(text, cx) {
   if (!mayLift(text, cx)) {
     return null;
   }
@@ -978,6 +985,7 @@ export function lift(text, cx) {
     i = j + 1;
   }
 
+  liftYearRanges(text, all, cx.yearRange);
   // An element is lifted whole or stays whole: half of it left in place reads to a rule as a word
   // break inside it.
   const parts = [];
@@ -1064,9 +1072,6 @@ function acceptTrace(ctx, state) {
     trace.accept(traceProjection(state));
   }
 }
-
-// ---------------------------------------------------------------------------------------------
-// Realignment.
 
 // How many characters from `a` in `x` and `b` in `y` are the same. Rules change text in many close
 // places, so the first few are compared one by one; past them, blocks that double while they agree
@@ -1544,15 +1549,19 @@ function lineOf(s, line, at) {
 }
 
 // The tags of `found`, `[start, end, …]` in `s`, left once the tags `known` are found among them in
-// order: first each as early as it can stand, then each as late. Null where `known` are not all
-// there, or the two readings leave different tags.
-function mintedOf(s, found, known) {
+// order: first each as early as it can stand, then each as late. Where the two readings leave
+// different tags, the one whose known tags still hold the text `between` them, as before the rule
+// ran, is the reading, if only one does. Null where `known` are not all there, or no reading is left.
+function mintedOf(s, found, known, between) {
   const early = [];
   const late = [];
+  const earlyAt = [];
+  const lateAt = [];
   let k = 0;
 
   for (let i = 0; i < found.length; i += 2) {
     if (k < known.length && s.slice(found[i], found[i + 1]) === known[k]) {
+      earlyAt.push(i);
       k++;
     } else {
       early.push(found[i], found[i + 1]);
@@ -1567,13 +1576,26 @@ function mintedOf(s, found, known) {
 
   for (let i = found.length - 2; i >= 0; i -= 2) {
     if (k >= 0 && s.slice(found[i], found[i + 1]) === known[k]) {
+      lateAt.unshift(i);
       k--;
     } else {
       late.unshift(found[i], found[i + 1]);
     }
   }
 
-  return early.length === late.length && early.every((p, i) => p === late[i]) ? early : null;
+  if (early.length === late.length && early.every((p, i) => p === late[i])) {
+    return early;
+  }
+
+  const holds = (at) =>
+    at.every((i, j) => j === 0 || s.slice(found[at[j - 1] + 1], found[i]) === between[j - 1]);
+  const earlyHolds = holds(earlyAt);
+
+  if (earlyHolds === holds(lateAt)) {
+    return null;
+  }
+
+  return earlyHolds ? early : late;
 }
 
 // Whether a rule that wrote the tags `minted` left more of one of them in `after` than `before` had: a
@@ -1586,16 +1608,6 @@ function mintsNew(minted, before, after) {
   }
 
   return false;
-}
-
-function count(text, part) {
-  let n = 0;
-
-  for (let at = text.indexOf(part); at !== -1; at = text.indexOf(part, at + part.length)) {
-    n++;
-  }
-
-  return n;
 }
 
 // Places the tokens of `state` into `after`, the rule's output on the visible text: `{ visible,
@@ -1672,12 +1684,20 @@ export function realign(state, after, cx, words = REACH) {
     }
 
     const known = [];
+    const between = [];
     const found = [];
+    let last = -1;
 
-    tagsIn(before, was, end, (p, e) => known.push(before.slice(p, e)));
+    tagsIn(before, was, end, (p, e) => {
+      if (last !== -1) {
+        between.push(before.slice(last, p));
+      }
+      known.push(before.slice(p, e));
+      last = e;
+    });
     tagsIn(after, from, to, (p, e) => found.push(p, e));
 
-    const fresh = known.length === 0 ? found : mintedOf(after, found, known);
+    const fresh = known.length === 0 ? found : mintedOf(after, found, known, between);
 
     if (fresh === null) {
       return false;
@@ -1900,9 +1920,6 @@ export function realign(state, after, cx, words = REACH) {
   return { visible: after, pos: out, toks };
 }
 
-// ---------------------------------------------------------------------------------------------
-// Wrappers the rule minted on the lifted text.
-
 // Whether the opening tag `str`, `<⟦T0⟧>`, is a `<nobr>` or a `<span>` that says `nowrap`: the
 // engine's no-break wrapper in any of its forms.
 function keepsTogether(str, cx) {
@@ -1916,6 +1933,49 @@ function keepsTogether(str, cx) {
   const name = cx.nameOf(str[2], Number(str.slice(3, shut)));
 
   return name === 'nobr' || (name === 'span' && raw.includes('nowrap'));
+}
+
+// The element name of the tag `str`, `<⟦T0⟧>` or `</⟦T0⟧>`.
+function nameOfTag(str, cx) {
+  const j = str.codePointAt(1) === SLASH ? 3 : 2;
+
+  return cx.nameOf(str[j], Number(str.slice(j + 1, str.indexOf(CLOSE, j))));
+}
+
+// Every close of one element name is one placeholder, and the rule's output is read forward, so of
+// a run of them closing a minted wrapper the last is taken for the minted one. Its own is the first
+// its body, from `oe`, leaves unpaired.
+function ownClose(after, oe, c, ce, cx) {
+  const tag = after.slice(c, ce);
+
+  if (!after.startsWith(tag, c - tag.length)) {
+    return c;
+  }
+
+  const name = nameOfTag(tag, cx);
+  let depth = 0;
+
+  for (let p = after.indexOf('<', oe); p !== -1 && p < c; p = after.indexOf('<', p + 1)) {
+    const end = tagAt(after, p);
+
+    if (end === -1) {
+      continue;
+    }
+
+    const found = after.slice(p, end);
+
+    if (found === tag) {
+      if (depth === 0) {
+        return p;
+      }
+
+      depth -= 1;
+    } else if (found.codePointAt(1) !== SLASH && nameOfTag(found, cx) === name) {
+      depth += 1;
+    }
+  }
+
+  return c;
 }
 
 // A wrapper minted around lifted markup stays when the markup it holds is whole; one that would
@@ -1936,7 +1996,9 @@ function settleWrappers(after, out, toks, inserted, cx) {
         return null;
       }
 
-      pairs.push([open[0], open[1], at, end]);
+      const close = ownClose(after, open[1], at, end, cx);
+
+      pairs.push([open[0], open[1], close, close + end - at]);
     } else {
       stack.push([at, end]);
     }
@@ -2073,9 +2135,6 @@ function looseTags(text, tags) {
   return found;
 }
 
-// ---------------------------------------------------------------------------------------------
-// One rule on the lifted text.
-
 // `state` with the tokens that stand within `spans`, `[from, to, …]`, back in the visible text. A
 // tag goes back without its mate, which stays lifted where the rule reads past it; `cx.loose` is
 // the tags put back so, for the wrappers the rule mints around them.
@@ -2141,17 +2200,218 @@ function putBack(state, spans, cx) {
 // marked-up text.
 const ROUNDS = 4;
 
+// A rule whose small replacements preserve character order can keep the author's anchors on the
+// surviving characters. An insertion at a boundary stands outside the adjacent elements, as it
+// does for a whitespace-only change in realign().
+function projectEdits(state, after, cx, edits) {
+  const { pos, toks, visible } = state;
+  const mapped = [];
+  let k = 0;
+  let shift = 0;
+  for (const { start, end, text } of edits) {
+    while (k < pos.length && pos[k] < start) {
+      mapped.push(pos[k++] + shift);
+    }
+    const next = start + shift;
+    if (start === end) {
+      while (k < pos.length && pos[k] === start && toks.flag[k] & CLOSER) {
+        mapped.push(next);
+        k++;
+      }
+    }
+    // When spaces and a dash collapse to one glyph, keep the glyph in its original element.
+    let content = start;
+    if (text.length && !isSpace(text.codePointAt(0))) {
+      while (content < end && isSpace(visible.codePointAt(content))) {
+        content++;
+      }
+    }
+    while (k < pos.length && pos[k] < end) {
+      mapped.push(next + Math.max(0, Math.min(pos[k++] - content, text.length)));
+    }
+    shift += text.length - (end - start);
+  }
+  while (k < pos.length) {
+    mapped.push(pos[k++] + shift);
+  }
+  const touched = touchedStandIns(state, after, mapped, cx, false);
+  cx.near = touched || null;
+  if (touched !== null) {
+    return null;
+  }
+  return { visible: after, pos: mapped, toks };
+}
+
+// A compact separator and an ordinary suffix gap already enter the date rule directly.
+function* spacedYearRanges(visible, cx, projectGaps) {
+  let collapse;
+  for (const match of visible.matchAll(cx.yearRange)) {
+    const separator = match[3];
+    const { suffixGap } = match.groups;
+    const lead = match[1];
+    const repeatedGap = suffixGap?.length > 1 || isSpace(lead.codePointAt(lead.length - 2));
+    if (separator.length > 1 || (projectGaps && repeatedGap)) {
+      yield match;
+    } else if (suffixGap && suffixGap !== ' ' && suffixGap !== G.NBSP) {
+      // Preserve an author's period when an enabled gap rule lets the date reader see its suffix.
+      collapse ??= cx.collapsesSpaces();
+      if (!collapse || /[^ \t]/u.test(suffixGap)) {
+        yield match;
+      }
+    }
+  }
+}
+
+// These rules only change spaces, dashes or terminal punctuation. Both endpoints of a word or
+// number therefore map to the same word or number in the result, even when two long space runs
+// on either side are identical. A dash run can contract to a different dash at the same place.
+function orderedSpacingEdits(before, after, checkBudget) {
+  const anchors = /[\p{L}\p{N}]+|([-–—−]+)/gu;
+  const next = after.matchAll(anchors);
+  const edits = [];
+  let from = 0;
+  let to = 0;
+  let anchorCount = 0;
+  const gap = (a, b) => {
+    const previous = before.slice(from, a);
+    const following = after.slice(to, b);
+    if (previous !== following) {
+      for (const edit of replacementEdits(previous, following, checkBudget)) {
+        edits.push({ start: from + edit.start, end: from + edit.end, text: edit.text });
+      }
+    }
+  };
+  for (const left of before.matchAll(anchors)) {
+    if ((anchorCount++ & 0xff) === 0) {
+      checkBudget?.('changes');
+    }
+    const right = next.next().value;
+    if (!right) {
+      return null;
+    }
+    gap(left.index, right.index);
+    from = left.index + left[0].length;
+    to = right.index + right[0].length;
+    if (left[0] !== right[0]) {
+      if (!left[1] || !right[1]) {
+        return null;
+      }
+      edits.push({ start: left.index, end: from, text: right[0] });
+    }
+  }
+  if (!next.next().done) {
+    return null;
+  }
+  gap(before.length, after.length);
+  return edits;
+}
+
+// Try ordinary alignment first, so markup unrelated to an authored range keeps its usual
+// treatment. Only a change inside the original spaced form can bypass the nearby-word retry.
+function alignSpacedYears(state, after, cx, checkBudget, projectGaps) {
+  const ordinary = realign(state, after, cx);
+  if (ordinary !== null || !/[-—−–]/u.test(state.visible)) {
+    return ordinary;
+  }
+  const { visible } = state;
+  const matches = spacedYearRanges(visible, cx, projectGaps);
+  let range = matches.next().value;
+  if (!range) {
+    return null;
+  }
+  const originalNear = cx.near;
+  const edits = [];
+  const changes = orderedSpacingEdits(visible, after, checkBudget);
+  if (changes === null) {
+    return null;
+  }
+  for (const edit of changes) {
+    while (range && range.index + range[0].length <= edit.start) {
+      range = matches.next().value;
+    }
+    if (!range) {
+      break;
+    }
+    if (range.index <= edit.start && edit.end <= range.index + range[0].length) {
+      edits.push(edit);
+    }
+  }
+  if (edits.length === 0) {
+    return null;
+  }
+  if (edits.length === changes.length) {
+    return projectEdits(state, after, cx, edits);
+  }
+  // Other edits on this line still need ordinary alignment, including its nearby-word checks.
+  const parts = [];
+  let cursor = 0;
+  for (const { start, end, text } of edits) {
+    parts.push(visible.slice(cursor, start), text);
+    cursor = end;
+  }
+  parts.push(visible.slice(cursor));
+  const partial = projectEdits(state, parts.join(''), cx, edits);
+  const next = partial && realign(partial, after, cx);
+  if (next === null) {
+    cx.near = originalNear;
+  }
+  return next;
+}
+
+// Every rule reading the lifted text gets the projection that restores the authored markup, so the
+// no-wrap context it asks about is the one it finds in the same text written without that markup.
 function run(state, rule, ctx, keep, cx, checkBudget) {
   const before = state.visible;
+
+  bindNowrapSource(
+    ctx,
+    before,
+    () => {
+      const source = materialize(state);
+      let cursor = 0;
+      let shift = 0;
+      let last = -1;
+      return {
+        source,
+        at(offset, after) {
+          const limit = offset + (after ? 1 : 0);
+          // The ranges of neighbouring matches overlap, so an offset may stand before the last one
+          // asked. The markup counted past it is taken back from where the count stands: counted
+          // again from the start, every match would read all the markup before it.
+          if (offset < last) {
+            while (cursor > 0) {
+              const start = state.pos[cursor - 1];
+              const held = state.toks.flag[cursor - 1] & STANDS_IN;
+              if (start < limit && !(held && offset < start + STAND_IN.length)) {
+                break;
+              }
+              cursor -= 1;
+              shift -= state.toks.str[cursor].length - (held ? STAND_IN.length : 0);
+            }
+          }
+          last = offset;
+          while (cursor < state.pos.length && state.pos[cursor] < limit) {
+            const start = state.pos[cursor];
+            const held = state.toks.flag[cursor] & STANDS_IN;
+            if (held && offset < start + STAND_IN.length) {
+              return start + shift;
+            }
+            shift += state.toks.str[cursor].length - (held ? STAND_IN.length : 0);
+            cursor += 1;
+          }
+          return offset + shift;
+        }
+      };
+    },
+    state.pos.length !== 0
+  );
 
   cx.mintLog.clear();
   cx.mints = cx.mintLog;
 
   try {
     const projection = ruleTraceOf(ctx) === undefined ? undefined : traceProjection(state);
-    return keep(before, executeRule(rule, before, ctx, checkBudget, projection), (t) =>
-      executeRule(rule, t, ctx, checkBudget)
-    );
+    return executeKeptRule(rule, before, ctx, keep, checkBudget, projection);
   } catch (error) {
     cx.mints = null;
     throw error;
@@ -2161,8 +2421,7 @@ function run(state, rule, ctx, keep, cx, checkBudget) {
 // Runs `rule` on the lifted text and returns the next state. Where the lifted run changed words near
 // lifted markup, the rule runs again with that markup back in the text, as it reads it there without
 // lifting; past a few such places, on the marked-up text.
-export function applyLifted(state, rule, ctx, keep, cx, checkBudget = null) {
-  cx.mintLog ??= new Set();
+function applyLifted(state, rule, ctx, keep, cx, checkBudget = null) {
   cx.loose = null;
 
   let current = state;
@@ -2177,7 +2436,15 @@ export function applyLifted(state, rule, ctx, keep, cx, checkBudget = null) {
     return next;
   }
 
-  let next = realign(current, after, cx);
+  let align = realign;
+  if (rule.projectEdits) {
+    align = (s, output, context) =>
+      projectEdits(s, output, context, replacementEdits(s.visible, output, checkBudget));
+  } else if (rule.projectSpacedYears && cx.yearRange) {
+    const projectGaps = rule.projectSpacedYears === 'gaps';
+    align = (s, output, context) => alignSpacedYears(s, output, context, checkBudget, projectGaps);
+  }
+  let next = align(current, after, cx);
 
   for (let round = 0; next === null && cx.near !== null && round < ROUNDS; round++) {
     current = putBack(current, cx.near, cx);
@@ -2185,7 +2452,7 @@ export function applyLifted(state, rule, ctx, keep, cx, checkBudget = null) {
     next =
       current.pos.length === 0 || after === current.visible
         ? { visible: after, pos: current.pos, toks: current.toks }
-        : realign(current, after, cx);
+        : align(current, after, cx);
   }
 
   cx.mints = null;
@@ -2200,12 +2467,7 @@ export function applyLifted(state, rule, ctx, keep, cx, checkBudget = null) {
 
   const input = materialize(state);
 
-  const fallback = relift(
-    keep(input, executeRule(rule, input, ctx, checkBudget), (t) =>
-      executeRule(rule, t, ctx, checkBudget)
-    ),
-    cx
-  );
+  const fallback = relift(executeKeptRule(rule, input, ctx, keep, checkBudget), cx);
   acceptTrace(ctx, fallback);
   return settle(fallback, rule, ctx, keep, cx, checkBudget);
 }
@@ -2316,9 +2578,6 @@ function relift(text, cx) {
   return lift(text, cx) ?? bare(text);
 }
 
-// ---------------------------------------------------------------------------------------------
-// One builtin group.
-
 // A group's text as the marked-up text, the lifted run, or both: `marked` is null once a rule changed
 // the lifted run, `state` once a rule changed the marked-up text. Nothing is lifted before the first
 // rule that reads the lifted run, and the lifting is kept from one group to the next while the text
@@ -2372,9 +2631,7 @@ export function applyRule(group, rule, ctx, keep, cx, features = null, checkBudg
     if (features !== null && !hasRequiredFeatures(rule, input, features)) {
       return;
     }
-    const output = keep(input, executeRule(rule, input, ctx, checkBudget), (t) =>
-      executeRule(rule, t, ctx, checkBudget)
-    );
+    const output = executeKeptRule(rule, input, ctx, keep, checkBudget);
 
     group.marked = output;
     ruleTraceOf(ctx)?.accept();
@@ -2399,7 +2656,8 @@ export function applyRule(group, rule, ctx, keep, cx, features = null, checkBudg
   const next = applyLifted(state, rule, ctx, keep, cx, checkBudget);
 
   if (next !== state) {
-    group.state = next;
+    // An apostrophe keeps adjacent markup in place; a foot mark leaves the label transparent.
+    group.state = rule.changesInlineBoundary && !cx.bare ? relift(materialize(next), cx) : next;
     group.marked = null;
   }
 }

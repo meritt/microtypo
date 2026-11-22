@@ -7,7 +7,7 @@ import { tagSpans } from '../../src/protect/tag-spans.js';
 test('raw and RCDATA HTML bodies own tag-looking text and leave following markup outside', () => {
   for (const input of ['text', 'html']) {
     const typo = new MicroTypo({ input });
-    for (const tag of ['xmp', 'noembed', 'title']) {
+    for (const tag of ['xmp', 'noembed']) {
       assert.equal(
         typo.process(`<${tag}>Корвин - "принц"</${tag}>Амбер - город`),
         `<${tag}>Корвин - "принц"</${tag}>Амбер\u{00A0}— город`
@@ -22,6 +22,73 @@ test('raw and RCDATA HTML bodies own tag-looking text and leave following markup
       assert.equal(typo.process(unclosed), unclosed);
     }
     assert.equal(typo.process('<div>Корвин - принц</div>'), '<div>Корвин\u{00A0}— принц</div>');
+  }
+});
+
+test('a document title is typeset as text that holds no markup', () => {
+  for (const [config, source, expected] of [
+    [
+      { input: 'html' },
+      '<title>Хроники Амбера - "Как устроен Лабиринт"</title>',
+      '<title>Хроники Амбера\u{00A0}— «Как устроен Лабиринт»</title>'
+    ],
+    [
+      {},
+      '<html><head><title>Глава "Начало" - 2024 г.</title></head><body><p>Текст</p></body></html>',
+      '<html><head><title>Глава «Начало»\u{00A0}— 2024\u{00A0}г.</title></head><body><p>Текст</p></body></html>'
+    ],
+    // Character references stay as written, and the rest of the glyphs are spelled as the document's.
+    [
+      { input: 'html', entities: true },
+      '<title>Он &amp; она - "Лес" &lt;b&gt;</title><p>Текст</p>',
+      '<title>Он &amp; она&nbsp;&mdash; &laquo;Лес&raquo; &lt;b&gt;</title><p>Текст</p>'
+    ],
+    // No wrapper goes in: its spaces become no-break ones.
+    [
+      { input: 'html', html: true },
+      '<title>Т.Г. Шевченко - 12-15 января</title>',
+      '<p><title>Т.\u{00A0}Г.\u{00A0}Шевченко\u{00A0}— 12–15\u{00A0}января</title></p>'
+    ],
+    // Tags and comments in a body are kept as the document keeps them: inside `<svg>` a tag is real
+    // markup, whose attribute quotes are never prose. An unfinished tag keeps the rest of the body,
+    // the markup after the title is the document's, and a lone `<` is still text.
+    [
+      {},
+      '<svg><title><tspan>Логотип - "Амбер"</tspan></title></svg>',
+      '<svg><title><tspan>Логотип\u{00A0}— «Амбер»</tspan></title></svg>'
+    ],
+    [
+      { input: 'html' },
+      '<title>Глава 1 <b>"жирно"</b> - да <!-- "заметка" - тут --></title>',
+      '<title>Глава 1 <b>«жирно»</b>\u{00A0}— да <!-- "заметка" - тут --></title>'
+    ],
+    [
+      { input: 'html', html: true },
+      '<title>Т.Г. Шевченко <b>12-15</b> января</title>',
+      '<p><title>Т.\u{00A0}Г.\u{00A0}Шевченко <b>12–15</b>\u{00A0}января</title></p>'
+    ],
+    [
+      { input: 'html' },
+      '<title><svg><x title=" Корвин - принц</title><script/>"код" - да</script>Амбер - город',
+      '<title><svg><x title=" Корвин - принц</title><script/>"код" - да</script>Амбер\u{00A0}— город'
+    ],
+    [
+      {},
+      '<svg><title><img alt=" x "><img alt="src=x onerror=alert(1)//" title=""></title></svg>',
+      '<svg><title><img alt=" x "><img alt="src=x onerror=alert(1)//" title=""></title></svg>'
+    ],
+    [
+      {},
+      '<svg><title>Логотип - "Амбер"</title></svg>',
+      '<svg><title>Логотип\u{00A0}— «Амбер»</title></svg>'
+    ],
+    [{ input: 'html' }, '<title>a < b - "c"</title>', '<title>a < b\u{00A0}— «c»</title>'],
+    // A form value stays as written.
+    [{ input: 'html' }, '<textarea>Он - "да"</textarea>', '<textarea>Он - "да"</textarea>']
+  ]) {
+    const typo = new MicroTypo(config);
+    assert.equal(typo.process(source), expected);
+    assert.equal(typo.process(expected), expected);
   }
 });
 

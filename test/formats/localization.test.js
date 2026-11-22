@@ -123,3 +123,24 @@ test('ICU-looking syntax inside Markdown code remains protected as code', () => 
   const source = '`{n, plural, one {Код - текст} other {Код - тексты}}`';
   assert.equal(microtypo(source, { input: { format: 'markdown', placeholders: 'all' } }), source);
 });
+
+test('XML numeric references remain whole beside ICU plural counts', () => {
+  const options = {
+    input: { format: 'xml', placeholders: 'all' },
+    entities: true,
+    rules: { 'quote.close': false }
+  };
+  const before = '<doc><note>Редактор оставил «название " город</note><p>{n, plural, ';
+  const after = '<doc><note>Редактор оставил &#171;название " город</note><p>{n, plural, ';
+  for (const [branches, expected] of [
+    ['one {# "день"} other {# "дня"}', 'one {# &#171;день"} other {# &#171;дня"}'],
+    [
+      'one {# &#x00AB;день" и #} other {# &#0171;дня"}',
+      'one {# &#x00AB;день" и #} other {# &#0171;дня"}'
+    ]
+  ]) {
+    const output = `${after + expected}}</p></doc>`;
+    assert.equal(microtypo(`${before + branches}}</p></doc>`, options), output);
+    assert.equal(microtypo(output, options), output);
+  }
+});
