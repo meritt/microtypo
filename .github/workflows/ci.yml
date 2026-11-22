@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
@@ -14,7 +15,7 @@ defaults:
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -23,11 +24,26 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+    outputs:
+      digest: ${{ steps.package.outputs.digest }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: ${{ github.ref_type == 'tag' && '0' || '1' }}
           persist-credentials: false
+
+      - name: Identity
+        if: github.ref_type == 'tag'
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          if [[ ! "$REF" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] ||
+             [ "$(jq -r '.name + "@" + .version' package.json)" != "microtypo@${REF#v}" ] ||
+             ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::release tag, package version, or main ancestry differs"
+            exit 1
+          fi
 
       - name: Setup
         uses: pnpm/setup@731dfb6463bbd11c11fd0ee11fe00ed0e36d48a1 # v3.2.0
@@ -61,3 +77,142 @@ jobs:
 
       - name: Budget
         run: pnpm test:perf
+
+      - name: Package
+        id: package
+        run: |
+          version="$(jq -r .version package.json)"
+          release="$RUNNER_TEMP/release"
+          pnpm pack --pack-destination "$release"
+          jq '.name = "@meritt/microtypo"' package.json > "$RUNNER_TEMP/package.json"
+          mv "$RUNNER_TEMP/package.json" package.json
+          pnpm_config_ignore_scripts=true pnpm pack --pack-destination "$release"
+          git checkout -- package.json
+          cd "$release"
+          sha256sum "microtypo-$version.tgz" "meritt-microtypo-$version.tgz" > SHA256SUMS
+          echo "digest=$(sha256sum SHA256SUMS | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload
+        if: github.ref_type == 'tag'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  release:
+    name: Release
+    if: github.ref_type == 'tag'
+    needs: test
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+      packages: write
+    env:
+      COMMIT: ${{ github.sha }}
+      DIGEST: ${{ needs.test.outputs.digest }}
+      GH_REPO: ${{ github.repository }}
+      REF: ${{ github.ref_name }}
+    defaults:
+      run:
+        working-directory: release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: package.json
+          sparse-checkout-cone-mode: false
+
+      - name: Setup
+        uses: pnpm/setup@731dfb6463bbd11c11fd0ee11fe00ed0e36d48a1 # v3.2.0
+        with:
+          install: false
+
+      - name: Download
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: release
+
+      - name: Verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          reference="$(gh api "repos/$GH_REPO/git/ref/tags/$REF" --jq '.object.sha + " " + .object.type')"
+          tagged="${reference%% *}"
+          if [[ "$reference" == *' tag' ]]; then
+            tagged="$(gh api "repos/$GH_REPO/git/tags/$tagged" --jq .object.sha)"
+          fi
+          files=(*)
+          if [ "$tagged" != "$COMMIT" ] || [ "${#files[@]}" -ne 3 ] ||
+             [ "$(sha256sum SHA256SUMS | cut -d ' ' -f 1)" != "$DIGEST" ]; then
+            echo "::error::release input is not the tested set for the tagged commit"
+            exit 1
+          fi
+          sha256sum --check --strict SHA256SUMS
+
+      - name: Attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: release/SHA256SUMS
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$REF" > /dev/null 2>&1; then
+            gh release create "$REF" --verify-tag --draft --title "$REF" --notes ""
+          fi
+          if [ "$(gh release view "$REF" --json isDraft --jq .isDraft)" = true ]; then
+            gh release upload "$REF" --clobber ./*
+            gh release download "$REF" --dir "$RUNNER_TEMP/readback" --clobber
+            for asset in *; do
+              cmp "$asset" "$RUNNER_TEMP/readback/$asset"
+            done
+            if [ "$(gh release view "$REF" --json assets --jq '.assets | length')" -ne 3 ]; then
+              echo "::error::release holds assets other than the tested set"
+              exit 1
+            fi
+            gh release edit "$REF" --draft=false --latest
+          fi
+
+      - name: Immutability
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in {1..30}; do
+            if gh release verify "$REF"; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "::error::release attestation was not available after 30 attempts"
+              exit 1
+            fi
+            sleep 2
+          done
+          for asset in *; do
+            gh release verify-asset "$REF" "$asset"
+          done
+
+      - name: Ship
+        env:
+          PNPM_CONFIG__AUTH: |
+            {"https://npm.pkg.github.com": {"@meritt": {"authToken": ${{ toJSON(github.token) }}}}}
+          REGISTRY: https://npm.pkg.github.com
+        run: |
+          spec="@meritt/microtypo@${REF#v}"
+          tarball="meritt-microtypo-${REF#v}.tgz"
+          integrity="sha512-$(openssl dgst -sha512 -binary "$tarball" | base64 -w0)"
+          if [[ "$(pnpm view "$spec" dist.integrity --registry "$REGISTRY" 2> /dev/null)" != sha512-* ]]; then
+            pnpm publish "$tarball" --registry "$REGISTRY" --no-git-checks --publish-wait-timeout 60000
+          fi
+          if [ "$(pnpm view "$spec" dist.integrity --registry "$REGISTRY")" != "$integrity" ]; then
+            echo "::error::GitHub Packages holds different bytes for $spec"
+            exit 1
+          fi
