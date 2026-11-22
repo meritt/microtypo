@@ -1,4 +1,4 @@
-{"corpus":"microtypo-conformance","schema":1,"engine":"0.3.1","cases":63679}
+{"corpus":"microtypo-conformance","schema":1,"engine":"0.3.1","cases":63702}
 {"id":"0000d8619f71c7f6","config":{"input":"xml","rules":{"quote.*":false}},"ops":[],"text":"<p>«Лес»\"Город\"</p>","expect":{"output":"<p>«Лес»\"Город\"</p>"}}
 {"id":"0001a58801df65db","config":{"html":false},"ops":[],"text":"«ююя»«b»","expect":{"output":"«ююя»«b»"}}
 {"id":"000301a75617cecd","config":{"html":false},"ops":[],"text":"axя юx «axя» xaю","expect":{"output":"axя юx «axя» xaю"}}
@@ -502,7 +502,6 @@
 {"id":"020972869449409e","config":{"html":false},"ops":[],"text":"xa «xbяa» axa «b»","expect":{"output":"xa «xbяa» axa «b»"}}
 {"id":"0209a3225e03abf7","config":{"input":{"format":"yaml","exclude":["/a"]}},"ops":[],"text":"{ ? a : \"Корвин - принц\" }","expect":{"output":"{ ? a : \"Корвин - принц\" }"}}
 {"id":"020a914c8f2b52cd","config":{"html":true,"rules":{"date.month_range":true,"text.paragraphs":false,"hanging.*":false},"input":"html","entities":true},"ops":[],"text":" \t Турнир в Амбере пройдёт в апреле-мае этого года.","expect":{"output":" \t Турнир в&nbsp;Амбере пройдёт в&nbsp;апреле&ndash;мае этого года."}}
-{"id":"020cc07a1dd6d100","config":{"input":"html","html":false},"ops":[],"text":"<b title=\"10 кг\">10</b> кг","options":{"trace":true,"edits":true},"expect":{"output":{"text":"<b title=\"10 кг\">10</b> кг","trace":[{"rule":"abbr.nbsp_weight_unit","kind":"regex","count":1,"ranges":[[17,26]]}],"edits":[{"start":23,"end":24,"text":" "}]}}}
 {"id":"020d01703572be3c","config":{"input":{"format":"text","template":"handlebars"},"html":false,"entities":false},"ops":[],"text":"    тихий  морской  ветер","expect":{"output":"    тихий морской ветер"}}
 {"id":"020fe21af7214a4a","config":{"html":true,"entities":"false","input":"toml","rules":{"abbr.nbsp_money_magnitude":"1","symbol.fahrenheit":0,"date.day_month_range":"false","nbsp":1}},"ops":[{"method":"setLayout","args":["both"]}],"text":"title = \"Кейн, т.е. Блейз, т. е. Бранд, съел пирог.\"\nn = 1\n\n[body]\ntext = \"http://simonenko.xyz/the-best-microtypo.html\\nКозырь: http://simonenko.xyz/A0SAFESEQUENCENUM1ID \"\n\n{% if a %}\"b\"{% endif %}","options":{"changes":true},"expect":{"error":{"name":"MicroTypoInputError","message":"Empty TOML key segment at offset 174","code":"ERR_MICROTYPO_INPUT","details":{"offset":174}}}}
 {"id":"02102bfcda90745c","config":{"html":false},"ops":[],"text":"«xx»baя","expect":{"output":"«xx»baя"}}
@@ -512,7 +511,6 @@
 {"id":"02134feb8537765e","config":{"html":true},"ops":[],"text":"<p>юaax b</p>","expect":{"output":"<p>юaax b</p>"}}
 {"id":"0214e2e70df45567","config":{"html":true},"ops":[],"text":"<p>«яbюa» «яxяя»</p>","expect":{"output":"<p>«яbюa» «яxяя»</p>"}}
 {"id":"0215335951a9192a","config":{"html":false},"ops":[],"text":"«юxя» «яbaя» «яюю»","expect":{"output":"«юxя» «яbaя» «яюю»"}}
-{"id":"0216347d82df189e","ops":[],"text":"$a - b$","expect":{"output":"$a — b$"}}
 {"id":"0218b5ad81660c44","config":{"input":"xml","entities":false},"ops":[],"text":"<p>\"верх \"низ &quot;мир <em>&quot;пруд&#34;</em>&#34;\"\"</p>","expect":{"output":"<p>«верх „низ &quot;мир <em>&quot;пруд&#34;</em>&#34;“»</p>"}}
 {"id":"0218e8a914b92227","config":{"html":true,"entities":"false","input":{"format":"yaml","exclude":["body.*"]},"render":{"autolink":"1","breakline":false,"nowrap":"nobr"},"rules":{"currency":"on","nobr.nbsp_celsius":false}},"ops":[],"text":"title: \"Крепость Амбера № 214 в Ребме\"\nbody: |\n  «Летопись Амбера» — свод, составленный по материалам сборника «О правлении и королях» Оберона Первого Дворкина, который со времён Первого Отражения собирал выдержки из хроник, преданий, песен, писем и свитков, где так или иначе затрагивается природа королевской власти. Это собрание легло в основу обширной антологии, являющей суть и историю правления Амбера в первоисточниках.\nlist:\n  - 'Канцлер, хотя и чувствовал свое слабое недовольство, все таки радовался наличию таких стражей в дружине Амбера. Но хоть и велик был соблазн, я таки успел себя побороть.'\nn: 1\n","expect":{"output":"title: \"Крепость Амбера № 214 в Ребме\"\nbody: |\n  «Летопись Амбера» — свод, составленный по материалам сборника «О правлении и королях» Оберона Первого Дворкина, который со времён Первого Отражения собирал выдержки из хроник, преданий, песен, писем и свитков, где так или иначе затрагивается природа королевской власти. Это собрание легло в основу обширной антологии, являющей суть и историю правления Амбера в первоисточниках.\nlist:\n  - 'Канцлер, хотя и чувствовал свое слабое недовольство, все-таки радовался наличию таких стражей в дружине Амбера. Но хоть и велик был соблазн, я таки успел себя побороть.'\nn: 1\n"}}
 {"id":"02191e52f33e7c9b","config":{"html":false},"ops":[],"text":"«axя» я «a» b","expect":{"output":"«axя» я «a» b"}}
@@ -1914,7 +1912,6 @@
 {"id":"07d6de55bb075ceb","config":{"input":"xml","entities":false},"ops":[],"text":"<p>&quot;<em>лес</em>&quot;\"\"\"\"пруд\"\"\"\"</p>","expect":{"output":"<p>&quot;<em>лес</em>&quot;«„„„пруд“““»</p>"}}
 {"id":"07d86a4b851aeb09","config":{"html":false},"ops":[],"text":"\"яюяa\" \"xюxb\" яbюa ю","expect":{"output":"«яюяa» «xюxb» яbюa ю"}}
 {"id":"07d8998fd4917e98","config":{},"ops":[],"text":"Библиограф: «Най­дена „История „Москвы“ за 1946“ в переплёте».­В поле «» указано значение.","expect":{"output":"Библиограф: «Най­дена „История „Москвы“ за 1946“ в переплёте».­В поле «» указано значение."}}
-{"id":"07d8ad5377655af2","config":{"input":{"format":"markdown","template":"liquid"}},"ops":[],"text":"Пролог <span title=\"первая\n`  уложения  меж\tсверху`\">Корвин - принц</span>","expect":{"output":"Пролог <span title=\"первая\n`  уложения  меж\tсверху`\">Корвин — принц</span>"}}
 {"id":"07d8fb537b629b00","config":{"html":false},"ops":[],"text":"\"юxxю\" \"xb\" \"юaя\" \"ю\"","expect":{"output":"«юxxю» «xb» «юaя» «ю»"}}
 {"id":"07d988af4f4b63b3","config":{"html":true},"ops":[],"text":"ba«b»","expect":{"output":"<p>ba«b»</p>"}}
 {"id":"07dad88d4c5c1909","config":{"html":false,"entities":false,"input":{"format":"markdown"},"render":{"paragraphs":false}},"ops":[],"text":"> > ```\n> > const a = \"код - тут\";\n> > ```\n\nпроза - тут","expect":{"output":"> > ```\n> > const a = \"код - тут\";\n> > ```\n\nпроза — тут"}}
@@ -2145,6 +2142,7 @@
 {"id":"08b2a3a60e9ffc63","ops":[],"text":"Он: &quot;начало “начало “слово” конец” конец&quot;!","expect":{"output":"Он: «начало „начало „слово“ конец“ конец»!"}}
 {"id":"08b3400a2d95b53c","ops":[],"text":"«xя» «xx» «aaяю» юaя","expect":{"output":"«xя» «xx» «aaяю» юaя"}}
 {"id":"08b4cd19f4dccbb5","config":{"input":{"format":"yaml","fields":["/nothing0","/nothing1","/nothing2","/nothing3","/nothing4","/nothing5","/nothing6","/nothing7","/nothing8","/next"]}},"ops":[],"text":"{ ? {a: [b, c]} : { inner: \"Корвин - принц\" }, next: \"Эрик - король\" }","expect":{"output":"{ ? {a: [b, c]} : { inner: \"Корвин - принц\" }, next: \"Эрик — король\" }"}}
+{"id":"08b7301bd4d11357","config":{"input":{"format":"markdown","template":"liquid","attributes":[]}},"ops":[],"text":"Пролог <span title=\"первая\n`  уложения  меж\tсверху`\">Корвин - принц</span>","expect":{"output":"Пролог <span title=\"первая\n`  уложения  меж\tсверху`\">Корвин — принц</span>"}}
 {"id":"08b9187cee2262ca","config":{"html":true},"ops":[],"text":"bя \"яюя\" \"x\"","expect":{"output":"<p>bя «яюя» «x»</p>"}}
 {"id":"08ba658c5b632a27","config":{"html":true},"ops":[],"text":"<p>«aa» «a» «яbxя» «bюю»</p>","expect":{"output":"<p>«aa» «a» «яbxя» «bюю»</p>"}}
 {"id":"08ba8d0e621a52ad","config":{"html":true},"ops":[],"text":"\"яюю\" \"aa\" x","expect":{"output":"<p>«яюю» «aa» x</p>"}}
@@ -3690,6 +3688,7 @@
 {"id":"0ebdf335e411a174","ops":[],"text":"юx«bbx»ююяя«b»","expect":{"output":"юx«bbx»ююяя«b»"}}
 {"id":"0ebe963aaa3bafa6","config":{"html":true},"ops":[],"text":"<p>«юяa»bю</p>","expect":{"output":"<p>«юяa»bю</p>"}}
 {"id":"0ebf17e500c68965","config":{"html":false},"ops":[],"text":"\"юxю\"","expect":{"output":"«юxю»"}}
+{"id":"0ebf1c100b52f979","config":{"html":false,"input":{"placeholders":"off"}},"ops":[],"text":"${a - b} - текст","expect":{"output":"${a — b} — текст"}}
 {"id":"0ebf8bd59066e107","config":{"html":false},"ops":[],"text":"я яaax","expect":{"output":"я яaax"}}
 {"id":"0ebfa4574ad724cd","config":{"html":true,"entities":"off","input":{"format":"markdown"}},"ops":[],"text":"# (С) 1999-2003г., ООО \"Фирма \"Единорог\". Все права защищены.\n\nи тд и тп.\n\n- Поединки принцев состоятся 14-24 сентября, в тронном зале Амбера с 11:30-13:00.\n\n```\ncode - \"x\" -- 'y'\n```\n\n> (С) 1999-2003г., ООО \"Фирма \"Единорог\". Все права защищены. `a - b` [ссылка](http://example.com/a-b \"t\")\n","expect":{"output":"# © 1999–2003 гг., ООО «Фирма «Единорог». Все права защищены.\n\n<span style=\"white-space:nowrap;\">и т. д.</span> <span style=\"white-space:nowrap;\">и т. п.</span>\n\n- Поединки принцев состоятся 14–24 сентября, в тронном зале Амбера <span style=\"white-space:nowrap;\">с 11:30–13:00</span>.\n\n```\ncode - \"x\" -- 'y'\n```\n\n> © 1999–2003 гг., ООО «Фирма «Единорог». Все права защищены. `a - b` [ссылка](http://example.com/a-b \"t\")\n"}}
 {"id":"0ec10150fa94e413","config":{"input":{"format":"mdx","template":"liquid"}},"ops":[{"method":"addSafeTag","args":["sample"]}],"text":"{% raw %}<span title=\"{% endraw %}<code>{% raw %}</code> Корвин - принц {% endraw %}","expect":{"output":"{% raw %}<span title=\"{% endraw %}<code>{% raw %}</code> Корвин — принц {% endraw %}"}}
@@ -3714,6 +3713,7 @@
 {"id":"0ece47e2942398e2","config":{"html":true},"ops":[],"text":"«яa» xя","expect":{"output":"<p>«яa» xя</p>"}}
 {"id":"0ecf6ed870eb3459","config":{"html":false},"ops":[],"text":"юx яxb «ax»","expect":{"output":"юx яxb «ax»"}}
 {"id":"0ecfae4417deb686","config":{"html":true},"ops":[],"text":"xab bbю \"яяx\"","expect":{"output":"<p>xab bbю «яяx»</p>"}}
+{"id":"0ecfc2eaac2c7fb6","config":{"entities":true,"input":"markdown"},"ops":[],"text":"$&nbsp;2 - b$","expect":{"output":"$&nbsp;2&nbsp;&mdash; b$"}}
 {"id":"0ed0904a706448fe","config":{"html":false},"ops":[],"text":"«x»«xaax»","expect":{"output":"«x»«xaax»"}}
 {"id":"0ed1c88bc53bfa5f","config":{"html":true,"render":{"paragraphs":false},"rules":{"hanging.*":false}},"ops":[],"text":"Корвин заплатил 100 руб. <notg>за книгу</notg>","expect":{"output":"Корвин заплатил 100 ₽ <span class=\"_notg_start\"></span>за книгу<span class=\"_notg_end\"></span>"}}
 {"id":"0ed2c893acb273b5","config":{"html":true},"ops":[],"text":"«bяxa»","expect":{"output":"<p>«bяxa»</p>"}}
@@ -7389,7 +7389,7 @@
 {"id":"1d500570da14c15a","config":{"html":true},"ops":[],"text":"bbюb \"baax\" \"яяxx\"","expect":{"output":"<p>bbюb «baax» «яяxx»</p>"}}
 {"id":"1d50a1406701d133","config":{"html":false},"ops":[],"text":"«ююbю»x","expect":{"output":"«ююbю»x"}}
 {"id":"1d51f94b53715bb3","config":{"html":false,"entities":true,"rules":{"quote.nested":false}},"ops":[],"text":"(С) 1999-2003г., ООО \"Фирма \"Единорог\". Все права защищены.\n\nФиона добавила: \"И цвет мой самый любимый - \"изумруд\"\".","expect":{"output":"&copy;&nbsp;1999&ndash;2003&nbsp;гг., ООО&nbsp;&laquo;Фирма &laquo;Единорог&raquo;. Все права защищены.\n\nФиона добавила: &laquo;И&nbsp;цвет мой самый любимый&nbsp;&mdash; &laquo;изумруд&raquo;&raquo;."}}
-{"id":"1d51fdd30df81901","config":{"input":"markdown"},"ops":[],"text":"работа на всём пути - $W = k L^2 / 2$","expect":{"output":"работа на всём пути — $W = k L^2 / 2 $"}}
+{"id":"1d51fdd30df81901","config":{"input":"markdown"},"ops":[],"text":"работа на всём пути - $W = k L^2 / 2$","expect":{"output":"работа на всём пути — $W = k L^2 / 2$"}}
 {"id":"1d54da30e8afb41d","config":{"html":"off","input":"html","render":{"breakline":0},"rules":{"abbr.nbsp_weight_unit":0,"nobr.nowrap_phone":"off","symbol.fahrenheit":0,"nobr.nbsp_short_word":0},"maxInputLength":10},"ops":[],"text":"<p>сообщила летописцу сайта XXX.RU Дейдра Обероновна</p>\n<pre><notg>хроника Амбера</notg></pre>","expect":{"error":{"name":"MicroTypoInputError","message":"Input length 95 exceeds maxInputLength (10)","code":"ERR_MICROTYPO_INPUT","details":{"length":95,"max":10}}}}
 {"id":"1d555ba391295e93","config":{"html":true},"ops":[],"text":"\"bax\" bяюa \"xяя\" ю","expect":{"output":"<p>«bax» bяюa «xяя» ю</p>"}}
 {"id":"1d5665ceadafbf55","config":{"html":true,"rules":{"text.paragraphs":false,"hanging.*":false},"input":"text","entities":true},"ops":[],"text":"Пролог.\n \t Фиона поймала баг: если в статье есть ссылки вроде http://www.amber.example/questions/693440-tropy-ambera-cherez-otrazhenija.html (обратите внимание на цифры и дефис после них).","expect":{"output":"Пролог.<br>\n \t Фиона поймала баг: если в&nbsp;статье есть ссылки вроде <a href=\"http://www.amber.example/questions/693440-tropy-ambera-cherez-otrazhenija.html\">www.amber.example/questions/693440-tropy-ambera-cherez-otrazhenija.html</a> (обратите внимание на&nbsp;цифры и&nbsp;дефис после них)."}}
@@ -7843,6 +7843,7 @@
 {"id":"1ef111222b7ec011","config":{"html":false},"ops":[],"text":"«baяx» юю я","expect":{"output":"«baяx» юю я"}}
 {"id":"1ef1b7610a774e30","config":{"html":false,"input":{"format":"toml"},"render":{"prefix":false}},"ops":[{"method":"addSafeBlock","args":[{"id":"mark","open":"\\[\\[","close":"\\]\\]"}]}],"text":"title = \"arden.ambersource.co.uk\"\nn = 1\n\n[body]\ntext = \"после 19.00 отступить от Колвира\"\n","expect":{"output":"title = \"arden.ambersource.co.uk\"\nn = 1\n\n[body]\ntext = \"после 19.00 отступить от Колвира\"\n"}}
 {"id":"1ef2afe083bc27f6","config":{"html":true,"rules":{"text.paragraphs":false,"hanging.*":false},"input":"html","entities":true},"ops":[],"text":"Пролог.\n \t и тд и тп.","expect":{"output":"Пролог.<br>\n \t <span style=\"white-space:nowrap;\">и т. д.</span> <span style=\"white-space:nowrap;\">и т. п.</span>"}}
+{"id":"1ef63883c25931da","config":{"html":false,"input":{"placeholders":"all"}},"ops":[],"text":"O''Really, {name}!","expect":{"output":"O’Really, {name}!"}}
 {"id":"1ef70790ac98f95d","config":{"html":true},"ops":[],"text":"<p>яbяb я яaя «я»</p>","expect":{"output":"<p>яbяb я яaя «я»</p>"}}
 {"id":"1ef7a01634bdfbb1","config":{"input":"html","html":false},"ops":[],"text":"<h1>\"слово <em>другое</em>\"</h1>","expect":{"output":"<h1>«слово <em>другое</em>»</h1>"}}
 {"id":"1ef86698c661de11","config":{"html":true},"ops":[],"text":"«aяx»","expect":{"output":"<p>«aяx»</p>"}}
@@ -8314,7 +8315,6 @@
 {"id":"20d431407e478a2a","config":{"html":false},"ops":[],"text":"«aa» bяxb я","expect":{"output":"«aa» bяxb я"}}
 {"id":"20d4424e80032f72","config":{"html":true,"entities":false,"rules":{"text.autolink":false}},"ops":[],"text":"1 января 2009","expect":{"output":"<p>1 января 2009</p>"}}
 {"id":"20d51774125cb932","config":{"entities":"on","input":{"format":"frontmatter"},"render":{"paragraphs":"1","autolink":false,"breakline":true,"hanging":"class"},"rules":{}},"ops":[],"text":"---\ntitle: \"На верфь Амбера завезли 32 м3 леса, из которых 4м3 пустили под распил на 25мм брусья, длинной по 6м.\"\n---\n\nЗамысел Дворкина:ясен.","expect":{"output":"---\ntitle: \"На верфь Амбера завезли 32 м³ леса, из которых 4 м³ пустили под распил на 25 мм брусья, длинной по 6 м.\"\n---\n\nЗамысел Дворкина: ясен."}}
-{"id":"20d6a3b68c97bc80","config":{"input":"markdown"},"ops":[],"text":"$a - b = 0 $","expect":{"output":"$a - b = 0 $"}}
 {"id":"20d7caedcea9dfda","config":{},"ops":[],"text":"Copyright (с) Автор","expect":{"output":"Copyright © Автор"}}
 {"id":"20d908e76f3a64fe","config":{"input":"markdown"},"ops":[],"text":"Корвин - Козырь\n\n<script>\nЭрик - \"Хаос\"\n\nДалее \"кавычки\" - тире.","expect":{"output":"Корвин — Козырь\n\n<script>\nЭрик - \"Хаос\"\n\nДалее \"кавычки\" - тире."}}
 {"id":"20da8291efb5d196","config":{"html":1,"input":{"format":"frontmatter"},"render":{"paragraphs":"on","autolink":0,"breakline":"on","nowrap":"span","hanging":"class"}},"ops":[],"text":"---\ntitle: \"Об этой дороге я мечтал давно, с тех пор как впервые услышал про Амбер. Когда узнал о его существовании, почувствовал тягу к нему. А в мае того года на военном совете в Ребме я особенно сильно ощутил его зов, его свет и тепло…\"\n---\n\nНе вполне ясно, Корвин отступит на.","expect":{"output":"---\ntitle: \"Об этой дороге я мечтал давно, с тех пор как впервые услышал про Амбер. Когда узнал о его существовании, почувствовал тягу к нему. А в мае того года на военном совете в Ребме я особенно сильно ощутил его зов, его свет и тепло…\"\n---\n\n<p>Не вполне ясно, Корвин отступит на.</p>"}}
@@ -8530,6 +8530,7 @@
 {"id":"21ba9584b64444c0","config":{"html":false},"ops":[],"text":"«bяa»«юbx»","expect":{"output":"«bяa»«юbx»"}}
 {"id":"21baa6505b50d9d2","config":{"input":"mdx"},"ops":[],"text":"{(async () => { const x = async function() {} / 2; return \"А - б\"; })()} Корвин — принц","expect":{"output":"{(async () => { const x = async function() {} / 2; return \"А - б\"; })()} Корвин — принц"}}
 {"id":"21bafdb128ec275e","config":{"input":"html"},"ops":[],"text":"<p>«Слово „цитата <!-- c -->\",»</p>","expect":{"output":"<p>«Слово „цитата <!-- c -->“,»</p>"}}
+{"id":"21bbd3b3d4cf4627","ops":[],"text":"Пишет «{name}»)","expect":{"output":"Пишет «{name}»)"}}
 {"id":"21bc956543e6bc73","ops":[],"text":"xя«bbxю»«aaa»abx","expect":{"output":"xя«bbxю»«aaa»abx"}}
 {"id":"21bde715d3607133","config":{"html":true},"ops":[],"text":"abя aaюю","expect":{"output":"<p>abя aaюю</p>"}}
 {"id":"21bdf50cde3a8a12","config":{"html":true},"ops":[],"text":"<p>я «xb» «юab»</p>","expect":{"output":"<p>я «xb» «юab»</p>"}}
@@ -9150,6 +9151,7 @@
 {"id":"2455d3907ff15127","config":{"input":{"format":"yaml"},"html":true,"entities":false,"render":{"paragraphs":false,"autolink":false},"rules":{}},"ops":[],"text":"title: '\"Амбер\" - истинный, см. http://amber.example/a?x=1&y=2'","expect":{"output":"title: '«Амбер» — истинный, см. http://amber.example/a?x=1&y=2'"}}
 {"id":"2456fb770d73a8e1","ops":[],"text":"«bя»«baa»","expect":{"output":"«bя»«baa»"}}
 {"id":"245741a80d1e566b","config":{"html":false},"ops":[],"text":"«aюba» «bя» яabю «bbя»","expect":{"output":"«aюba» «bя» яabю «bbя»"}}
+{"id":"2459af97baaed6cd","ops":[],"text":"Пишет \"{name}\"]","expect":{"output":"Пишет «{name}»]"}}
 {"id":"245b12dc2a3f935f","config":{"html":true},"ops":[],"text":"яbяxxю«ba»aюя","expect":{"output":"<p>яbяxxю«ba»aюя</p>"}}
 {"id":"245be5c10a09015c","config":{"input":"xml","entities":true},"ops":[],"text":"<p>&#171;город &#8222;&quot;<em>лес</em>&quot; река&#8220; дальше&#187;</p>","expect":{"output":"<p>&#171;город &#8222;&quot;<em>лес</em>&quot; река&#8220; дальше&#187;</p>"}}
 {"id":"245e559b33913cb8","config":{"html":true,"entities":false,"rules":{"nobr.initials_dots":true}},"ops":[],"text":"беседа для «Козыри+»","expect":{"output":"<p>беседа для «Козыри+»</p>"}}
@@ -9714,6 +9716,7 @@
 {"id":"26ad701e15444475","config":{"input":"markdown","html":true},"ops":[],"text":"<!-- Тень Корвин Корвин Амбер Тень - вот -->\n\n```\nТень Корвин Рэндом Рэндом ТеньАрден\n```","expect":{"output":"<!-- Тень Корвин Корвин Амбер Тень - вот -->\n\n```\nТень Корвин Рэндом Рэндом ТеньАрден\n```"}}
 {"id":"26adb2087caad039","config":{},"ops":[],"text":"6руб м","expect":{"output":"6 ₽ м"}}
 {"id":"26ae8ad7f5060820","ops":[],"text":"«яяax»«xюxx»aяюю","expect":{"output":"«яяax»«xюxx»aяюю"}}
+{"id":"26af7d222b6ce545","config":{"input":{"format":"text","template":"liquid","attributes":[]}},"ops":[],"text":"<pre title=\"первая\n\n`  уложения  меж\tсверху`\">Сырой - \"код\"</pre> Корвин - принц","expect":{"output":"<pre title=\"первая\n\n`  уложения  меж\tсверху`\">Сырой - \"код\"</pre> Корвин — принц"}}
 {"id":"26af854500abf8a6","config":{"html":false},"ops":[],"text":"яaxxяюя","expect":{"output":"яaxxяюя"}}
 {"id":"26b0aca5fbf88e7a","ops":[],"text":"«яa» xю «юяяa» «baя»","expect":{"output":"«яa» xю «юяяa» «baя»"}}
 {"id":"26b33b544be49733","config":{"html":true},"ops":[],"text":"xbяa x \"aaя\" \"ю\"","expect":{"output":"<p>xbяa x «aaя» «ю»</p>"}}
@@ -10286,7 +10289,6 @@
 {"id":"2903dc483acbd125","config":{"input":{"format":"yaml"}},"ops":[],"text":"root:\n  list:\n    &a\n  - \"Корвин - принц\"\n  next: \"Эрик - король\"","expect":{"output":"root:\n  list:\n    &a\n  - \"Корвин - принц\"\n  next: \"Эрик — король\""}}
 {"id":"2904e520778c73dc","config":{"input":"markdown"},"ops":[],"text":"<n E='><script>if (a - b) { f(x) }</script>","expect":{"output":"<n E='><script>if (a - b) { f(x) }</script>"}}
 {"id":"29064ba9c7bd08b0","config":{"render":{"paragraphs":false}},"ops":[],"text":"<strong>\"Козырь\"</strong>","expect":{"output":"<strong>«Козырь»</strong>"}}
-{"id":"29070310538035cd","config":{"input":{"format":"frontmatter","template":"liquid"}},"ops":[],"text":"Пролог <span title=\"первая\n`  уложения  меж\tсверху`\">Корвин - принц</span>","expect":{"output":"Пролог <span title=\"первая\n`  уложения  меж\tсверху`\">Корвин — принц</span>"}}
 {"id":"2907537ebfb95453","ops":[],"text":"«яяяa» юxb","expect":{"output":"«яяяa» юxb"}}
 {"id":"290768cc905a602d","config":{"input":"json","maxInputLength":200000},"ops":[],"text":"{\n  \"shadow1-2\": \"Корвин — принц\",\n  \"deep\": {\n    \"shadow1-2\": \"Формула x ≥ 5\"\n  },\n  \"shadow1-22\": [\n    \"Отряд 12 345 бойцов\"\n  ]\n}","expect":{"output":"{\n  \"shadow1-2\": \"Корвин — принц\",\n  \"deep\": {\n    \"shadow1-2\": \"Формула x ≥ 5\"\n  },\n  \"shadow1-22\": [\n    \"Отряд 12 345 бойцов\"\n  ]\n}"}}
 {"id":"29081352435d8d38","config":{"html":false,"entities":1,"input":"xml","render":{"autolink":true,"hanging":"style"},"rules":{"abbr.nowrap_etc":1,"nobr.nowrap_hyphen_short":"off","space.no_space_after_opening_ellipsis":0}},"ops":[],"text":"<?xml version=\"1.0\"?>\n<doc lang=\"ru\"><title>Сначала пройди Лабиринт -&gt; потом Отражение -&gt;</title><!-- \"x\" - y --><p>Читать Хроники Амбера →</p></doc>","options":{"changes":true},"expect":{"output":{"text":"<?xml version=\"1.0\"?>\n<doc lang=\"ru\"><title>Сначала пройди Лабиринт -&gt; потом Отражение -&gt;</title><!-- \"x\" - y --><p>Читать Хроники Амбера &#8594;</p></doc>","changes":[[144,151]]}}}
@@ -12789,7 +12791,6 @@
 {"id":"32d43f585b1e2216","config":{"html":true},"ops":[],"text":"<p>«b» «a»</p>","expect":{"output":"<p>«b» «a»</p>"}}
 {"id":"32d4c399aad62de8","ops":[],"text":"«яba»«я»","expect":{"output":"«яba»«я»"}}
 {"id":"32d4ffe439d4ea47","config":{"html":false},"ops":[],"text":"юx «яbю» «юbю» «x»","expect":{"output":"юx «яbю» «юbю» «x»"}}
-{"id":"32d56588706b9821","config":{"rules":{"space.strip_quote_padding":false}},"ops":[],"text":"««старый »\"]","expect":{"output":"««старый »\"]"}}
 {"id":"32d5a436e3166218","config":{"html":true,"render":{"paragraphs":false,"breakline":false}},"ops":[],"text":"«Сайт https://a.ru/?q=«А»\n\nhttps://b.ru/?q=«Б»","expect":{"output":"«Сайт <a href=\"https://a.ru/?q=«А\">a.ru/?q=«А</a>»\n\n<a href=\"https://b.ru/?q=«Б»\">b.ru/?q=«Б»</a>"}}
 {"id":"32d677c969a5eb33","config":{"input":{"format":"xml"},"rules":{"nobr.initials_dots":0,"nobr.nowrap_hyphen":0},"maxInputLength":10},"ops":[{"method":"applyOptions","args":[{"rules":{"abbr.nbsp_organization":"1"}}]}],"text":"<?xml version=\"1.0\"?>\n<doc lang=\"ru\"><title>P.S. поклон всем принцам Амбера. P.P.S. и мне тоже.</title><!-- \"x\" - y --><p>http://simonenko.xyz/the-best-microtypo.html\nКозырь: http://simonenko.xyz/A0SAFESEQUENCENUM1ID </p></doc>","expect":{"error":{"name":"MicroTypoInputError","message":"Input length 227 exceeds maxInputLength (10)","code":"ERR_MICROTYPO_INPUT","details":{"length":227,"max":10}}}}
 {"id":"32d69a324d4cdd98","config":{"html":true},"ops":[],"text":"<p>«xb» «bx» «xя»</p>","expect":{"output":"<p>«xb» «bx» «xя»</p>"}}
@@ -12870,7 +12871,6 @@
 {"id":"331a3a3d9d58a637","config":{"html":false},"ops":[],"text":"\"юb\" xxx \"юaюя\"","expect":{"output":"«юb» xxx «юaюя»"}}
 {"id":"331aa6e6cb19d013","config":{},"ops":[],"text":"8-800-123-45-67 123","expect":{"output":"8-800-123-45-67 123"}}
 {"id":"331b58db6f8a7581","config":{"html":true},"ops":[],"text":"<p>«юю» xяa яxxb «яяba»</p>","expect":{"output":"<p>«юю» xяa яxxb «яяba»</p>"}}
-{"id":"331b6023c44ee50e","config":{"input":"html","html":false},"ops":[],"text":"<b title=\"a\">в</b> <i title=\"дом\">дом</i>","options":{"trace":true,"edits":true},"expect":{"output":{"text":"<b title=\"a\">в</b> <i title=\"дом\">дом</i>","trace":[{"rule":"nobr.nbsp_short_word","kind":"regex","count":1,"ranges":[[13,37]]}],"edits":[{"start":18,"end":19,"text":" "}]}}}
 {"id":"331c82026d4a7b19","config":{"input":"html"},"ops":[],"text":"Название «Север» <ul>Город</ul>","expect":{"output":"Название «Север» <ul>Город</ul>"}}
 {"id":"331e76a8b2ba9447","config":{"html":false},"ops":[],"text":"\"b\" aя","expect":{"output":"«b» aя"}}
 {"id":"331f618fcfebd5ad","config":{"html":false,"render":{"paragraphs":true,"autolink":false,"nowrap":"span"},"rules":{"nobr.initials_dots":false,"abbr.nowrap_etc":false}},"ops":[],"text":"Опять же у Дворкина что- то получилось, но как- то не так.","expect":{"output":"Опять же у Дворкина что-то получилось, но как-то не так."}}
@@ -14024,7 +14024,6 @@
 {"id":"37fab3aa48016a32","config":{"input":"xml","entities":false},"ops":[],"text":"<p>&ldquo;первое&rdquo;\"<em>второе</em>\"</p>","expect":{"output":"<p>&ldquo;первое&rdquo;«<em>второе</em>»</p>"}}
 {"id":"37fbeae997b95a43","config":{"html":true},"ops":[],"text":"<p>«ю» «яююя»</p>","expect":{"output":"<p>«ю» «яююя»</p>"}}
 {"id":"37fcba63c52c4a7b","config":{"input":{"format":"markdown","template":"liquid"}},"ops":[],"text":"<!--{%-->{%%}","expect":{"output":"<!--{%-->{%%}"}}
-{"id":"37fe5fe95fc7a8e2","config":{"input":"markdown"},"ops":[],"text":"<span title=\"$\">Корвин - принц $a</span>","expect":{"output":"<span title=\"$\">Корвин — принц $a</span>"}}
 {"id":"3801149c33a296de","config":{"input":{"format":"yaml"}},"ops":[],"text":"a: [Корвин - принц\n  и брат, Рэндом]","expect":{"output":"a: [Корвин - принц\n  и брат, Рэндом]"}}
 {"id":"38016e3e56fc5dd9","config":{"html":false},"ops":[],"text":"яюax «юbx» «aю»","expect":{"output":"яюax «юbx» «aю»"}}
 {"id":"38024d588660889d","config":{"input":"markdown","html":true,"render":{"paragraphs":false}},"ops":[],"text":"«Анна написала: „Справочник https://example.org/Каталог&quot;&#34; доступен. Затем журнал закрыли“».","expect":{"output":"«Анна написала: „Справочник <a href=\"https://example.org/Каталог&quot;&quot;\">example.org/Каталог&quot;&#34;</a> доступен. Затем журнал закрыли“»."}}
@@ -18612,7 +18611,6 @@
 {"id":"4ae9fa1899815758","ops":[],"text":"яxюx xaюx bab","expect":{"output":"яxюx xaюx bab"}}
 {"id":"4aea9cb76de7180c","config":{},"ops":[],"text":"«. \" слово — а","expect":{"output":"«. \" слово — а"}}
 {"id":"4aeb87d8f4289423","config":{"input":"xml","entities":false},"ops":[],"text":"<p>Значение:&#160;«», затем следует номер.</p>","expect":{"output":"<p>Значение:&#160;«», затем следует номер.</p>"}}
-{"id":"4aec69b9daae2e8a","ops":[],"text":"{n, plural, one {# день - \"текст\"} other {# дней}}","expect":{"output":"{n, plural, one {# день — «текст»} other {# дней}}"}}
 {"id":"4aec9554c9bcb607","config":{"html":false,"entities":true,"input":{"format":"json"},"render":{"paragraphs":false,"autolink":"off","nowrap":"span"},"rules":{"abbr.nbsp_organization":"on"}},"ops":[{"method":"applyOptions","args":[{"rules":{"nobr.nowrap_ip":"1"}}]}],"text":"{\"title\":\"№15Ф, №34/25, № 807\",\"body\":{\"text\":\"Высота Колвира 15000—20000 м\",\"tags\":[\"(c) Corwin Inc.\",\"id-1\"]},\"n\":1}","options":{"changes":true},"expect":{"output":{"text":"{\"title\":\"№ 15Ф, № 34/25, № 807\",\"body\":{\"text\":\"Высота Колвира 15 000–20 000 м\",\"tags\":[\"© Corwin Inc.\",\"id-1\"]},\"n\":1}","changes":[[11,12],[18,19],[27,28],[66,67],[70,71],[73,74],[77,78],[90,92]]}}}
 {"id":"4aedc53c62963bf1","config":{"html":true},"ops":[],"text":"<p>«aююю» яя яяbx</p>","expect":{"output":"<p>«aююю» яя яяbx</p>"}}
 {"id":"4aee7d6b8a6c55f4","config":{"html":false},"ops":[],"text":"«axxb»","expect":{"output":"«axxb»"}}
@@ -19561,6 +19559,7 @@
 {"id":"4edb3661d534b048","config":{"html":false},"ops":[],"text":"\"xxюa\"","expect":{"output":"«xxюa»"}}
 {"id":"4edf51d6da7997de","config":{"html":false},"ops":[],"text":"bxя","expect":{"output":"bxя"}}
 {"id":"4ee013873e684300","config":{"html":true,"rules":{"hanging.*":false},"render":{"hanging":"class"},"entities":true},"ops":[],"text":"-><-","expect":{"output":"<p>&rarr;&larr;</p>"}}
+{"id":"4ee14a33d1b84946","config":{"html":false,"input":{"placeholders":"all"}},"ops":[],"text":"7% XIV ря","expect":{"output":"7% XIV ря"}}
 {"id":"4ee1a43c61213055","config":{"html":false,"entities":false,"input":"frontmatter"},"ops":[],"text":"---\ntitle: x\n---\n  <script>\nconst x = \"hello\" - 1; // 10-20\n   ```\nconst x = \"hello\" - 1; // 10-20 </pre>\n\nДальше - \"текст\".","expect":{"output":"---\ntitle: x\n---\n  <script>\nconst x = \"hello\" - 1; // 10-20\n   ```\nconst x = \"hello\" - 1; // 10-20 </pre>\n\nДальше — «текст»."}}
 {"id":"4ee206a9e7b172bf","config":{"html":false},"ops":[],"text":"«яяbю» xbю","expect":{"output":"«яяbю» xbю"}}
 {"id":"4ee2d59fc3ada78d","config":{"html":false},"ops":[],"text":"\"xx\" \"xю\"","expect":{"output":"«xx» «xю»"}}
@@ -20454,7 +20453,6 @@
 {"id":"527dd1dbec937b46","config":{"html":true,"input":{"format":"text","pragmas":"microtypo"},"render":{"paragraphs":false,"breakline":true}},"ops":[],"text":"Корвин — принц\n<!-- microtypo-ignore-start -->\nКод - \"текст\"\n","expect":{"output":"Корвин — принц\n<!-- microtypo-ignore-start -->\nКод - \"текст\"\n"}}
 {"id":"527e0ad3b0a563a7","config":{},"ops":[],"text":"От П. Г. А","expect":{"output":"От П. Г. А"}}
 {"id":"527e1e174c02d8c9","config":{"html":true},"ops":[],"text":"<p>«xюя» «aя»</p>","expect":{"output":"<p>«xюя» «aя»</p>"}}
-{"id":"52806ed8e463ef4c","config":{"input":"html","html":false},"ops":[],"text":"<b title=\"10 кг\">10</b> кг","expect":{"output":"<b title=\"10 кг\">10</b> кг"}}
 {"id":"528087566ed05a8b","config":{"html":true},"ops":[],"text":"«яяbю»","expect":{"output":"<p>«яяbю»</p>"}}
 {"id":"528274eff11b38f8","config":{"html":true},"ops":[],"text":"abbb \"яb\" юяx","expect":{"output":"<p>abbb «яb» юяx</p>"}}
 {"id":"52827958aef69501","config":{"input":"mdx","html":false,"render":{"paragraphs":false}},"ops":[],"text":"\\<mailto:`q@x> внутри \"код\"`","expect":{"output":"\\<mailto:`q@x> внутри \"код\"`"}}
@@ -21508,6 +21506,7 @@
 {"id":"56c682f3b5132294","config":{"html":false},"ops":[],"text":"\"xa\" aяb ю","expect":{"output":"«xa» aяb ю"}}
 {"id":"56c6bfe0ef7ec4c1","config":{"html":false},"ops":[],"text":"яxax","expect":{"output":"яxax"}}
 {"id":"56c883145bd2c305","config":{"input":"markdown","html":false},"ops":[],"text":"> Читай [Образ Тень Амбер Тень Корвин,Дворкин](https://amber.io/a_b \"Тень Мерлин Арден \"цитата\"Рэндом\") тут\n\n1. Мерлин;\n2. Образ Тень Образ?Образ\n\n> > <div class=\"x\">Мерлин Рэндом Амбер Образ,</div>","expect":{"output":"> Читай [Образ Тень Амбер Тень Корвин, Дворкин](https://amber.io/a_b «Тень Мерлин Арден «цитата «Рэндом») тут\n\n1. Мерлин;\n2. Образ Тень Образ? Образ\n\n> > <div class=\"x\">Мерлин Рэндом Амбер Образ,</div>"}}
+{"id":"56c896526066ec59","config":{"entities":false,"input":"markdown"},"ops":[],"text":"Цена 5 долл. \"$\"\n\nФормула $x$","expect":{"output":"Цена 5 $. «$»\n\nФормула $x$"}}
 {"id":"56c911308125a10e","config":{"html":true},"ops":[],"text":"<p><span>н. э.</span>«слово»</p>","expect":{"output":"<p><span>н. э.</span>«слово»</p>"}}
 {"id":"56cad3c5a4ec4291","config":{"input":"frontmatter","maxInputLength":200000},"ops":[],"text":"---\nlist:\n  - \"Дворкин (c) 1979\"\n  - \"В 1979-1985 гг.\"\n  - \"Цена 100 руб.\"\n---\n\n---\n\nСмотри ```Амбер Тень Корвин Арден Мерлин!Образ Рэндом``` тут\n\n```js\nconst a = \"b\" - 1;\n```","expect":{"output":"---\nlist:\n  - \"Дворкин © 1979\"\n  - \"В 1979–1985 гг.\"\n  - \"Цена 100 ₽.\"\n---\n\n---\n\nСмотри ```Амбер Тень Корвин Арден Мерлин!Образ Рэндом``` тут\n\n```js\nconst a = \"b\" - 1;\n```"}}
 {"id":"56cb56a3e43e964f","config":{"html":true},"ops":[],"text":"<p>юxюa</p>","expect":{"output":"<p>юxюa</p>"}}
@@ -22268,7 +22267,6 @@
 {"id":"59dc9ae9d55958bc","config":{"html":true},"ops":[],"text":"<p>я bяю</p>","expect":{"output":"<p>я bяю</p>"}}
 {"id":"59dd284fee387b1b","config":{"render":{"paragraphs":false,"breakline":false},"input":"text"},"ops":[],"text":"<svg><style/></svg><p>Корвин - \"принц\"</p>","expect":{"output":"<svg><style/></svg><p>Корвин — «принц»</p>"}}
 {"id":"59dd8edd695809f4","config":{"html":false},"ops":[],"text":"xююb«я»","expect":{"output":"xююb«я»"}}
-{"id":"59ddd12715b64836","config":{"input":{"format":"html","template":"liquid"}},"ops":[],"text":"Пролог <span title=\"первая\n`  уложения  меж\tсверху`\">Корвин - принц</span>","expect":{"output":"Пролог <span title=\"первая\n`  уложения  меж\tсверху`\">Корвин — принц</span>"}}
 {"id":"59df2049900cfd48","config":{"html":true},"ops":[],"text":"\"aяяb\" axaю \"xююя\"","expect":{"output":"<p>«aяяb» axaю «xююя»</p>"}}
 {"id":"59df521512e1cc10","config":{"input":"yaml","maxInputLength":200000},"ops":[],"text":"note-12345:\n  x1979-1985: [\"Отряд 12345 бойцов\", \"Формула x >= 5\", \"Оберон сказал: да!\"]\ntitle: [\"Путь 5 км за 2 ч\", \"Отряд 12345 бойцов\"]","expect":{"output":"note-12345:\n  x1979-1985: [\"Отряд 12 345 бойцов\", \"Формула x ≥ 5\", \"Оберон сказал: да!\"]\ntitle: [\"Путь 5 км за 2 ч\", \"Отряд 12 345 бойцов\"]"}}
 {"id":"59e10300cbf8c5b2","config":{"html":false,"entities":false,"input":{"format":"html"},"rules":{"nobr":1,"abbr.nbsp_organization":true,"other.strip_nbsp_in_nowrap":1}},"ops":[],"text":"<p>don't</p>\n<pre>«Пир в Ребмó» славное. Спецсимвол \"Последний символ ASCII таблицы - ¥\".</pre>","expect":{"output":"<p>don’t</p>\n<pre>«Пир в Ребмó» славное. Спецсимвол \"Последний символ ASCII таблицы - ¥\".</pre>"}}
@@ -22289,7 +22287,7 @@
 {"id":"59efc75d50694a54","config":{"html":false},"ops":[],"text":"\"bя\" \"aяbя\" a \"xяю\"","expect":{"output":"«bя» «aяbя» a «xяю»"}}
 {"id":"59f04be593aa3eb9","config":{"html":false},"ops":[],"text":"юяaю \"abbx\" \"aюx\" \"юx\"","expect":{"output":"юяaю «abbx» «aюx» «юx»"}}
 {"id":"59f10ba56db96576","config":{"input":"xml","entities":true},"ops":[],"text":"<doc><a>12: 44&#8201;100</a></doc>","expect":{"output":"<doc><a>12: 44&#8201;100</a></doc>"}}
-{"id":"59f18b5304e17c44","config":{"html":true},"ops":[],"text":"<a title='a > \"b\"' data-x=\"c > 'd'\">Корвин - принц</a>","expect":{"output":"<p><a title='a > \"b\"' data-x=\"c > 'd'\">Корвин — принц</a></p>"}}
+{"id":"59f18b5304e17c44","config":{"html":true},"ops":[],"text":"<a title='a > \"b\"' data-x=\"c > 'd'\">Корвин - принц</a>","expect":{"output":"<p><a title='a > «b»' data-x=\"c > 'd'\">Корвин — принц</a></p>"}}
 {"id":"59f2a94a2ea7b505","config":{"html":false},"ops":[],"text":"baa юx","expect":{"output":"baa юx"}}
 {"id":"59f2db30de0600b4","config":{"html":true},"ops":[],"text":"b«xxю»","expect":{"output":"<p>b«xxю»</p>"}}
 {"id":"59f5537fc8d95221","config":{"html":true},"ops":[],"text":"юbю«xx»bbю","expect":{"output":"<p>юbю«xx»bbю</p>"}}
@@ -24509,6 +24507,7 @@
 {"id":"62bc9a1a6e5bc2b1","ops":[],"text":"юbя aa «ю»","expect":{"output":"юbя aa «ю»"}}
 {"id":"62bce5dc46203228","config":{"html":0,"input":{"format":"toml"},"rules":{}},"ops":[],"text":"title = \"1997год.\"\nn = 1\n\n[body]\ntext = \"после 19.00 отступить от Колвира\"\n","expect":{"output":"title = \"1997 год.\"\nn = 1\n\n[body]\ntext = \"после 19.00 отступить от Колвира\"\n"}}
 {"id":"62bcfa9b8b476885","ops":[],"text":"«xaяb»","expect":{"output":"«xaяb»"}}
+{"id":"62bd105cb8b2d5ec","config":{"input":{"format":"frontmatter","template":"liquid","attributes":[]}},"ops":[],"text":"Пролог <span title=\"первая\n`  уложения  меж\tсверху`\">Корвин - принц</span>","expect":{"output":"Пролог <span title=\"первая\n`  уложения  меж\tсверху`\">Корвин — принц</span>"}}
 {"id":"62bd3e176eb9c7ed","config":{},"ops":[],"text":"те же люди","expect":{"output":"те же люди"}}
 {"id":"62bfc7b2f78bed6e","config":{"html":false,"entities":true,"rules":{"nobr.nowrap_initials":false}},"ops":[],"text":"Корвин, привет при'в'ет как дела","expect":{"output":"Корвин, привет при&rsquo;в&rsquo;ет как дела"}}
 {"id":"62c048c535b86b71","config":{"input":{"format":"markdown","template":"liquid"}},"ops":[],"text":"<!--{%--> Корвин — принц","expect":{"output":"<!--{%--> Корвин — принц"}}
@@ -24599,6 +24598,7 @@
 {"id":"630e8d369f889660","config":{"html":false},"ops":[],"text":"xюяя","expect":{"output":"xюяя"}}
 {"id":"6310059699de636f","config":{"html":true},"ops":[],"text":"\"яюbb\"","expect":{"output":"<p>«яюbb»</p>"}}
 {"id":"6312486ce711f894","config":{"html":true,"rules":{"hanging.*":false}},"ops":[],"text":"Корвин <hr> Эрик","expect":{"output":"<p>Корвин</p>\n\n<hr>\n\n<p>Эрик</p>"}}
+{"id":"63151015b192e728","config":{"input":{"format":"html","attributes":[]},"html":false},"ops":[],"text":"<b title=\"a\">в</b> <i title=\"дом\">дом</i>","options":{"trace":true,"edits":true},"expect":{"output":{"text":"<b title=\"a\">в</b> <i title=\"дом\">дом</i>","trace":[{"rule":"nobr.nbsp_short_word","kind":"regex","count":1,"ranges":[[13,37]]}],"edits":[{"start":18,"end":19,"text":" "}]}}}
 {"id":"63173ebc5e2262c9","config":{"html":false},"ops":[],"text":"«юbaю» «яяax» юb «ю»","expect":{"output":"«юbaю» «яяax» юb «ю»"}}
 {"id":"63175939966502e8","config":{"html":true},"ops":[],"text":"<p>яb bb</p>","expect":{"output":"<p>яb bb</p>"}}
 {"id":"63183a1e897df4e1","config":{"html":true},"ops":[],"text":"<p>«юa» я</p>","expect":{"output":"<p>«юa» я</p>"}}
@@ -25684,6 +25684,7 @@
 {"id":"677bab0bbae25502","config":{"html":false,"input":{"format":"toml","template":"handlebars"},"render":{"paragraphs":"on","hanging":"both"},"rules":{"abbr.nbsp_short_acronym":false,"quote.fix_orphan_open":"off"}},"ops":[],"text":"title = \"(benedict@example.ru)\"\nn = 1\n\n[body]\ntext = \"Данные изложены в таблице см.цветной вкладыш. Дом им.Дворкина.\"\n","expect":{"output":"title = \"(benedict@example.ru)\"\nn = 1\n\n[body]\ntext = \"Данные изложены в таблице см. цветной вкладыш. Дом им. Дворкина.\"\n"}}
 {"id":"677e7e11b72746a2","config":{"html":true},"ops":[],"text":"<p>«яbю» я bxяx</p>","expect":{"output":"<p>«яbю» я bxяx</p>"}}
 {"id":"677f04d27d7d283c","config":{"html":true},"ops":[],"text":"<p>«ю» «юb» «aaюa» «xя»</p>","expect":{"output":"<p>«ю» «юb» «aaюa» «xя»</p>"}}
+{"id":"677fea048a587010","config":{"input":{"format":"frontmatter","template":"liquid","attributes":[]}},"ops":[],"text":"<pre title=\"первая\n\n`  уложения  меж\tсверху`\">Сырой - \"код\"</pre> Корвин - принц","expect":{"output":"<pre title=\"первая\n\n`  уложения  меж\tсверху`\">Сырой - \"код\"</pre> Корвин — принц"}}
 {"id":"6780ceb6d3b1966a","ops":[],"text":"«ююa»«axaя»«bxba»","expect":{"output":"«ююa»«axaя»«bxba»"}}
 {"id":"67814354b34bba64","config":{"html":true},"ops":[],"text":"<p>«я» ююab aa</p>","expect":{"output":"<p>«я» ююab aa</p>"}}
 {"id":"6781b1b52ace5eca","config":{"html":false},"ops":[],"text":"«aяb»«xaя»«я»","expect":{"output":"«aяb»«xaя»«я»"}}
@@ -25891,6 +25892,7 @@
 {"id":"68326959ad9e0d75","config":{"html":false},"ops":[],"text":"\"яя\" ююxb яabю","expect":{"output":"«яя» ююxb яabю"}}
 {"id":"6832bdccd54feef0","config":{"html":false},"ops":[],"text":"яxю «яx» «ю» «aя»","expect":{"output":"яxю «яx» «ю» «aя»"}}
 {"id":"68379789823d8566","config":{"input":"xml","entities":true,"rules":{"date.*":true}},"ops":[],"text":"<doc><title>1&#8212;5&#160;июля, далее</title></doc>","expect":{"output":"<doc><title>1&#8212;5&#160;июля, далее</title></doc>"}}
+{"id":"6838215323352d99","config":{"input":{"format":"html","attributes":[]},"html":false},"ops":[],"text":"<b title=\"a\">в</b> <i title=\"дом\">дом</i>","expect":{"output":"<b title=\"a\">в</b> <i title=\"дом\">дом</i>"}}
 {"id":"68391aa8d05dd25b","config":{"html":false},"ops":[],"text":"«юююя» xяaя «xxюa» яя","expect":{"output":"«юююя» xяaя «xxюa» яя"}}
 {"id":"683a4ef41e65f8c8","config":{"html":false},"ops":[],"text":"x «яюя» «юxa» «baюя»","expect":{"output":"x «яюя» «юxa» «baюя»"}}
 {"id":"683b6661bdea7cfd","config":{"html":false,"entities":true,"rules":{"nobr.nbsp_after_particle":false}},"ops":[],"text":"<nobr>P.&nbsp;S.</nobr> поклон всем с&nbsp;Колвира. <nobr>P. P.&nbsp;S.</nobr> и&nbsp;мне тоже.","expect":{"output":"<nobr>P.&nbsp;S.</nobr> поклон всем с&nbsp;Колвира. <nobr>P. P.&nbsp;S.</nobr> и&nbsp;мне тоже."}}
@@ -27070,7 +27072,7 @@
 {"id":"6d1a41b1f72912b6","ops":[],"text":"«яяя» «bяa»","expect":{"output":"«яяя» «bяa»"}}
 {"id":"6d1a876bf46bb437","config":{"input":"yaml","maxInputLength":200000},"ops":[],"text":"note-12345:\n  title: |\n    Формула x >= 5","expect":{"output":"note-12345:\n  title: |\n    Формула x ≥ 5"}}
 {"id":"6d1b344c2a41472e","config":{"html":true},"ops":[],"text":"«xx» aюa «xюa» ю","expect":{"output":"<p>«xx» aюa «xюa» ю</p>"}}
-{"id":"6d1b5ebb29a60f99","config":{"input":"markdown"},"ops":[],"text":"$a - b = 0$","expect":{"output":"$a - b = 0 $"}}
+{"id":"6d1b5ebb29a60f99","config":{"input":"markdown"},"ops":[],"text":"$a - b = 0$","expect":{"output":"$a - b = 0$"}}
 {"id":"6d1b5f1a3fdadd47","config":{"html":false},"ops":[],"text":"яbxюaюaяa","expect":{"output":"яbxюaюaяa"}}
 {"id":"6d1b843648107686","config":{"html":true},"ops":[],"text":"«aююb»«a»","expect":{"output":"<p>«aююb»«a»</p>"}}
 {"id":"6d1bd9c577bc09e2","config":{"html":true,"entities":0,"input":{"format":"json"}},"ops":[],"text":"{\n  \"title\": \"+7 123 123-45-67\",\n  \"body\": {\n    \"text\": \"«\\\"Grayswandir\\\" — это баллада об ответственности. Поэтому очень символично, что именно она стала первым синглом с альбома, за который\\nмы сами несем полную ответственность», — заявил хранитель Козырей Рэндом Дворкин.\",\n    \"tags\": [\n      \"Высота Колвира 15 000—20 000 м\",\n      \"id-1\"\n    ]\n  },\n  \"n\": 1\n}","expect":{"output":"{\n  \"title\": \"+7 123 123-45-67\",\n  \"body\": {\n    \"text\": \"«„Grayswandir“ — это баллада об ответственности. Поэтому очень символично, что именно она стала первым синглом с альбома, за который\\nмы сами несем полную ответственность», — заявил хранитель Козырей Рэндом Дворкин.\",\n    \"tags\": [\n      \"Высота Колвира 15 000–20 000 м\",\n      \"id-1\"\n    ]\n  },\n  \"n\": 1\n}"}}
@@ -27825,6 +27827,7 @@
 {"id":"700d6497a35c5fde","config":{"input":"markdown","html":false},"ops":[],"text":"```\nАрден Арден Амбер Арден Образ\n```\n\n> - Амбер Корвин - вотКорвин\n\n- ~~~\n  Дворкин Образ Образ?\n  ~~~\n\n1. **Корвин Амбер Образ Амбер!Амбер Тень** и *Дворкин Корвин*\n\n> - ```\n>   Корвин!Арден Тень\n>   ```","expect":{"output":"```\nАрден Арден Амбер Арден Образ\n```\n\n> - Амбер Корвин — вотКорвин\n\n- ~~~\n  Дворкин Образ Образ?\n  ~~~\n\n1. **Корвин Амбер Образ Амбер! Амбер Тень** и *Дворкин Корвин*\n\n> - ```\n>   Корвин!Арден Тень\n>   ```"}}
 {"id":"700f1208814efdcb","ops":[],"text":"aяяяbx","expect":{"output":"aяяяbx"}}
 {"id":"700f87e74d3cb911","config":{"html":true,"entities":"1","input":"html","render":{"autolink":"off","breakline":true,"prefix":false}},"ops":[],"text":"<p>«Летопись Амбера» — свод, составленный по материалам сборника «О правлении и королях» Оберона Первого Дворкина, который со времён Первого Отражения собирал выдержки из хроник, преданий, песен, писем и свитков, где так или иначе затрагивается природа королевской власти. Это собрание легло в основу обширной антологии, являющей суть и историю правления Амбера в первоисточниках.</p>\n<pre>\"ХРОНИКИ\" вновь возвращаются к главе <a href=\"http://amber.example/169543\">\"Уроки Амбера\"</a>.</pre>","options":{"changes":true},"expect":{"output":{"text":"<p>&laquo;Летопись Амбера&raquo;&nbsp;&mdash; свод, составленный по&nbsp;материалам сборника &laquo;О&nbsp;правлении и&nbsp;королях&raquo; Оберона Первого Дворкина, который со&nbsp;времён Первого Отражения собирал выдержки из&nbsp;хроник, преданий, песен, писем и&nbsp;свитков, где так или иначе затрагивается природа королевской власти. Это собрание легло в&nbsp;основу обширной антологии, являющей суть и&nbsp;историю правления Амбера в&nbsp;первоисточниках.</p>\n\n<pre>\"ХРОНИКИ\" вновь возвращаются к главе <a href=\"http://amber.example/169543\">\"Уроки Амбера\"</a>.</pre>","changes":[[3,10],[25,45],[67,73],[93,100],[101,107],[118,124],[131,138],[175,181],[225,231],[263,269],[358,364],[406,412],[438,444],[465,466]]}}}
+{"id":"701206728d8c7957","config":{"entities":true,"input":"markdown"},"ops":[],"text":"Цена $&nbsp;2&nbsp;&mdash; &laquo;сто$&raquo;","expect":{"output":"Цена $&nbsp;2&nbsp;&mdash; &laquo;сто$&raquo;"}}
 {"id":"70122f755d490cec","config":{"html":false,"entities":1,"input":"markdown","rules":{"punctuation.period_at_end":false,"space.trim_before_percent":0,"dash.en_range":true}},"ops":[],"text":"# Кто то где то когда то как то что то чем то стукнул Джерард.\n\n<a href=\"https://www.simonenko.xyz/\">Amber Club</a>\n\n- На верфь Амбера завезли 32 м3 леса, из которых 4м3 пустили под распил на 25мм брусья, длинной по 6м.\n\n```\ncode - \"x\" -- 'y'\n```\n\n> Кто то где то когда то как то что то чем то стукнул Джерард. `a - b` [ссылка](http://example.com/a-b \"t\")\n","expect":{"output":"# Кто-то где-то когда-то как-то что-то чем-то стукнул Джерард.\n\n<a href=\"https://www.simonenko.xyz/\">Amber Club</a>\n\n- На&nbsp;верфь Амбера завезли 32&nbsp;м&sup3; леса, из&nbsp;которых 4&nbsp;м&sup3; пустили под распил на&nbsp;25&nbsp;мм брусья, длинной по&nbsp;6&nbsp;м.\n\n```\ncode - \"x\" -- 'y'\n```\n\n> Кто-то где-то когда-то как-то что-то чем-то стукнул Джерард. `a - b` [ссылка](http://example.com/a-b \"t\")\n"}}
 {"id":"7016009f0fca37b1","config":{"html":true},"ops":[],"text":"<p>«bxba» «xxю» «яююb» axю</p>","expect":{"output":"<p>«bxba» «xxю» «яююb» axю</p>"}}
 {"id":"70163cbafa81a9cd","config":{"entities":true,"input":{"format":"yaml","exclude":["title"]},"render":{"nowrap":"span"}},"ops":[],"text":"title: \"<p>Летопись Амбера<span style=\\\"margin-right:-0.2em;\\\">,</span><span style=\\\"margin-left:0.2em;\\\"> </span>&laquo;<a href=\\\"http://simonenko.xyz\\\">О&nbsp;королях Амбера</a>»</p> \"\nbody: |\n  Запомнить: § 123 и § Хроники о Амбере\nlist:\n  - '(benedict@example.ru)'\nn: 1\n","expect":{"output":"title: \"<p>Летопись Амбера<span style=\\\"margin-right:-0.2em;\\\">,</span><span style=\\\"margin-left:0.2em;\\\"> </span>&laquo;<a href=\\\"http://simonenko.xyz\\\">О&nbsp;королях Амбера</a>»</p> \"\nbody: |\n  Запомнить: § 123 и § Хроники о Амбере\nlist:\n  - '(benedict@example.ru)'\nn: 1\n"}}
@@ -30257,7 +30260,6 @@
 {"id":"79c5cd371982f295","config":{"html":false},"ops":[],"text":"«яя» «юx» aяю xя","expect":{"output":"«яя» «юx» aяю xя"}}
 {"id":"79c731aa9c6d1d42","ops":[],"text":"в Ребме собрали супер-8 камера","expect":{"output":"в Ребме собрали супер-8 камера"}}
 {"id":"79c8ca005d5a50b9","config":{"html":false},"ops":[],"text":"яxbя яxяb «ююю»","expect":{"output":"яxbя яxяb «ююю»"}}
-{"id":"79ca3964b96901ce","config":{"input":"html","html":false},"ops":[],"text":"<b title=\"в дом\">в</b> дом","expect":{"output":"<b title=\"в дом\">в</b> дом"}}
 {"id":"79cb3ec5c4c1828b","config":{"input":"xml","entities":true,"rules":{"quote.open":true,"quote.close":false,"quote.nested":false}},"ops":[],"text":"<p>Редактор написал: &#171;В&#160;каталоге сказано &#171;Вышел &quot;Север&quot;&#187;&#187;.</p>","expect":{"output":"<p>Редактор написал: &#171;В&#160;каталоге сказано &#171;Вышел &quot;Север&quot;&#187;&#187;.</p>"}}
 {"id":"79cc26a7eef80f5a","config":{"html":false},"ops":[],"text":"«юxяю» «bxя» «яю» яaяb","expect":{"output":"«юxяю» «bxя» «яю» яaяb"}}
 {"id":"79ce33d35bfa958b","config":{"input":{"format":"frontmatter","template":"off"}},"ops":[],"text":"---\ntitle: x\n---\n<script>\nx\n``</script>``\n\nДальше - \"текст\".","expect":{"output":"---\ntitle: x\n---\n<script>\nx\n``</script>``\n\nДальше — «текст»."}}
@@ -31238,6 +31240,7 @@
 {"id":"7d6e63493cae23c9","config":{"entities":false},"ops":[],"text":"\r\n\t &#000160;","expect":{"output":""}}
 {"id":"7d6f3462ff994b97","ops":[],"text":"«юa» «ююяx» «bxx»","expect":{"output":"«юa» «ююяx» «bxx»"}}
 {"id":"7d713ddd487544cb","config":{"html":true},"ops":[],"text":"яax я","expect":{"output":"<p>яax я</p>"}}
+{"id":"7d742b91fef1376e","config":{"html":false,"input":{"placeholders":"icu"}},"ops":[],"text":"O''Really, {name}!","expect":{"output":"O’Really, {name}!"}}
 {"id":"7d746eee748c881f","config":{"html":true},"ops":[],"text":"<p>bяю</p>","expect":{"output":"<p>bяю</p>"}}
 {"id":"7d753cb5c81ef58a","config":{"html":true},"ops":[],"text":"«bxx»","expect":{"output":"<p>«bxx»</p>"}}
 {"id":"7d77581d9202efc0","config":{"html":false},"ops":[],"text":"яbяbюxaab«bю»","expect":{"output":"яbяbюxaab«bю»"}}
@@ -31382,6 +31385,7 @@
 {"id":"7dfd28a362979a35","config":{"html":false},"ops":[],"text":"«юяю» яa «b» «a»","expect":{"output":"«юяю» яa «b» «a»"}}
 {"id":"7dfe10db3716f1cd","config":{"html":"1","entities":true,"input":{"format":"html"},"render":{"paragraphs":false,"breakline":true,"nowrap":"span","hanging":"both"},"rules":{}},"ops":[{"method":"setLayout","args":["none"]}],"text":"<div><em>и тд и тп.</em> <code>Не вполне ясно, Корвин отступит на.</code></div>","expect":{"ops":[{"name":"MicroTypoConfigError","message":"layout must be \"style\", \"class\", or \"both\": \"none\"","code":"ERR_MICROTYPO_CONFIG","details":{"layout":"none"}}],"output":"<div><em>и&nbsp;тд <span style=\"white-space:nowrap;\" class=\"nowrap\">и т. п.</span></em> <code>Не вполне ясно, Корвин отступит на.</code></div>"}}
 {"id":"7dfe9b7e95ee8783","config":{"html":true},"ops":[],"text":"<p>axa</p>","expect":{"output":"<p>axa</p>"}}
+{"id":"7e01b0ba9c9af662","config":{"entities":true,"render":{"paragraphs":false}},"ops":[],"text":"<a data-note=\"— «Амбер»\">Корвин - Эрик</a>","expect":{"output":"<a data-note=\"— «Амбер»\">Корвин&nbsp;&mdash; Эрик</a>"}}
 {"id":"7e025b636e0fcb95","config":{"html":true,"rules":{"hanging.*":false}},"ops":[],"text":"<div><span class=\"red\">Корвин\n\nЭрик</span></div>\n<div>Рэндом\n\nБлейз</div>","expect":{"output":"<div><span class=\"red\">Корвин\n\nЭрик</span></div>\n\n<div>Рэндом\n\nБлейз</div>"}}
 {"id":"7e0356f079af9194","config":{"html":true},"ops":[],"text":"<p>«я» bax «aяx»</p>","expect":{"output":"<p>«я» bax «aяx»</p>"}}
 {"id":"7e035c15c80d1076","config":{"input":"yaml","maxInputLength":200000},"ops":[],"text":"trump-12345:\n  - \"Цена 100 ₽.\"\n  - \"Дворкин © 1979\"","expect":{"output":"trump-12345:\n  - \"Цена 100 ₽.\"\n  - \"Дворкин © 1979\""}}
@@ -32922,6 +32926,7 @@
 {"id":"8452af7657b4f274","config":{"html":true,"entities":false,"rules":{"nobr.nbsp_short_word":false}},"ops":[],"text":"Хронику см. гл. 8, стр.34, рис.3 или илл.3.","expect":{"output":"<p>Хронику см. гл. 8, стр. 34, рис. 3 или илл. 3.</p>"}}
 {"id":"845300076cf06c4d","config":{"html":true,"render":{"paragraphs":false}},"ops":[],"text":"Текст \"адрес https://x.ru/?q=&#x22; и знак &#x2014;\" сегодня.","expect":{"output":"Текст «адрес <a href=\"https://x.ru/?q=&quot;\">x.ru/?q=&#x22;</a> и знак —» сегодня."}}
 {"id":"8453991f67e93916","config":{"html":true},"ops":[],"text":"<p>«b»«aa»«ax»</p>","expect":{"output":"<p>«b»«aa»«ax»</p>"}}
+{"id":"84552b4a78454b64","ops":[],"text":"Пишет «{name}»]","expect":{"output":"Пишет «{name}»]"}}
 {"id":"845619f388620e88","config":{"input":"yaml"},"ops":[],"text":"title: &a # note >\n  Арден - лес","expect":{"output":"title: &a # note >\n  Арден - лес"}}
 {"id":"8456799ab60e8c60","config":{"html":false},"ops":[],"text":"baaa«bb»«bюab»","expect":{"output":"baaa«bb»«bюab»"}}
 {"id":"8457a72abefc3412","config":{"html":true,"entities":false,"rules":{"date.year_range":false}},"ops":[],"text":"Сначала пройди Лабиринт -> потом Отражение ->","expect":{"output":"<p>Сначала пройди Лабиринт → потом Отражение →</p>"}}
@@ -33658,7 +33663,7 @@
 {"id":"86fc9bbce0aae01c","config":{"input":"toml"},"ops":[],"text":"title = \"2013 г.\"\nn = 1\n\n[body]\ntext = \"Кто то где то когда то как то что то чем то стукнул Джерард.\"\n","expect":{"output":"title = \"2013 г.\"\nn = 1\n\n[body]\ntext = \"Кто-то где-то когда-то как-то что-то чем-то стукнул Джерард.\"\n"}}
 {"id":"86fd415727576fd5","config":{"html":true},"ops":[],"text":"<p>«xbbю» «xяюя» ююb x</p>","expect":{"output":"<p>«xbbю» «xяюя» ююb x</p>"}}
 {"id":"86fe57385909c6a4","config":{"html":true},"ops":[],"text":"<p>«xaab» яaя я</p>","expect":{"output":"<p>«xaab» яaя я</p>"}}
-{"id":"8700394e2cf8397b","config":{"html":false},"ops":[],"text":"<a title='a > \"b\"' data-x=\"c > 'd'\">Корвин - принц</a>","expect":{"output":"<a title='a > \"b\"' data-x=\"c > 'd'\">Корвин — принц</a>"}}
+{"id":"8700394e2cf8397b","config":{"html":false},"ops":[],"text":"<a title='a > \"b\"' data-x=\"c > 'd'\">Корвин - принц</a>","expect":{"output":"<a title='a > «b»' data-x=\"c > 'd'\">Корвин — принц</a>"}}
 {"id":"8700a174ccb27de8","config":{"html":true},"ops":[],"text":"<p>я «я»</p>","expect":{"output":"<p>я «я»</p>"}}
 {"id":"8700d3228892b0a8","config":{"html":true,"entities":false,"rules":{"number.times":false}},"ops":[],"text":"Доброй охоты, Джулиан, \"друг \"вдруг\"\"","expect":{"output":"<p>Доброй охоты, Джулиан, «друг „вдруг“»</p>"}}
 {"id":"87026b9a5cf8679e","config":{"html":true},"ops":[],"text":"a«яяю»bbююююab","expect":{"output":"<p>a«яяю»bbююююab</p>"}}
@@ -33722,6 +33727,7 @@
 {"id":"8742e9c4ea7cfa97","config":{"input":"xml","entities":true},"ops":[],"text":"<p>\"верх \"низ &laquo;<b><i>мир</i></b>&raquo;\"\"</p>","expect":{"output":"<p>&#171;верх &#8222;низ &laquo;<b><i>мир</i></b>&raquo;&#8220;&#187;</p>"}}
 {"id":"8743e45151d1844e","config":{},"ops":[],"text":"6$ м","expect":{"output":"6 $ м"}}
 {"id":"8745beef1ae091f5","config":{"html":false},"ops":[],"text":"\"яю\" \"aю\"","expect":{"output":"«яю» «aю»"}}
+{"id":"8746d7a1b2616efd","config":{"input":{"format":"markdown","math":false}},"ops":[],"text":"<span title=\"$\">Корвин - принц $a</span>","expect":{"output":"<span title=\"$\">Корвин — принц $a</span>"}}
 {"id":"874756a03ccd2f37","config":{"html":false,"entities":false,"input":"markdown"},"ops":[],"text":"<pre>\r~~~\rconst x = \"hello\" - 1; // 10-20\r</textarea>\r\rДальше - \"текст\".","expect":{"output":"<pre>\r~~~\rconst x = \"hello\" - 1; // 10-20\r</textarea>\r\rДальше — «текст»."}}
 {"id":"8748f8e84f89d5aa","config":{"html":true},"ops":[],"text":"<p>«aя»</p>","expect":{"output":"<p>«aя»</p>"}}
 {"id":"8749906c19136531","config":{"html":true},"ops":[],"text":"яbxx","expect":{"output":"<p>яbxx</p>"}}
@@ -35470,7 +35476,7 @@
 {"id":"8e37f872f2f6da6f","config":{"html":false,"entities":false,"input":"markdown"},"ops":[],"text":"<script class=\"x\">\r````js\rconst x = \"hello\" - 1; // 10-20\r````\r</script>\r\rДальше - \"текст\".","expect":{"output":"<script class=\"x\">\r````js\rconst x = \"hello\" - 1; // 10-20\r````\r</script>\r\rДальше — «текст»."}}
 {"id":"8e39ceebf85411a5","config":{"html":true},"ops":[],"text":"<p>xa xa «ююяa»</p>","expect":{"output":"<p>xa xa «ююяa»</p>"}}
 {"id":"8e3a3283fb2141ff","config":{"input":"html"},"ops":[],"text":"<p>Библиограф: \"Найдена \"История «Москвы» за 1946» в переплёте\". В поле \"\" указано значение.</p>","expect":{"output":"<p>Библиограф: «Найдена „История „Москвы“ за 1946“ в переплёте». В поле «» указано значение.</p>"}}
-{"id":"8e3b9e02caf05dcb","config":{"input":"markdown"},"ops":[],"text":"$a - b$","expect":{"output":"$a — b$"}}
+{"id":"8e3b9e02caf05dcb","config":{"input":"markdown"},"ops":[],"text":"$a - b$","expect":{"output":"$a - b$"}}
 {"id":"8e3d15272519baa6","config":{"input":{"format":"markdown","template":"liquid"}},"ops":[{"method":"addSafeTag","args":["sample"]}],"text":"{% raw %}<sample>Корвин - \"принц\"{% endraw %} Амбер - город </sample>","expect":{"output":"{% raw %}<sample>Корвин - \"принц\"{% endraw %} Амбер — город </sample>"}}
 {"id":"8e3d38c5fa448ad4","config":{"html":true},"ops":[],"text":"bbba xa bя \"baю\"","expect":{"output":"<p>bbba xa bя «baю»</p>"}}
 {"id":"8e3eef50e4801720","config":{"entities":true},"ops":[],"text":" &unknown;У му","expect":{"output":" &unknown;У му"}}
@@ -36914,6 +36920,7 @@
 {"id":"9420c6171f11ea3c","config":{"input":{"format":"yaml","fields":["a b~decoy"]}},"ops":[],"text":"? \"a\r\n  b\"\n: \"Арден - лес\"","expect":{"output":"? \"a\r\n  b\"\n: \"Арден - лес\""}}
 {"id":"94221a17ab70ffa0","config":{"presets":false},"ops":[],"text":"<pre>\"единорог\" --- не тронут -- в Амбере</pre>","expect":{"output":"<pre>\"единорог\" --- не тронут -- в Амбере</pre>"}}
 {"id":"94234c001b6c1395","config":{},"ops":[],"text":"Экран 15″ и корпус","expect":{"output":"Экран 15″ и корпус"}}
+{"id":"9424a8ae5f40fc46","config":{"entities":true,"input":"markdown"},"ops":[],"text":"$a - b&#160;$","expect":{"output":"$a&nbsp;&mdash; b&nbsp;$"}}
 {"id":"9425c3f9cc7e7284","config":{"input":"markdown","html":true},"ops":[],"text":"- Образ,Рэндом\n- Образ Мерлин Дворкин Тень Рэндом - вот\n\nОбраз Арден - вотАрден Образ\n\n- Корвин \"цитата\"Мерлин\n- Корвин Рэндом.Мерлин","expect":{"output":"- Образ, Рэндом\n- Образ Мерлин Дворкин Тень Рэндом — вот\n\nОбраз Арден — вотАрден Образ\n\n- Корвин «цитата «Мерлин\n- Корвин Рэндом. Мерлин"}}
 {"id":"94266b5fddb60c86","config":{"html":true},"ops":[],"text":"<p>«xx»«яю»xя«юxaя»</p>","expect":{"output":"<p>«xx»«яю»xя«юxaя»</p>"}}
 {"id":"9426cfb624c5fb47","config":{"html":false},"ops":[],"text":"«a» «юabя» «яююa» «xяю»","expect":{"output":"«a» «юabя» «яююa» «xяю»"}}
@@ -37123,6 +37130,7 @@
 {"id":"950285c711ddc78c","config":{"html":false},"ops":[],"text":"aя «aю» «bba»","expect":{"output":"aя «aю» «bba»"}}
 {"id":"9502d42066415068","config":{"html":true},"ops":[],"text":"<p>«b» bbяx</p>","expect":{"output":"<p>«b» bbяx</p>"}}
 {"id":"95036a5255760460","ops":[],"text":"«яя» «x» «я» aяb","expect":{"output":"«яя» «x» «я» aяb"}}
+{"id":"95056fd16c830d84","config":{"entities":false,"input":"markdown"},"ops":[],"text":"Цена 5 $. «$»\n\nФормула $x$","expect":{"output":"Цена 5 $. «$»\n\nФормула $x$"}}
 {"id":"9505f1ac734a2d33","config":{"html":false,"entities":true,"rules":{"number.sub":false}},"ops":[],"text":"Так бывает у принцев Амбера.И вот так...И ещё вот так!..Бывает же???Что поделать.","expect":{"output":"Так бывает у&nbsp;принцев Амбера. И&nbsp;вот так&hellip; И&nbsp;ещё вот так!.. Бывает&nbsp;же??? Что поделать."}}
 {"id":"9506c01a11814108","config":{"html":true,"entities":false,"rules":{"abbr.nbsp_short_acronym":false}},"ops":[],"text":"Хронику см. гл. 8, стр.34, рис.3 или илл.3.","expect":{"output":"<p>Хронику см. гл. 8, стр.34, рис.3 или илл.3.</p>"}}
 {"id":"9507a505b1d9b174","config":{"html":true},"ops":[],"text":"<p>яab «axя» aюaю</p>","expect":{"output":"<p>яab «axя» aюaю</p>"}}
@@ -37403,6 +37411,7 @@
 {"id":"962af30408233091","config":{"html":false},"ops":[],"text":"bююx","expect":{"output":"bююx"}}
 {"id":"962be1a298d8721b","ops":[],"text":"Редактор записал «Лес»«'Лес'».","expect":{"output":"Редактор записал «Лес»«'Лес'»."}}
 {"id":"962c7f5b9954da51","config":{"html":true},"ops":[],"text":"aaяa \"xxaя\" юя \"юa\"","expect":{"output":"<p>aaяa «xxaя» юя «юa»</p>"}}
+{"id":"962cea26d821cf06","config":{"input":{"format":"html","template":"liquid","attributes":[]}},"ops":[],"text":"Пролог <span title=\"первая\n`  уложения  меж\tсверху`\">Корвин - принц</span>","expect":{"output":"Пролог <span title=\"первая\n`  уложения  меж\tсверху`\">Корвин — принц</span>"}}
 {"id":"962d363cd8d6dc05","text":"{String.raw`А - б\n~~~\nВ - г`}\n\nКорвин - принц","config":{"html":true,"input":{"format":"mdx"}},"ops":[],"expect":{"output":"{String.raw`А - б\n~~~\nВ - г`}\n\nКорвин — принц"}}
 {"id":"962db8991701a4ca","config":{"html":false},"ops":[],"text":"яaxя «x» «яbxa» «ю»","expect":{"output":"яaxя «x» «яbxa» «ю»"}}
 {"id":"962e4e2a725e9322","config":{"input":{"format":"html","attributes":["alt"],"template":"handlebars","placeholders":"all"}},"ops":[],"text":"<img alt=\"B0 {{ value }} %s ${name} Корвин - принц\">","expect":{"output":"<img alt=\"B0 {{ value }} %s ${name} Корвин — принц\">"}}
@@ -38337,6 +38346,7 @@
 {"id":"9a079edc6636e955","config":{"html":false,"input":{"format":"text","placeholders":"printf"}},"ops":[],"text":"7%  %2$.*3$f - текст","expect":{"output":"7% %2$.*3$f — текст"}}
 {"id":"9a08719a2829d7d3","config":{"html":false},"ops":[],"text":"\"яяяя\" \"юa\" \"bxx\"","expect":{"output":"«яяяя» «юa» «bxx»"}}
 {"id":"9a09f9390ec1ddf6","config":{"html":false,"entities":false,"input":"markdown"},"ops":[],"text":"`a\n\nb` Дальше - \"текст\".","expect":{"output":"`a\n\nb` Дальше — «текст»."}}
+{"id":"9a0ad2e2e3e62522","config":{"html":false,"input":{"placeholders":"all"}},"ops":[],"text":"It''s {n} - текст","expect":{"output":"It’s {n} — текст"}}
 {"id":"9a0bcea88db3c47f","config":{"input":{"format":"yaml"}},"ops":[],"text":"- ? |\n      Корвин - принц\n  : \"Арден - лес\"","expect":{"output":"- ? |\n      Корвин - принц\n  : \"Арден — лес\""}}
 {"id":"9a0c28bec45e8f7f","config":{"html":0,"input":"toml","render":{"paragraphs":"off","autolink":"on","breakline":false,"nowrap":"nobr","prefix":false},"rules":{"punctuation.collapse_doubled":0,"dash.hyphenated_particle":"false","quote.open_cyrillic":"1"}},"ops":[],"text":"title = \"Единственное, чего Корвину на данный момент не хватает, — это верного клинка.\"\nn = 1\n\n[body]\ntext = \"Турнир в Амбере пройдёт в апреле-мае этого года.\"\n","expect":{"output":"title = \"Единственное, чего Корвину на данный момент не хватает, — это верного клинка.\"\nn = 1\n\n[body]\ntext = \"Турнир в Амбере пройдёт в апреле–мае этого года.\"\n"}}
 {"id":"9a0d196d54fed408","config":{"html":false},"ops":[],"text":"\"xa\" \"aaxx\"","expect":{"output":"«xa» «aaxx»"}}
@@ -38401,7 +38411,6 @@
 {"id":"9a4bc3ed36eab238","config":{"html":true},"ops":[],"text":"<p>bba «a»</p>","expect":{"output":"<p>bba «a»</p>"}}
 {"id":"9a4c07b6fb9e39f7","config":{"input":"text","html":false},"ops":[],"text":"<span>а</span> «(","expect":{"output":"<span>а</span> «("}}
 {"id":"9a4df2ea27f03255","config":{"html":true},"ops":[],"text":"<p>«юxb»«b»«яяb»«юbюю»</p>","expect":{"output":"<p>«юxb»«b»«яяb»«юbюю»</p>"}}
-{"id":"9a4f2f5bc11b8885","config":{"entities":true,"render":{"paragraphs":false}},"ops":[],"text":"<a title=\"— «Амбер»\">Корвин - Эрик</a>","expect":{"output":"<a title=\"— «Амбер»\">Корвин&nbsp;&mdash; Эрик</a>"}}
 {"id":"9a4fa086fa79741a","config":{"input":"frontmatter","maxInputLength":200000},"ops":[],"text":"---\nnote-12345: [\"Тень... и Амбер\", \"Путь 5 км за 2 ч\", \"Отряд 12345 бойцов\"]\ntitle: \"Формула x >= 5\"\n---\n\n-     Рэндом Арден Мерлин!Корвин Образ\n\n- Мерлин Образ Дворкин Корвин Дворкин - вотКорвин Тень\n  - Тень Тень Мерлин Образ Амбер \"цитата\"\n    - Мерлин Дворкин...\n\n~~~\nОбраз Амбер - вотМерлин\n~~~","expect":{"output":"---\nnote-12345: [\"Тень… и Амбер\", \"Путь 5 км за 2 ч\", \"Отряд 12 345 бойцов\"]\ntitle: \"Формула x ≥ 5\"\n---\n\n-     Рэндом Арден Мерлин!Корвин Образ\n\n- Мерлин Образ Дворкин Корвин Дворкин — вотКорвин Тень\n  - Тень Тень Мерлин Образ Амбер «цитата»\n    - Мерлин Дворкин…\n\n~~~\nОбраз Амбер - вотМерлин\n~~~"}}
 {"id":"9a4fe0c5b0549427","ops":[],"text":"«яюax»","expect":{"output":"«яюax»"}}
 {"id":"9a50f24aa1f1caa3","config":{"html":false},"ops":[],"text":"bxюя яbxю «aя»","expect":{"output":"bxюя яbxю «aя»"}}
@@ -40409,7 +40418,6 @@
 {"id":"a256e9507838f2e6","config":{},"ops":[],"text":"В поле «» указано значение.­Мастер: «Найдена „Рама 5′11″ за 1946 год“ в переплёте».","expect":{"output":"В поле «» указано значение.­Мастер: «Найдена „Рама 5′11″ за 1946 год“ в переплёте»."}}
 {"id":"a257b4f972472b6d","config":{"html":true,"render":{"paragraphs":false,"breakline":false}},"ops":[],"text":"«Сайт <a href=\"https://x.ru/wiki/Имя_“№1”&amp;page=2\">x.ru/wiki/Имя_“№1”&page=2</a> в статье».","expect":{"output":"«Сайт <a href=\"https://x.ru/wiki/Имя_“№1”&amp;page=2\">x.ru/wiki/Имя_“№1”&page=2</a> в статье»."}}
 {"id":"a2588ffb878f9fe5","config":{"html":true},"ops":[],"text":"«baюя» «xa» «яюaa»","expect":{"output":"<p>«baюя» «xa» «яюaa»</p>"}}
-{"id":"a25ae2a910308028","config":{"input":{"format":"markdown","template":"liquid"}},"ops":[],"text":"<pre title=\"первая\n\n`  уложения  меж\tсверху`\">Сырой - \"код\"</pre> Корвин - принц","expect":{"output":"<pre title=\"первая\n\n`  уложения  меж\tсверху`\">Сырой - \"код\"</pre> Корвин — принц"}}
 {"id":"a25d0165728c0d04","config":{"html":true},"ops":[],"text":"я юbb «bяя»","expect":{"output":"<p>я юbb «bяя»</p>"}}
 {"id":"a25d099b3d460eb1","ops":[],"text":"«abxя»«b»","expect":{"output":"«abxя»«b»"}}
 {"id":"a25d64cbc8370451","config":{"html":true,"input":"html","render":{"nowrap":"nobr"}},"ops":[],"text":"<em><nobr>А.С. Пушкин</nobr></em>","expect":{"output":"<p><em><nobr>А. С. Пушкин</nobr></em></p>"}}
@@ -41528,7 +41536,6 @@
 {"id":"a6bd226a846c1ad0","config":{"input":{"format":"markdown","template":"liquid"}},"ops":[],"text":"{% comment %}<?{%?> Корвин - \"принц\"{% endcomment %} Амбер - город","expect":{"output":"{% comment %}<?{%?> Корвин - \"принц\"{% endcomment %} Амбер — город"}}
 {"id":"a6bf9e0c57ec8009","config":{"html":true,"entities":false,"rules":{"abbr.nbsp_magnitude":false}},"ops":[],"text":"Хронику см. гл. 8, стр.34, рис.3 или илл.3.","expect":{"output":"<p>Хронику см. гл. 8, стр. 34, рис. 3 или илл. 3.</p>"}}
 {"id":"a6bfca99d30ed58e","config":{"html":true},"ops":[],"text":"\"яяbb\" яb яxbb aaюx","expect":{"output":"<p>«яяbb» яb яxbb aaюx</p>"}}
-{"id":"a6c05164f53867a5","config":{"input":"html","html":false},"ops":[],"text":"<b title=\"в дом\">в</b> дом","options":{"trace":true,"edits":true},"expect":{"output":{"text":"<b title=\"в дом\">в</b> дом","trace":[{"rule":"nobr.nbsp_short_word","kind":"regex","count":1,"ranges":[[17,26]]}],"edits":[{"start":22,"end":23,"text":" "}]}}}
 {"id":"a6c05285f3bd7469","config":{"html":true},"ops":[],"text":"«юxbю» «baяя» «яxbю»","expect":{"output":"<p>«юxbю» «baяя» «яxbю»</p>"}}
 {"id":"a6c076f79a1eea00","ops":[],"text":"Книги: «Лес“\"Том 27». Диагональ экрана 15\".","expect":{"output":"Книги: «Лес»«Том 27». Диагональ экрана 15″."}}
 {"id":"a6c2bb9b212cd103","config":{"html":false,"entities":false,"input":"frontmatter"},"ops":[],"text":"+++\ntitle = \"x\"\n+++\n  <textarea>\nconst x = \"hello\" - 1; // 10-20\n   ```\nconst x = \"hello\" - 1; // 10-20 </script>\n\nДальше - \"текст\".","expect":{"output":"+++\ntitle = \"x\"\n+++\n  <textarea>\nconst x = \"hello\" - 1; // 10-20\n   ```\nconst x = \"hello\" - 1; // 10-20 </script>\n\nДальше — «текст»."}}
@@ -41978,7 +41985,6 @@
 {"id":"a89b5270c3e913e8","config":{"html":true,"input":{"format":"frontmatter"}},"ops":[],"text":"---\ntitle: \"и тд и тп.\"\n---\n\nВнемли, Корвин!\n\n","expect":{"output":"---\ntitle: \"и т. д. и т. п.\"\n---\n\nВнемли, Корвин!\n\n"}}
 {"id":"a89d9d1bdcd4704f","config":{"input":"html","html":false},"ops":[],"text":"<p>Он в <kbd>Ctrl</kbd> доме</p>","expect":{"output":"<p>Он в <kbd>Ctrl</kbd> доме</p>"}}
 {"id":"a89da0a728a0269a","config":{"html":true},"ops":[],"text":"\"bю\" \"xa\" \"xюb\"","expect":{"output":"<p>«bю» «xa» «xюb»</p>"}}
-{"id":"a89dea49929e30f5","config":{"input":"markdown"},"ops":[],"text":"$a - b <i title=\"$\">текст</i>","expect":{"output":"$a — b <i title=\"$\">текст</i>"}}
 {"id":"a8a351bb42aeccc6","config":{"html":false},"ops":[],"text":"\"bxa\" \"bюb\" \"ююяю\" я","expect":{"output":"«bxa» «bюb» «ююяю» я"}}
 {"id":"a8a5d8fd4beed0e7","config":{"input":"markdown","html":false},"ops":[],"text":"- 1. Дворкин Рэндом Рэндом РэндомРэндом\n  2. Корвин Дворкин Дворкин Корвин Рэндом:\n\n- > Образ Амбер Корвин!\n\n```\nТень Корвин Корвин Образ!Арден Мерлин\n```\n\n- Корвин Дворкин Амбер Арден? Амбер Арден\n  - Арден «цитата»\n    - Арден КорвинАрден Рэндом","expect":{"output":"- 1. Дворкин Рэндом Рэндом РэндомРэндом\n  2. Корвин Дворкин Дворкин Корвин Рэндом:\n\n- > Образ Амбер Корвин!\n\n```\nТень Корвин Корвин Образ!Арден Мерлин\n```\n\n- Корвин Дворкин Амбер Арден? Амбер Арден\n  - Арден «цитата»\n    - Арден КорвинАрден Рэндом"}}
 {"id":"a8a6bf94ac87680a","config":{},"ops":[],"text":"«а» http://x.ru/“b” и","expect":{"output":"«а» http://x.ru/“b” и"}}
@@ -43394,6 +43400,7 @@
 {"id":"ae33298f7b386f24","config":{"input":"xml","entities":true},"ops":[],"text":"<p>\"верх \"низ &bdquo;&ldquo;\"\"</p>","expect":{"output":"<p>&#171;верх &#8222;низ &bdquo;&ldquo;&#8220;&#187;</p>"}}
 {"id":"ae34cf76c17491a6","config":{"input":"toml","maxInputLength":200000},"ops":[],"text":"note-123451 = \"Путь 5 км за 2 ч\"\n[note-12345]\nshadow = [\"Цена 100 руб.\", \"Отряд 12345 бойцов\"]","expect":{"output":"note-123451 = \"Путь 5 км за 2 ч\"\n[note-12345]\nshadow = [\"Цена 100 ₽.\", \"Отряд 12 345 бойцов\"]"}}
 {"id":"ae35aafa3dd2979b","config":{"html":true},"ops":[],"text":"«ax» «ba» «xюxa»","expect":{"output":"<p>«ax» «ba» «xюxa»</p>"}}
+{"id":"ae365cae76bb1439","config":{"input":{"format":"html","template":"liquid","attributes":[]}},"ops":[],"text":"<pre title=\"первая\n\n`  уложения  меж\tсверху`\">Сырой - \"код\"</pre> Корвин - принц","expect":{"output":"<pre title=\"первая\n\n`  уложения  меж\tсверху`\">Сырой - \"код\"</pre> Корвин — принц"}}
 {"id":"ae37570993db8a82","config":{"html":"1","entities":true,"input":{"format":"json","exclude":["body.*"]}},"ops":[],"text":"{\n  \"title\": \"Хроники и Козыри. № 23, привет\",\n  \"body\": {\n    \"text\": \"8(905)1234567\",\n    \"tags\": [\n      \"https://amber.domain.ru/#hesh:a1fe4bd7-ad5a-4588-8127-8496db8f6c5d\",\n      \"id-1\"\n    ]\n  },\n  \"n\": 1\n}","expect":{"output":"{\n  \"title\": \"Хроники и Козыри. № 23, привет\",\n  \"body\": {\n    \"text\": \"8(905)1234567\",\n    \"tags\": [\n      \"https://amber.domain.ru/#hesh:a1fe4bd7-ad5a-4588-8127-8496db8f6c5d\",\n      \"id-1\"\n    ]\n  },\n  \"n\": 1\n}"}}
 {"id":"ae39b13010779bf0","ops":[],"text":"Редактор пояснил: „Надпись “«» означает пропуск” исчезла“.","expect":{"output":"Редактор пояснил: «Надпись „„“ означает пропуск“ исчезла»."}}
 {"id":"ae3a2ef4ac1cdc04","config":{"input":"frontmatter","maxInputLength":200000},"ops":[],"text":"+++\nshadow = \"Путь 5 км за 2 ч\"\n[body]\n[body.x1979-1985]\nshadow1-2 = [\"Тень... и Амбер\", \"В 1979-1985 гг.\"]\ntrump-12345 = [\"Дворкин (c) 1979\"]\n+++\n\n- Рэндом Мерлин Дворкин Амбер\n  - Рэндом Корвин?Образ\n    - Дворкин Образ Тень;Тень\n\n**Рэндом Рэндом Образ Образ Мерлин!** и *Амбер Дворкин - вотОбраз*\n\n- Рэндом Дворкин  \n  Образ \"цитата\"","expect":{"output":"+++\nshadow = \"Путь 5 км за 2 ч\"\n[body]\n[body.x1979-1985]\nshadow1-2 = [\"Тень… и Амбер\", \"В 1979–1985 гг.\"]\ntrump-12345 = [\"Дворкин © 1979\"]\n+++\n\n- Рэндом Мерлин Дворкин Амбер\n  - Рэндом Корвин? Образ\n    - Дворкин Образ Тень;Тень\n\n**Рэндом Рэндом Образ Образ Мерлин!** и *Амбер Дворкин — вотОбраз*\n\n- Рэндом Дворкин  \n  Образ «цитата»"}}
@@ -43584,6 +43591,7 @@
 {"id":"aef0409adc46e01d","config":{"html":true},"ops":[],"text":"«aa» ax","expect":{"output":"<p>«aa» ax</p>"}}
 {"id":"aef10679afd7d923","config":{"html":false},"ops":[],"text":"я \"aяx\"","expect":{"output":"я «aяx»"}}
 {"id":"aef10e9d2bfbb1ae","config":{"html":true},"ops":[],"text":"\"b\" xb \"ююяю\"","expect":{"output":"<p>«b» xb «ююяю»</p>"}}
+{"id":"aef16979d66b6c64","ops":[],"text":"Пишет \"{name}\")","expect":{"output":"Пишет «{name}»)"}}
 {"id":"aef2a3ca19995005","config":{"html":true,"entities":false,"input":{"format":"json","exclude":["title"]},"render":{"breakline":false,"prefix":"mt-"}},"ops":[],"text":"{\"title\":\"1997год.\",\"body\":{\"text\":\"Составление козырей с помощью ПО Trump Studio CS Отражений\",\"tags\":[\"P.S. поклон всем принцам Амбера. P.P.S. и мне тоже.\",\"id-1\"]},\"n\":1}","options":{"changes":true},"expect":{"output":{"text":"{\"title\":\"1997год.\",\"body\":{\"text\":\"Составление козырей с помощью ПО Trump Studio CS Отражений\",\"tags\":[\"P. S. поклон всем принцам Амбера. P. P. S. и мне тоже.\",\"id-1\"]},\"n\":1}","changes":[[57,58],[65,66],[81,82],[107,108],[141,142],[144,145],[149,150]]}}}
 {"id":"aef2a6257727f0c7","config":{"input":"xml"},"ops":[],"text":"<p>В поле «» указано значение. Библиограф: «Найдена „История „Москвы“ за 1946“ в переплёте».</p>","expect":{"output":"<p>В поле «» указано значение. Библиограф: «Найдена „История „Москвы“ за 1946“ в переплёте».</p>"}}
 {"id":"aef35967d838cb74","config":{"input":"frontmatter","maxInputLength":200000},"ops":[],"text":"---\nlist: [\"Корвин — принц\", \"Корвин — принц\"]\nshadow: { deep: \"Отряд 12 345 бойцов\" }\n---\n\n# Рэндом…Амбер Арден\n\n---\n\n```js\nconst a = \"b\" - 1;\n```\n\nАрден… Мерлин  \nАрден Корвин Корвин Тень КорвинДворкин\n\n```\nДворкин;\n```","expect":{"output":"---\nlist: [\"Корвин — принц\", \"Корвин — принц\"]\nshadow: { deep: \"Отряд 12 345 бойцов\" }\n---\n\n# Рэндом…Амбер Арден\n\n---\n\n```js\nconst a = \"b\" - 1;\n```\n\nАрден… Мерлин  \nАрден Корвин Корвин Тень КорвинДворкин\n\n```\nДворкин;\n```"}}
@@ -43804,7 +43812,7 @@
 {"id":"afdc4d8299f915a8","config":{"html":false},"ops":[],"text":"«x» ю «яя» «я»","expect":{"output":"«x» ю «яя» «я»"}}
 {"id":"afdd4f03db1bf6d7","config":{"html":true,"entities":true,"render":{"paragraphs":false}},"ops":[],"text":"Смотри https://amber.io/a?b=1&c=2 и пиши corwin@amber.io.","expect":{"output":"Смотри <a href=\"https://amber.io/a?b=1&amp;c=2\">amber.io/a?b=1&c=2</a> и&nbsp;пиши <a href=\"mailto:corwin@amber.io\">corwin@amber.io</a>."}}
 {"id":"afdeb2e1f3ad4664","config":{"html":true},"ops":[],"text":"<p>baaю«ba»</p>","expect":{"output":"<p>baaю«ba»</p>"}}
-{"id":"afe3ad1a07fce79e","config":{"input":"html"},"ops":[],"text":"слово <b title=\"x - y\">\"в\"</b> - г","expect":{"output":"слово <b title=\"x - y\">«в»</b> — г"}}
+{"id":"afe3ad1a07fce79e","config":{"input":"html"},"ops":[],"text":"слово <b title=\"x - y\">\"в\"</b> - г","expect":{"output":"слово <b title=\"x — y\">«в»</b> — г"}}
 {"id":"afe5f51c435d70c1","config":{"html":true},"ops":[],"text":"<p>юxbя bbab «xbяx»</p>","expect":{"output":"<p>юxbя bbab «xbяx»</p>"}}
 {"id":"afe6a4ee3473a962","config":{"html":true},"ops":[],"text":"<p>«x» юb «b»</p>","expect":{"output":"<p>«x» юb «b»</p>"}}
 {"id":"afe7884f90632768","config":{"html":true},"ops":[],"text":"\"юaяx\"","expect":{"output":"<p>«юaяx»</p>"}}
@@ -45214,6 +45222,7 @@
 {"id":"b58dfb8023e04c87","config":{"input":{"format":"yaml","fields":["/title"]}},"ops":[],"text":"{!!str \"title\": \"Корвин - принц\"}","expect":{"output":"{!!str \"title\": \"Корвин — принц\"}"}}
 {"id":"b58eef5663af69d7","config":{"html":true},"ops":[],"text":"aюba","expect":{"output":"<p>aюba</p>"}}
 {"id":"b590097e5740270c","config":{"input":{"format":"yaml"}},"ops":[],"text":"? 'title'\n: \"Корвин - принц\"","expect":{"output":"? 'title'\n: \"Корвин — принц\""}}
+{"id":"b5913e5b04a08dc3","config":{"input":{"format":"html","attributes":[]},"html":false},"ops":[],"text":"<b title=\"10 кг\">10</b> кг","options":{"trace":true,"edits":true},"expect":{"output":{"text":"<b title=\"10 кг\">10</b> кг","trace":[{"rule":"abbr.nbsp_weight_unit","kind":"regex","count":1,"ranges":[[17,26]]}],"edits":[{"start":23,"end":24,"text":" "}]}}}
 {"id":"b591b97968c5c871","config":{"input":"yaml","maxInputLength":200000},"ops":[],"text":"title: |\n  Тень... и Амбер","expect":{"output":"title: |\n  Тень… и Амбер"}}
 {"id":"b592ebdcf207b43e","config":{"html":true},"ops":[],"text":"<p>bя «яююю» ab x</p>","expect":{"output":"<p>bя «яююю» ab x</p>"}}
 {"id":"b5945fca1f2cb89b","config":{"input":"yaml","maxInputLength":200000},"ops":[],"text":"- \"Корвин - принц\"\n- \"Оберон сказал: да!\"","expect":{"output":"- \"Корвин — принц\"\n- \"Оберон сказал: да!\""}}
@@ -46123,7 +46132,6 @@
 {"id":"b94efac105cbc7c1","config":{"html":true},"ops":[],"text":"b aюя \"axxa\"","expect":{"output":"<p>b aюя «axxa»</p>"}}
 {"id":"b952900607907b0f","config":{"html":true},"ops":[],"text":"ab яx \"юxbx\" xxaa","expect":{"output":"<p>ab яx «юxbx» xxaa</p>"}}
 {"id":"b9531bb57c30264f","config":{"html":true},"ops":[],"text":"«„“»","expect":{"output":"<p>«„“»</p>"}}
-{"id":"b9538ae288f433c0","config":{"input":{"format":"html","template":"liquid"}},"ops":[],"text":"<pre title=\"первая\n\n`  уложения  меж\tсверху`\">Сырой - \"код\"</pre> Корвин - принц","expect":{"output":"<pre title=\"первая\n\n`  уложения  меж\tсверху`\">Сырой - \"код\"</pre> Корвин — принц"}}
 {"id":"b953edd48c9cf4ee","config":{"html":true,"entities":false,"rules":{"date.nbsp_year_suffix":false}},"ops":[],"text":"Доброй охоты, Джулиан, \"друг \"вдруг\"\"","expect":{"output":"<p>Доброй охоты, Джулиан, «друг „вдруг“»</p>"}}
 {"id":"b954735a33b36bfb","config":{"html":false},"ops":[],"text":"\"aяяb\" axaю \"xююя\"","expect":{"output":"«aяяb» axaю «xююя»"}}
 {"id":"b955012420c1206b","config":{"html":true},"ops":[],"text":"<p>«яxxb»</p>","expect":{"output":"<p>«яxxb»</p>"}}
@@ -46681,6 +46689,7 @@
 {"id":"bb9b767e7e779c06","config":{"html":"1","input":{"format":"xml"},"render":{"paragraphs":1,"breakline":false,"nowrap":"nobr"},"rules":{}},"ops":[{"method":"applyOptions","args":[{"rules":{"space.strip_quote_padding":"1"}}]}],"text":"<?xml version=\"1.0\"?>\n<doc lang=\"ru\"><title>&lt;nobr&gt;P.&amp;nbsp;S.&lt;/nobr&gt; поклон всем с&amp;nbsp;Колвира. &lt;nobr&gt;P. P.&amp;nbsp;S.&lt;/nobr&gt; и&amp;nbsp;мне тоже.</title><!-- \"x\" - y --><p>~23,5в</p></doc>","expect":{"output":"<?xml version=\"1.0\"?>\n<doc lang=\"ru\"><title>&lt;nobr&gt;P.&amp;nbsp;S.&lt;/nobr&gt; поклон всем с&amp;nbsp;Колвира. &lt;nobr&gt;P. P.&amp;nbsp;S.&lt;/nobr&gt; и&amp;nbsp;мне тоже.</title><!-- \"x\" - y --><p>~23,5 В</p></doc>"}}
 {"id":"bb9db7c05bb3192f","config":{"html":false},"ops":[],"text":"«xaxx» bax «юbx» «bю»","expect":{"output":"«xaxx» bax «юbx» «bю»"}}
 {"id":"bba08edb4563643d","config":{"html":false},"ops":[],"text":"«bюa» «x» ю «яaюx»","expect":{"output":"«bюa» «x» ю «яaюx»"}}
+{"id":"bba2b657cb59bc8d","config":{"input":{"format":"text","template":"liquid","attributes":[]}},"ops":[],"text":"Пролог <span title=\"первая\n`  уложения  меж\tсверху`\">Корвин - принц</span>","expect":{"output":"Пролог <span title=\"первая\n`  уложения  меж\tсверху`\">Корвин — принц</span>"}}
 {"id":"bba2e4795e03f331","config":{"input":"yaml"},"ops":[],"text":"title: &a # note\n  \"Арден - лес\"","expect":{"output":"title: &a # note\n  \"Арден - лес\""}}
 {"id":"bba6a42372743eb9","config":{"input":"text"},"ops":[],"text":"Цена <_a b. Команда <code>rm -rf \"a - b\"</code> удаляет всё.","expect":{"output":"Цена <_a b. Команда <code>rm -rf \"a - b\"</code> удаляет всё."}}
 {"id":"bba85d9c7201c1f1","config":{"input":"xml","entities":false},"ops":[],"text":"<p>\"верх \"низ &#x201E;мир&ldquo;\"\"</p>","expect":{"output":"<p>«верх „низ &#x201E;мир&ldquo;“»</p>"}}
@@ -46840,6 +46849,7 @@
 {"id":"bc4cd460e908154e","config":{"html":false},"ops":[],"text":"«aяbx»«яюb»xюяa","expect":{"output":"«aяbx»«яюb»xюяa"}}
 {"id":"bc4ddb2f5cbf5a56","config":{},"ops":[],"text":"﻿ У му","expect":{"output":"﻿У му"}}
 {"id":"bc4e164e477c1835","config":{"html":false},"ops":[],"text":"«x» юяb","expect":{"output":"«x» юяb"}}
+{"id":"bc4e9c5aa728473f","config":{"entities":true,"input":"markdown"},"ops":[],"text":"Цена 5 долл. \"$\"\n\nФормула $x$","expect":{"output":"Цена 5&nbsp;$. &laquo;$&raquo;\n\nФормула $x$"}}
 {"id":"bc508477fcd26353","config":{"html":true},"ops":[],"text":"<p>xabю</p>","expect":{"output":"<p>xabю</p>"}}
 {"id":"bc50c1d1ac5bfe29","ops":[],"text":"яbbя«a»xяxя«xюbb»","expect":{"output":"яbbя«a»xяxя«xюbb»"}}
 {"id":"bc51db8e82d50e51","config":{"input":{"format":"text","template":"handlebars"}},"ops":[],"text":"{{{{raw}}}}Корвин - \"принц\"{{{{/raw}}}}","expect":{"output":"{{{{raw}}}}Корвин - \"принц\"{{{{/raw}}}}"}}
@@ -47293,6 +47303,7 @@
 {"id":"be104a77a5be26b0","config":{"html":false},"ops":[],"text":"«a»«юю»«abяя»«aax»","expect":{"output":"«a»«юю»«abяя»«aax»"}}
 {"id":"be106403832c988e","config":{"entities":"on","input":{"format":"yaml"},"render":{},"rules":{"abbr.nbsp_money_magnitude":true}},"ops":[],"text":"title: \"«Пир в Ребмó» славное. Спецсимвол \\\"Последний символ ASCII таблицы - ¥\\\".\"\nbody: |\n  - Я пошёл в Тень восвояси... - Может останешься, Корвин? - Нет, ухожу.\nlist:\n  - '§32, §IV'\nn: 1\n","expect":{"output":"title: \"«Пир в Ребмó» славное. Спецсимвол \\\"Последний символ ASCII таблицы - ¥\\\".\"\nbody: |\n  — Я пошёл в Тень восвояси… — Может останешься, Корвин? — Нет, ухожу.\nlist:\n  - '§ 32, § IV'\nn: 1\n"}}
 {"id":"be10eede4049d245","config":{"html":true,"rules":{"text.paragraphs":false,"hanging.*":false},"input":"html","entities":true},"ops":[],"text":"Пролог.\n \t после 19.00 отступить от Колвира","expect":{"output":"Пролог.<br>\n \t после 19.00 отступить от&nbsp;Колвира"}}
+{"id":"be11b236fa974d8b","config":{"html":false,"input":{"placeholders":"all"}},"ops":[],"text":"7%  XIV ря","expect":{"output":"7% XIV ря"}}
 {"id":"be141bacd92bb7da","config":{"html":false},"ops":[],"text":"«a»«bяя»","expect":{"output":"«a»«bяя»"}}
 {"id":"be1677754f1af4a0","config":{"html":true},"ops":[],"text":"«aяяю»","expect":{"output":"<p>«aяяю»</p>"}}
 {"id":"be17c1c568f0750d","config":{"html":false},"ops":[],"text":"\"юaяx\"","expect":{"output":"«юaяx»"}}
@@ -47473,6 +47484,7 @@
 {"id":"beca230c14e74972","config":{"input":"xml","entities":true},"ops":[],"text":"<p>&quot;<em>лес</em>&quot;&#171;&#8222;&#8222;&#8222;пруд&#8220;&#8220;&#8220;&#187;</p>","expect":{"output":"<p>&quot;<em>лес</em>&quot;&#171;&#8222;&#8222;&#8222;пруд&#8220;&#8220;&#8220;&#187;</p>"}}
 {"id":"becaff08ab61e8d1","config":{"html":false},"ops":[],"text":"«baa»«яя»«x»","expect":{"output":"«baa»«яя»«x»"}}
 {"id":"becb0cb4ddf6c795","config":{"input":"markdown"},"ops":[],"text":"Библиограф: «Найдена „История „Москвы“ за 1946“ в переплёте».­В поле «» указано значение.","expect":{"output":"Библиограф: «Найдена „История „Москвы“ за 1946“ в переплёте».­В поле «» указано значение."}}
+{"id":"becd0e7fb25c3b4d","config":{"input":{"format":"text","math":false}},"ops":[],"text":"$a - b$","expect":{"output":"$a — b$"}}
 {"id":"becf603ac2d7c007","config":{"html":false},"ops":[],"text":"«xbюa» «a» bяю xxюa","expect":{"output":"«xbюa» «a» bяю xxюa"}}
 {"id":"bed008b53ca31621","config":{"html":true},"ops":[],"text":"<p>«юxb»«aя»</p>","expect":{"output":"<p>«юxb»«aя»</p>"}}
 {"id":"bed04a9d4ec996e3","config":{"html":false,"entities":true,"rules":{"date.nowrap_date":false}},"ops":[],"text":"(С) 1999-2003г., ООО \"Фирма \"Единорог\". Все права защищены.\n\nФиона добавила: \"И цвет мой самый любимый - \"изумруд\"\".","expect":{"output":"&copy;&nbsp;1999&ndash;2003&nbsp;гг., ООО&nbsp;&laquo;Фирма &laquo;Единорог&raquo;. Все права защищены.\n\nФиона добавила: &laquo;И&nbsp;цвет мой самый любимый&nbsp;&mdash; &bdquo;изумруд&ldquo;&raquo;."}}
@@ -47540,6 +47552,7 @@
 {"id":"bf190de06c9c8907","config":{},"ops":[],"text":"Фа Ж Е","expect":{"output":"Фа Ж Е"}}
 {"id":"bf194b65081d0273","config":{"html":false},"ops":[],"text":"a xюb \"axяю\" \"axя\"","expect":{"output":"a xюb «axяю» «axя»"}}
 {"id":"bf1ad7b7ffc8248e","config":{"input":{"format":"yaml"}},"ops":[],"text":"? &a\n  |\n    title\n: \"Корвин - принц\"","expect":{"output":"? &a\n  |\n    title\n: \"Корвин — принц\""}}
+{"id":"bf1b74ad998bb2b2","config":{"rules":{"space.strip_quote_padding":false}},"ops":[],"text":"«„старый “»]","expect":{"output":"«„старый “»]"}}
 {"id":"bf1babd2b04ca7a7","config":{"input":{"format":"text"},"html":true,"entities":false,"render":{"paragraphs":true,"autolink":true},"rules":{}},"ops":[],"text":"\"Амбер\" - истинный, см. http://amber.example/a?x=1&y=2","expect":{"output":"<p>«Амбер» — истинный, см. <a href=\"http://amber.example/a?x=1&amp;y=2\">amber.example/a?x=1&y=2</a></p>"}}
 {"id":"bf1c2f91b5503624","config":{"input":"markdown","rules":{"quote.close":true,"quote.nested":false}},"ops":[],"text":"«„>“»","expect":{"output":"««>»»"}}
 {"id":"bf1ff7e46431b028","config":{"html":true},"ops":[],"text":"\"aя\" \"bx\" яxxb","expect":{"output":"<p>«aя» «bx» яxxb</p>"}}
@@ -48846,7 +48859,7 @@
 {"id":"c45e1a1e17a46d6d","config":{"html":true},"ops":[],"text":"яxx","expect":{"output":"<p>яxx</p>"}}
 {"id":"c45eb6f9edcb69eb","config":{"html":true},"ops":[],"text":"xba«bx»","expect":{"output":"<p>xba«bx»</p>"}}
 {"id":"c45f2b9f7c74ebc5","config":{"entities":false,"input":{"format":"toml","exclude":["*"]},"rules":{"date.nowrap_day_range":"false","dash.em*":false,"quote.open":"1","space":"1"}},"ops":[],"text":"title = \"В Тени температура достигала -20... -30 градусов Цельсия.\"\nn = 1\n\n[body]\ntext = \"Данные изложены в таблице см.цветной вкладыш. Дом им.Дворкина.\"\n","options":{"changes":true},"expect":{"output":{"text":"title = \"В Тени температура достигала −20… −30 градусов Цельсия.\"\nn = 1\n\n[body]\ntext = \"Данные изложены в таблице см. цветной вкладыш. Дом им. Дворкина.\"\n","changes":[[10,11],[38,39],[41,42],[43,44],[105,106],[117,118],[142,143]]}}}
-{"id":"c463e5d920a7f017","config":{"input":"html"},"ops":[],"text":"<img alt=\"Корвин - принц\" title=\"А - б\">","expect":{"output":"<img alt=\"Корвин - принц\" title=\"А - б\">"}}
+{"id":"c463e5d920a7f017","config":{"input":"html"},"ops":[],"text":"<img alt=\"Корвин - принц\" title=\"А - б\">","expect":{"output":"<img alt=\"Корвин — принц\" title=\"А — б\">"}}
 {"id":"c4644a519f749e8b","config":{"html":false},"ops":[],"text":"\"abx\" юю \"xx\" \"aba\"","expect":{"output":"«abx» юю «xx» «aba»"}}
 {"id":"c46693a76cc1d804","config":{"html":true,"render":{"paragraphs":false,"breakline":false}},"ops":[],"text":"«Сайт https://x.ru/wiki/Имя_««А»»&page=2 в статье».","expect":{"output":"«Сайт <a href=\"https://x.ru/wiki/Имя_««А»»&amp;page=2\">x.ru/wiki/Имя_««А»»&page=2</a> в статье»."}}
 {"id":"c4694e5ef7c9358d","ops":[],"text":"снимая-августовский плащ","expect":{"output":"снимая-августовский плащ"}}
@@ -49448,6 +49461,7 @@
 {"id":"c6ada8f8cb90d3c5","config":{"html":false,"input":{"format":"frontmatter","pragmas":"microtypo"}},"ops":[],"text":"<е<!-- microtypo-ignore-start -->\nКод - \"текст\"\n<!-- microtypo-ignore-end -->\nЭрик — король","expect":{"output":"<е<!-- microtypo-ignore-start -->\nКод - \"текст\"\n<!-- microtypo-ignore-end -->\nЭрик — король"}}
 {"id":"c6af154b407168ce","ops":[],"text":"«xю» «юbxя» юяюx яbxb","expect":{"output":"«xю» «юbxя» юяюx яbxb"}}
 {"id":"c6b03e6e2c640f64","config":{"input":{"format":"yaml"}},"ops":[],"text":"- ? title\n  : \"Корвин - принц\"","expect":{"output":"- ? title\n  : \"Корвин — принц\""}}
+{"id":"c6b11fb1bb036d69","ops":[],"text":"Пишет «%1$s»}","expect":{"output":"Пишет «%1$s»}"}}
 {"id":"c6b2ecf543ede34e","config":{"input":"html","html":true},"ops":[],"text":"Начало.\n\n&nbsp;\n\nКонец.","expect":{"output":"<p>Начало.</p>\n\n<p>Конец.</p>"}}
 {"id":"c6b3eb9294e706ed","config":{"html":false,"entities":true,"rules":{"dash.em":false}},"ops":[],"text":"<p>\"Очень хороший скрипт этот Козырь, <strong>просто замечательный</strong>\",&mdash; отмечает канцелярия.</p>","expect":{"output":"<p>&laquo;Очень хороший скрипт этот Козырь, <strong>просто замечательный</strong>&raquo;,&mdash; отмечает канцелярия.</p>"}}
 {"id":"c6b4ec23dad77eb6","config":{"input":"xml"},"ops":[],"text":"<r>слово — - сказал</r>","expect":{"output":"<r>слово — - сказал</r>"}}
@@ -49859,7 +49873,6 @@
 {"id":"c8698ad4db83d567","config":{"input":"markdown"},"ops":[],"text":"Закончен абзац. »<blockquote>Город</blockquote>","expect":{"output":"Закончен абзац. \"<blockquote>Город</blockquote>"}}
 {"id":"c869b82dad587ced","config":{"html":true},"ops":[],"text":"<b>а</b>8 м","expect":{"output":"<p><b>а</b>8 м</p>"}}
 {"id":"c86a909b63b20d95","config":{"html":true},"ops":[],"text":"<p>ю «ю» «я»</p>","expect":{"output":"<p>ю «ю» «я»</p>"}}
-{"id":"c86a90e70a7a27e6","config":{"input":{"format":"text","template":"liquid"}},"ops":[],"text":"Пролог <span title=\"первая\n`  уложения  меж\tсверху`\">Корвин - принц</span>","expect":{"output":"Пролог <span title=\"первая\n`  уложения  меж\tсверху`\">Корвин — принц</span>"}}
 {"id":"c86bef7faa2fa62d","config":{"input":"markdown","html":true},"ops":[],"text":"Амбер Амбер Рэндом Корвин Арден;Корвин Корвин","expect":{"output":"Амбер Амбер Рэндом Корвин Арден;Корвин Корвин"}}
 {"id":"c86eef03e48eedc0","config":{"html":false,"entities":false,"input":"markdown"},"ops":[],"text":"```\na -- b\n```\nКорвин \"Амбер\" Эрик\n```\nc -- d\n```","expect":{"output":"```\na -- b\n```\nКорвин «Амбер» Эрик\n```\nc -- d\n```"}}
 {"id":"c86f824eabc90602","config":{"html":true},"ops":[],"text":"<p>«яяю» яюя «я» xюяb</p>","expect":{"output":"<p>«яяю» яюя «я» xюяb</p>"}}
@@ -50880,6 +50893,7 @@
 {"id":"ccaf1285b971064b","config":{"input":{"format":"toml","fields":["/posts/0/title"]}},"ops":[],"text":"[[posts]]\ntitle = \"Корвин - Эрик\"\n[[posts]]\ntitle = \"Рэндом - Блейз\"","expect":{"output":"[[posts]]\ntitle = \"Корвин — Эрик\"\n[[posts]]\ntitle = \"Рэндом - Блейз\""}}
 {"id":"ccafd2e2098c8b27","config":{"html":true},"ops":[],"text":"<p>«a» «bяx»</p>","expect":{"output":"<p>«a» «bяx»</p>"}}
 {"id":"ccb13e64459c804a","config":{"html":false},"ops":[],"text":"\"юax\" \"bюx\" \"юax\"","expect":{"output":"«юax» «bюx» «юax»"}}
+{"id":"ccb147812b945ca6","config":{"input":{"format":"markdown","math":false}},"ops":[],"text":"$a - b <i title=\"$\">текст</i>","expect":{"output":"$a — b <i title=\"$\">текст</i>"}}
 {"id":"ccb26c51c7ef01b9","config":{"input":{"format":"yaml","fields":["/key"]}},"ops":[],"text":"!local key: \"Корвин - принц\"\nnext: \"Эрик - король\"","expect":{"output":"!local key: \"Корвин - принц\"\nnext: \"Эрик - король\""}}
 {"id":"ccb30cf8ed6d110d","config":{"input":{"format":"text","template":"erb"}},"ops":[],"text":"<svg><![CDATA[<%#]]></svg> Корвин — принц %>","expect":{"output":"<svg><![CDATA[<%#]]></svg> Корвин — принц %>"}}
 {"id":"ccb3f2a2ec3b2856","ops":[],"text":"5 - 3","expect":{"output":"5–3"}}
@@ -51449,6 +51463,7 @@
 {"id":"cf19d57529b70a0d","config":{"input":{"format":"yaml"},"render":{"paragraphs":0},"maxInputLength":10},"ops":[],"text":"title: \"...Когда В. И. Дворкин увидел в газете ( это была &quot;Хроники Амбера&quot; № 45) рубрику Amber Chronicle(r), он не поверил своим глазам - температуру обещали +-451F.\"\nbody: |\n  и тд и тп.\nlist:\n  - 'Отражение( ( Тени ) Лабиринт ).'\nn: 1\n","options":{"changes":true},"expect":{"error":{"name":"MicroTypoInputError","message":"Input length 247 exceeds maxInputLength (10)","code":"ERR_MICROTYPO_INPUT","details":{"length":247,"max":10}}}}
 {"id":"cf1ace96d9eb0aac","config":{"html":"off","entities":1,"input":{"format":"html"},"render":{"paragraphs":1,"autolink":0}},"ops":[],"text":"<div><em>- Я пошёл в Тень восвояси... - Может останешься, Корвин? - Нет, ухожу.</em> <code>$125, $ 12, &euro; 1, €12</code></div>\n{% if a %}\"b\"{% endif %}","expect":{"output":"<div><em>&mdash;&nbsp;Я&nbsp;пошёл в&nbsp;Тень восвояси&hellip; &mdash;&nbsp;Может останешься, Корвин? &mdash;&nbsp;Нет, ухожу.</em> <code>$125, $ 12, &euro; 1, €12</code></div>\n{% if a %}\"b\"{% endif %}"}}
 {"id":"cf1b835284cb4b7f","ops":[],"text":"«ю» bbюa","expect":{"output":"«ю» bbюa"}}
+{"id":"cf1be2f59d9b113a","ops":[],"text":"Пишет «%@»]","expect":{"output":"Пишет «%@»]"}}
 {"id":"cf1da9c430828961","config":{"html":true},"ops":[],"text":"«юa» axяb «xbax» «ю»","expect":{"output":"<p>«юa» axяb «xbax» «ю»</p>"}}
 {"id":"cf1ddfbbfe1cf35a","config":{"html":true},"ops":[],"text":"<p>baxяaюяbx</p>","expect":{"output":"<p>baxяaюяbx</p>"}}
 {"id":"cf1f10ff4604245c","config":{"html":true,"entities":false,"rules":{"date.month_range":false}},"ops":[],"text":"500 т; 485 °С; 20%; 15°; 45'; 15\"","expect":{"output":"<p>500 т; 485 °C; 20%; 15°; 45'; 15″</p>"}}
@@ -51569,6 +51584,7 @@
 {"id":"cf88111dd84213cc","config":{"html":true},"ops":[],"text":"\"яюb\" я","expect":{"output":"<p>«яюb» я</p>"}}
 {"id":"cf8811f8b82fef50","config":{"html":true},"ops":[],"text":"<p>«ax» «яя» xa aa</p>","expect":{"output":"<p>«ax» «яя» xa aa</p>"}}
 {"id":"cf88d1a90ddcb60b","config":{"html":true},"ops":[],"text":"<p>bяx«aюю»«юя»«bюя»</p>","expect":{"output":"<p>bяx«aюю»«юя»«bюя»</p>"}}
+{"id":"cf89cf7a0ecf40c9","config":{"input":{"format":"html","attributes":[]},"html":false},"ops":[],"text":"<b title=\"10 кг\">10</b> кг","expect":{"output":"<b title=\"10 кг\">10</b> кг"}}
 {"id":"cf8a12020aa9465d","config":{"html":true,"rules":{"text.paragraphs":false,"hanging.*":false},"input":"html","entities":true},"ops":[],"text":"Пролог.\n \t беседа для «Козыри+»","expect":{"output":"Пролог.<br>\n \t беседа для &laquo;Козыри+&raquo;"}}
 {"id":"cf8c6620d29ac9f5","config":{"html":false},"ops":[],"text":"«baю» ю «xbю» axaю","expect":{"output":"«baю» ю «xbю» axaю"}}
 {"id":"cf8d2e0320a74737","config":{"html":false,"entities":true,"rules":{"space.trim_line_end":false}},"ops":[],"text":"Т.е. это наставление Дворкина.","expect":{"output":"Т.&nbsp;е. это наставление Дворкина."}}
@@ -52489,6 +52505,7 @@
 {"id":"d301457b318b8fa5","config":{"input":"html","html":false},"ops":[],"text":"<tbody>\"слово <em>другое</em>\"</tbody>\n","expect":{"output":"<tbody>«слово <em>другое</em>»</tbody>"}}
 {"id":"d301721f27cff279","config":{"html":false},"ops":[],"text":"a «юax» юx юbxa","expect":{"output":"a «юax» юx юbxa"}}
 {"id":"d301961b01c85abe","config":{"input":{"format":"html","template":"nunjucks"}},"ops":[],"text":"y <<землях {% if a - b > 0 %}","expect":{"output":"y <<землях {% if a - b > 0 %}"}}
+{"id":"d302db04b2673f67","config":{"entities":true,"input":"markdown"},"ops":[],"text":"Цена 5&nbsp;$. &laquo;$&raquo;\n\nФормула $x$","expect":{"output":"Цена 5&nbsp;$. &laquo;$&raquo;\n\nФормула $x$"}}
 {"id":"d30348798f417705","config":{"html":true,"entities":true,"input":{"format":"text"}},"ops":[],"text":"Внемли, Корвин!\n\n","expect":{"output":"<p>Внемли, Корвин!</p>"}}
 {"id":"d303e3131573f3ca","config":{"html":false},"ops":[],"text":"\"ax\"","expect":{"output":"«ax»"}}
 {"id":"d304be4604b5fc58","config":{"html":true},"ops":[],"text":"<p>«xя»«aaxx»«ю»</p>","expect":{"output":"<p>«xя»«aaxx»«ю»</p>"}}
@@ -53000,6 +53017,7 @@
 {"id":"d4f11e6b470dc50e","config":{"html":false},"ops":[],"text":"b «юя» «юb» «xbx»","expect":{"output":"b «юя» «юb» «xbx»"}}
 {"id":"d4f1f117c629ace1","config":{"input":{"format":"yaml"}},"ops":[],"text":"{ !!null : \"Корвин - принц\", next: \"Эрик - король\" }","expect":{"output":"{ !!null : \"Корвин — принц\", next: \"Эрик — король\" }"}}
 {"id":"d4f2594736dd8372","config":{"html":false},"ops":[],"text":"ba","expect":{"output":"ba"}}
+{"id":"d4f2da2b02a904f8","config":{"input":{"format":"html","attributes":[]},"html":false},"ops":[],"text":"<b title=\"в дом\">в</b> дом","options":{"trace":true,"edits":true},"expect":{"output":{"text":"<b title=\"в дом\">в</b> дом","trace":[{"rule":"nobr.nbsp_short_word","kind":"regex","count":1,"ranges":[[17,26]]}],"edits":[{"start":22,"end":23,"text":" "}]}}}
 {"id":"d4f2e2257cd64393","config":{"input":"markdown"},"ops":[],"text":"<Code>Корвин - принц</Code>","expect":{"output":"<Code>Корвин - принц</Code>"}}
 {"id":"d4f5607a21ba232a","config":{"html":false},"ops":[],"text":"«xюю» «юя» xa","expect":{"output":"«xюю» «юя» xa"}}
 {"id":"d4f65d2c30993264","ops":[],"text":"a яя","expect":{"output":"a яя"}}
@@ -53475,7 +53493,6 @@
 {"id":"d70b16c97b5b682a","config":{"html":true},"ops":[],"text":"a_12","expect":{"output":"<p>a<sub><small>12</small></sub></p>"}}
 {"id":"d70b4a8f13d4b721","config":{"html":true,"rules":{"hanging.*":false,"text.breakline":false}},"ops":[],"text":"<svg><svg/></svg>\nКорвин\n\nЭрик","expect":{"output":"<p><svg><svg/></svg>\nКорвин</p>\n\n<p>Эрик</p>"}}
 {"id":"d70b54c91cf72096","config":{"html":false},"ops":[],"text":"\"aя\" bb","expect":{"output":"«aя» bb"}}
-{"id":"d70c3d71b86ace33","config":{"html":false,"input":{"placeholders":"off"}},"ops":[],"text":"{n, plural, one {# день - \"текст\"} other {# дней}}","expect":{"output":"{n, plural, one {# день — «текст»} other {# дней}}"}}
 {"id":"d70e7473797b311c","config":{"html":true},"ops":[],"text":"xя \"яxяю\"","expect":{"output":"<p>xя «яxяю»</p>"}}
 {"id":"d70fe59c36c3fd22","config":{"html":true},"ops":[],"text":"\"bюbя\" bяяя","expect":{"output":"<p>«bюbя» bяяя</p>"}}
 {"id":"d711062e02065e87","config":{"html":false},"ops":[],"text":"«xxaя» axю","expect":{"output":"«xxaя» axю"}}
@@ -54016,7 +54033,7 @@
 {"id":"d933b1dc10629ccc","config":{"html":false},"ops":[],"text":"«юю» abb","expect":{"output":"«юю» abb"}}
 {"id":"d934572e0302c9bf","config":{"html":true},"ops":[],"text":"\"юb\" \"a\"","expect":{"output":"<p>«юb» «a»</p>"}}
 {"id":"d936195f4e00e369","config":{"html":true},"ops":[],"text":"<p>b «bbюa» «ю»</p>","expect":{"output":"<p>b «bbюa» «ю»</p>"}}
-{"id":"d9374c5e7ee0fe6a","config":{"rules":{"space.strip_quote_padding":false}},"ops":[],"text":"\"«старый »\"]","expect":{"output":"««старый »\"]"}}
+{"id":"d9374c5e7ee0fe6a","config":{"rules":{"space.strip_quote_padding":false}},"ops":[],"text":"\"«старый »\"]","expect":{"output":"«„старый “»]"}}
 {"id":"d93816bee1bd3c9e","config":{"html":"on","entities":true,"input":{"format":"text"},"render":{"autolink":"off","breakline":"off","nowrap":"span"}},"ops":[],"text":"Замысел Дворкина:ясен.","options":{"changes":true},"expect":{"output":{"text":"<p>Замысел Дворкина: ясен.</p>","changes":[[0,3],[20,21],[26,30]]}}}
 {"id":"d938e95be7322730","config":{"html":true},"ops":[],"text":"«юxbx» baюю xb «aя»","expect":{"output":"<p>«юxbx» baюю xb «aя»</p>"}}
 {"id":"d93a865e77546411","config":{"entities":false,"input":{"format":"toml"},"rules":{}},"ops":[],"text":"title = \"§32, §IV\"\nn = 1\n\n[body]\ntext = \"586,5 кг\"\n","expect":{"output":"title = \"§ 32, § IV\"\nn = 1\n\n[body]\ntext = \"586,5 кг\"\n"}}
@@ -54693,7 +54710,6 @@
 {"id":"dc121b7142d6e1c3","config":{"html":true},"ops":[],"text":"<p>bbяя «b» «babx» «bx»</p>","expect":{"output":"<p>bbяя «b» «babx» «bx»</p>"}}
 {"id":"dc12edcf8efb34d5","config":{"html":false},"ops":[],"text":"\"ю\" aяю","expect":{"output":"«ю» aяю"}}
 {"id":"dc135b1d86611482","config":{"html":true},"ops":[],"text":"<p>xbba«xx»«b»«bюaa»</p>","expect":{"output":"<p>xbba«xx»«b»«bюaa»</p>"}}
-{"id":"dc139b21d75c5fb5","config":{"input":"html","html":false},"ops":[],"text":"<b title=\"a\">в</b> <i title=\"дом\">дом</i>","expect":{"output":"<b title=\"a\">в</b> <i title=\"дом\">дом</i>"}}
 {"id":"dc148001e1b70277","config":{"html":false},"ops":[],"text":"«юaюя»","expect":{"output":"«юaюя»"}}
 {"id":"dc158a81c98ae5c3","config":{"html":true},"ops":[],"text":"<p>x baяя ab</p>","expect":{"output":"<p>x baяя ab</p>"}}
 {"id":"dc168f3a164f2b7e","config":{"entities":0,"input":{"format":"text"},"render":{"autolink":false,"breakline":1,"hanging":"style","prefix":false},"rules":{"hanging.bracket":false,"punctuation.collapse_doubled":true},"maxInputLength":10},"ops":[{"method":"applyOptions","args":[{"rules":{"abbr.*":0}}]}],"text":"+ 7 (495)1234567, +7 (495)1234567, +7(495)1234567, +7(495) 1234567","expect":{"error":{"name":"MicroTypoInputError","message":"Input length 66 exceeds maxInputLength (10)","code":"ERR_MICROTYPO_INPUT","details":{"length":66,"max":10}}}}
@@ -54733,6 +54749,7 @@
 {"id":"dc3e9e90b315ee45","config":{"html":false},"ops":[],"text":"«ююx» «xbю» ю","expect":{"output":"«ююx» «xbю» ю"}}
 {"id":"dc438e1c7a783535","config":{"input":{"format":"markdown","template":"nunjucks"}},"ops":[],"text":"<?php echo \"{%- raw -%}\"; ?> Корвин - принц {%- endraw -%}","expect":{"output":"<?php echo \"{%- raw -%}\"; ?> Корвин — принц {%- endraw -%}"}}
 {"id":"dc439b3493d80d82","config":{"html":"1","entities":"false","input":{"format":"frontmatter"},"render":{"paragraphs":false,"nowrap":"nobr"}},"ops":[],"text":"---\ntitle: \"«Козырь ⿇\\\" и «Козырь あ\\\".\"\n---\n\n\"2013 г.\" тоже никак не связывает Дворкина.","expect":{"output":"---\ntitle: \"«Козырь ⿇\\\" и «Козырь あ\\\".\"\n---\n\n«2013 г.» тоже никак не связывает Дворкина."}}
+{"id":"dc45403f64a00e82","config":{"html":false,"input":{"placeholders":"icu"}},"ops":[],"text":"It''s {n} - текст","expect":{"output":"It’s {n} — текст"}}
 {"id":"dc45e30b8a0fcabb","config":{"input":"markdown","html":true},"ops":[],"text":"**Арден Образ Мерлин Дворкин — вотАрден Мерлин** и *Тень Арден:*\n\n- <div class=\"x\">Дворкин Амбер?</div>","expect":{"output":"**Арден Образ Мерлин Дворкин — вотАрден Мерлин** и *Тень Арден:*\n\n- <div class=\"x\">Дворкин Амбер?</div>"}}
 {"id":"dc4684f592e5a3e2","config":{"html":false},"ops":[],"text":"«яbя» bя bx «юabb»","expect":{"output":"«яbя» bя bx «юabb»"}}
 {"id":"dc4697f6bbe28162","config":{"html":true},"ops":[],"text":"<p>«b» юaяa b</p>","expect":{"output":"<p>«b» юaяa b</p>"}}
@@ -56127,6 +56144,7 @@
 {"id":"e1bd3aa413bffba1","config":{"html":false},"ops":[],"text":"bxbю «яaxa»","expect":{"output":"bxbю «яaxa»"}}
 {"id":"e1beb7aaed014562","config":{"html":true,"render":{"paragraphs":false}},"ops":[],"text":"5 <i>руб.</i>","options":{"trace":true},"expect":{"output":{"text":"5 <i>руб.</i>","trace":[]}}}
 {"id":"e1bff907daeea3ab","config":{"html":true,"rules":{"text.paragraphs":false,"hanging.*":false},"input":"text","entities":true},"ops":[],"text":"В Тени температура достигала -20... -30 градусов Цельсия.","expect":{"output":"В&nbsp;Тени температура достигала &minus;20&hellip; &minus;30 градусов Цельсия."}}
+{"id":"e1c5fb4e9a8bfd04","config":{"entities":true,"input":"markdown"},"ops":[],"text":"Цена $ 2 - \"сто$\"","expect":{"output":"Цена $&nbsp;2&nbsp;&mdash; &laquo;сто$&raquo;"}}
 {"id":"e1c6e91a7d6827e3","config":{"html":false},"ops":[],"text":"я \"юxя\"","expect":{"output":"я «юxя»"}}
 {"id":"e1c75cf5ce2336f2","config":{"html":false},"ops":[],"text":"xяx юx «xa» ю","expect":{"output":"xяx юx «xa» ю"}}
 {"id":"e1c827416be3ac5b","config":{"html":false,"entities":false,"input":"markdown"},"ops":[],"text":"<textarea class=\"x\">\r````js\rconst x = \"hello\" - 1; // 10-20\r````\r</textarea>\r\rДальше - \"текст\".","expect":{"output":"<textarea class=\"x\">\r````js\rconst x = \"hello\" - 1; // 10-20\r````\r</textarea>\r\rДальше — «текст»."}}
@@ -56167,6 +56185,7 @@
 {"id":"e1ec3f33d1063727","ops":[],"text":"ba «юab» юю «a»","expect":{"output":"ba «юab» юю «a»"}}
 {"id":"e1ecaa41158aeaf8","config":{"html":true},"ops":[],"text":"<p>«b» bяяx «я» bяю</p>","expect":{"output":"<p>«b» bяяx «я» bяю</p>"}}
 {"id":"e1ecff6e5da7edcd","config":{"rules":{"quote.inch":false}},"ops":[],"text":"Редактор пишет: “Пометки „“” и “Лес”“ записано”.","expect":{"output":"Редактор пишет: «Пометки „„“ и „Лес““ записано»."}}
+{"id":"e1ed5fa0f542b772","config":{"html":false,"input":{"placeholders":"printf"}},"ops":[],"text":"7%  XIV ря","expect":{"output":"7% XIV ря"}}
 {"id":"e1edc640e761d003","config":{"input":"toml"},"ops":[],"text":"e=\"ь?как то\"","expect":{"output":"e=\"ь? как-то\""}}
 {"id":"e1efedcf33610054","config":{"html":true,"entities":"false","input":{"format":"markdown"}},"ops":[],"text":"# Кейн, т.е. Блейз, т. е. Бранд, съел пирог.\n\nСначала пройди Лабиринт -> потом Отражение ->\n\n- Фиона поймала баг: если в статье есть ссылки вроде http://www.amber.example/questions/693440-tropy-ambera-cherez-otrazhenija.html (обратите внимание на цифры и дефис после них).\n\n```\ncode - \"x\" -- 'y'\n```\n\n> Кейн, т.е. Блейз, т. е. Бранд, съел пирог. `a - b` [ссылка](http://example.com/a-b \"t\")\n","expect":{"output":"# Кейн, <span style=\"white-space:nowrap;\">т. е.</span> Блейз, <span style=\"white-space:nowrap;\">т. е.</span> Бранд, съел пирог.\n\nСначала пройди Лабиринт → потом Отражение →\n\n- Фиона поймала баг: если в статье есть ссылки вроде <a href=\"http://www.amber.example/questions/693440-tropy-ambera-cherez-otrazhenija.html\">www.amber.example/questions/693440-tropy-ambera-cherez-otrazhenija.html</a> (обратите внимание на цифры и дефис после них).\n\n```\ncode - \"x\" -- 'y'\n```\n\n> Кейн, <span style=\"white-space:nowrap;\">т. е.</span> Блейз, <span style=\"white-space:nowrap;\">т. е.</span> Бранд, съел пирог. `a - b` [ссылка](http://example.com/a-b \"t\")\n"}}
 {"id":"e1f022b929a57f78","ops":[],"text":"«xa»«axxx»aaя«bbbя»","expect":{"output":"«xa»«axxx»aaя«bbbя»"}}
@@ -57351,6 +57370,7 @@
 {"id":"e6b00b1a5065d0e4","config":{"html":true},"ops":[],"text":"axa","expect":{"output":"<p>axa</p>"}}
 {"id":"e6b0765caf9b6dfc","config":{"entities":true,"input":"html","render":{"paragraphs":"off"},"rules":{}},"ops":[],"text":"3х4, 3 х 6\n{% if a %}\"b\"{% endif %}","options":{"changes":true},"expect":{"output":{"text":"3&times;4, 3&times;6\n{% if a %}\"b\"{% endif %}","changes":[[1,8],[12,19]]}}}
 {"id":"e6b19490acfbb7a5","config":{"input":{"format":"markdown","template":"liquid"}},"ops":[],"text":"<svg><![CDATA[{{]]></svg> Корвин - принц }}","expect":{"output":"<svg><![CDATA[{{]]></svg> Корвин — принц }}"}}
+{"id":"e6b1ae24d6e1a132","config":{"input":{"format":"markdown","template":"liquid","attributes":[]}},"ops":[],"text":"<pre title=\"первая\n\n`  уложения  меж\tсверху`\">Сырой - \"код\"</pre> Корвин - принц","expect":{"output":"<pre title=\"первая\n\n`  уложения  меж\tсверху`\">Сырой - \"код\"</pre> Корвин — принц"}}
 {"id":"e6b32f9d334f1d5c","config":{"html":true},"ops":[],"text":"\"xxюx\"","expect":{"output":"<p>«xxюx»</p>"}}
 {"id":"e6b356a74542abb3","ops":[],"text":"яbbяb«aю»«bяbю»","expect":{"output":"яbbяb«aю»«bяbю»"}}
 {"id":"e6b3e96ddabff74f","config":{"html":true,"rules":{"text.paragraphs":false,"hanging.*":false},"entities":true},"ops":[],"text":"\"Слушай \"Козырь 13\" на своём зеркале 13\" недурно\".","expect":{"output":"&laquo;Слушай &bdquo;Козырь 13&ldquo; на&nbsp;своём зеркале 13&Prime; недурно&raquo;."}}
@@ -58511,6 +58531,7 @@
 {"id":"eb6a1c80ceb31823","config":{"html":true,"entities":false,"rules":{"date.nowrap_date":false}},"ops":[],"text":"Хронику см. гл. 8, стр.34, рис.3 или илл.3.","expect":{"output":"<p>Хронику см. гл. 8, стр. 34, рис. 3 или илл. 3.</p>"}}
 {"id":"eb6b3414a666215f","config":{"html":true},"ops":[],"text":"\"юbю\" \"яb\"","expect":{"output":"<p>«юbю» «яb»</p>"}}
 {"id":"eb6d440ea7c21abc","config":{"input":"markdown"},"ops":[],"text":"Сказано: «\n`Город`».","expect":{"output":"Сказано: «\n`Город`»."}}
+{"id":"eb6da4da0a160d5c","config":{"input":{"format":"html","attributes":[]},"html":false},"ops":[],"text":"<b title=\"в дом\">в</b> дом","expect":{"output":"<b title=\"в дом\">в</b> дом"}}
 {"id":"eb704d9b7b692bc6","config":{"html":true},"ops":[],"text":"«я» aaяx «ю»","expect":{"output":"<p>«я» aaяx «ю»</p>"}}
 {"id":"eb7126b3a0f471ad","ops":[],"text":"\"Корвин принц \" и \" Рэндом принц\" и \" Дейрдре принц\"","expect":{"output":"«Корвин принц» и «Рэндом принц» и «Дейрдре принц»"}}
 {"id":"eb718de63c9ec623","config":{"html":false},"ops":[],"text":"bbяab","expect":{"output":"bbяab"}}
@@ -58565,6 +58586,7 @@
 {"id":"eba0e3ea716cea76","config":{"render":{"paragraphs":false,"breakline":false},"input":"html","html":true},"ops":[],"text":"<svg><foreignObject><![CDATA[> </foreignObject>]]><style/>const x = \"hello\" - 1;</style> Эрик - Козырь","expect":{"output":"<svg><foreignObject><![CDATA[> </foreignObject>]]><style/>const x = \"hello\" - 1;</style> Эрик — Козырь"}}
 {"id":"eba13ace58e6ee9f","config":{"html":false},"ops":[],"text":"«ю» «aa» яx xxbx","expect":{"output":"«ю» «aa» яx xxbx"}}
 {"id":"eba4b51520004bd2","config":{"input":{"format":"yaml"}},"ops":[],"text":"- ? !!null\n  : \"Корвин - принц\"\n  next: \"Эрик - король\"","expect":{"output":"- ? !!null\n  : \"Корвин — принц\"\n  next: \"Эрик — король\""}}
+{"id":"eba75c3762bf9c1e","config":{"html":false,"input":{"placeholders":"printf"}},"ops":[],"text":"7% XIV ря","expect":{"output":"7% XIV ря"}}
 {"id":"eba88779e82281dd","config":{"html":true},"ops":[],"text":"aba","expect":{"output":"<p>aba</p>"}}
 {"id":"eba8954b2a1dffe5","config":{"input":{"format":"yaml"}},"ops":[],"text":"title: \"Корвин - принц Амбера\"\nslug: \"korvin-amber\"","expect":{"output":"title: \"Корвин — принц Амбера\"\nslug: \"korvin-amber\""}}
 {"id":"eba911727535465d","ops":[],"text":"яxxю«bbя»","expect":{"output":"яxxю«bbя»"}}
@@ -58919,6 +58941,7 @@
 {"id":"ed1080137d75dd5c","config":{"html":true},"ops":[],"text":"babя b \"bbxa\"","expect":{"output":"<p>babя b «bbxa»</p>"}}
 {"id":"ed11f13f5a9d43a7","config":{"html":true},"ops":[],"text":"<p>bяюя aя</p>","expect":{"output":"<p>bяюя aя</p>"}}
 {"id":"ed140f7aa85b86bf","config":{"html":false,"entities":true,"rules":{"punctuation.drop_terminal_garbage":false}},"ops":[],"text":"<- ->","expect":{"output":"&larr; &rarr;"}}
+{"id":"ed142f9eb869b517","ops":[],"text":"Пишет \"%@\"]","expect":{"output":"Пишет «%@»]"}}
 {"id":"ed151656f76c6ee6","config":{"html":true},"ops":[],"text":"\"ю\" \"юbю\" xxba \"яя\"","expect":{"output":"<p>«ю» «юbю» xxba «яя»</p>"}}
 {"id":"ed154b5b914e0972","config":{"input":"markdown","html":false},"ops":[],"text":"> **Мерлин «цитата»** и *Тень Амбер Образ! Образ Корвин*","expect":{"output":"> **Мерлин «цитата»** и *Тень Амбер Образ! Образ Корвин*"}}
 {"id":"ed15d0271539ad43","config":{"html":true,"rules":{"text.paragraphs":false,"hanging.*":false},"input":"text","entities":true},"ops":[],"text":"<p>dsdsd</p>\n<p>sdsdadadad</p>","expect":{"output":"<p>dsdsd</p>\n\n<p>sdsdadadad</p>"}}
@@ -59257,6 +59280,7 @@
 {"id":"ee3df4ab7201bf60","config":{"rules":{"nobr":false}},"ops":[],"text":"Он сказал ?\"\"\"да“\" и ушёл.","expect":{"output":"Он сказал ?\"«„да“» и ушёл."}}
 {"id":"ee3f6df4170fdfc4","config":{"html":false},"ops":[],"text":"«bxяя» ююя","expect":{"output":"«bxяя» ююя"}}
 {"id":"ee4290cd314232be","config":{"html":false,"entities":true,"rules":{"space.trim_before_parenthetical_ellipsis":false}},"ops":[],"text":"<- ->","expect":{"output":"&larr; &rarr;"}}
+{"id":"ee445093380a7d86","ops":[],"text":"${a - b} - текст","expect":{"output":"${a - b} — текст"}}
 {"id":"ee45b0f3ef2a2e34","config":{"html":true},"ops":[],"text":"<span style=\"white-space:nowrap;\">а,</span>\"слово\"","expect":{"output":"<p><span style=\"white-space:nowrap;\">а,</span>«слово»</p>"}}
 {"id":"ee46a724bbb04ccd","config":{"html":true},"ops":[],"text":"<p>«ab» «b» «bю»</p>","expect":{"output":"<p>«ab» «b» «bю»</p>"}}
 {"id":"ee46abf96f6ddff1","config":{"input":"xml"},"ops":[],"text":"<p>Библиограф: «Най­дена „История „Москвы“ за 1946“ в переплёте».­В поле «» указано значение.</p>","expect":{"output":"<p>Библиограф: «Най­дена „История „Москвы“ за 1946“ в переплёте».­В поле «» указано значение.</p>"}}
@@ -61415,7 +61439,6 @@
 {"id":"f6e616d9f5afb50a","config":{"html":false},"ops":[],"text":"ююя","expect":{"output":"ююя"}}
 {"id":"f6e69ee9561dd896","config":{"html":1,"entities":"false","input":{"format":"html","template":"liquid"},"render":{"paragraphs":false},"rules":{"space.trim_before_parenthetical_ellipsis":false,"quote.*":0}},"ops":[],"text":"<p>Единороги (такие звери)— это не только редкий дар…</p>\n<pre>беседа для «Козыри+»</pre>","options":{"changes":true},"expect":{"output":{"text":"<p>Единороги (такие звери) — это не только редкий дар…</p>\n\n<pre>беседа для «Козыри+»</pre>","changes":[[26,27],[35,36],[59,60]]}}}
 {"id":"f6e762987d2c3810","config":{"html":true,"rules":{"nobr.nowrap_hyphen_short":true,"text.paragraphs":false,"hanging.*":false},"input":"text","entities":true},"ops":[],"text":"Пролог.\n \t Кое как дошли до Амбера. Кой кого встретили. Кое от кого, кое на чем, кой у кого, кое с чьим.","expect":{"output":"Пролог.<br>\n \t <span style=\"white-space:nowrap;\">Кое-как</span> дошли до&nbsp;Амбера. <span style=\"white-space:nowrap;\">Кой-кого</span> встретили. Кое от&nbsp;кого, кое на&nbsp;чем, кой у&nbsp;кого, кое с&nbsp;чьим."}}
-{"id":"f6e7c88c332a1bf7","config":{"input":{"format":"text","template":"liquid"}},"ops":[],"text":"<pre title=\"первая\n\n`  уложения  меж\tсверху`\">Сырой - \"код\"</pre> Корвин - принц","expect":{"output":"<pre title=\"первая\n\n`  уложения  меж\tсверху`\">Сырой - \"код\"</pre> Корвин — принц"}}
 {"id":"f6e867c5a2b55f33","config":{},"ops":[],"text":"Н. А. Соколов Б. Д. 3","expect":{"output":"Н. А. Соколов Б. Д. 3"}}
 {"id":"f6e99be5839d2ea9","config":{"html":true},"ops":[],"text":"<p>aяx«bb»</p>","expect":{"output":"<p>aяx«bb»</p>"}}
 {"id":"f6eaa00540915ce9","config":{"input":{"format":"frontmatter"}},"ops":[],"text":"﻿---\rtitle: \"Корвин - принц\"\r---\rТело - \"текст\"","expect":{"output":"﻿---\rtitle: \"Корвин — принц\"\r---\rТело — «текст»"}}
@@ -61998,7 +62021,7 @@
 {"id":"f91fe6d9c1b44746","config":{"rules":{"quote.close":false}},"ops":[],"text":"Книги: \"Знак '\"\"Лес\".","expect":{"output":"Книги: «Знак '\"\"Лес\"."}}
 {"id":"f921130decc8bdb8","config":{"html":false},"ops":[],"text":"ю xюяя b","expect":{"output":"ю xюяя b"}}
 {"id":"f9212acc5d9dc6c0","config":{"html":false},"ops":[],"text":"«яяaa» «xяa» «яx»","expect":{"output":"«яяaa» «xяa» «яx»"}}
-{"id":"f9229867bf819056","config":{"input":"html"},"ops":[],"text":"<!-- microtypo-ignore-file -->\nКорвин - принц","expect":{"output":"<!-- microtypo-ignore-file -->\nКорвин — принц"}}
+{"id":"f9229867bf819056","config":{"input":"html"},"ops":[],"text":"<!-- microtypo-ignore-file -->\nКорвин - принц","expect":{"output":"<!-- microtypo-ignore-file -->\nКорвин - принц"}}
 {"id":"f9236d859a503adf","ops":[],"text":"baю","expect":{"output":"baю"}}
 {"id":"f923c9ca831af10b","config":{"html":false},"ops":[],"text":"bbab \"xяя\" xb","expect":{"output":"bbab «xяя» xb"}}
 {"id":"f9249c77c88ecfd4","config":{"html":true,"rules":{"text.paragraphs":false,"hanging.*":false},"input":"html","entities":true},"ops":[],"text":"Крепость Амбера № 214 в Ребме","expect":{"output":"Крепость Амбера &#8470;&#8239;214 в&nbsp;Ребме"}}
@@ -62803,6 +62826,7 @@
 {"id":"fc5d36d6f5c84ae0","config":{"render":{"paragraphs":false},"rules":{"hanging.*":false},"entities":true},"ops":[],"text":"башня 100 vh","expect":{"output":"башня 100&nbsp;vh"}}
 {"id":"fc5e96ccb19b9eea","config":{"html":false},"ops":[],"text":"«xx» «юaaя»","expect":{"output":"«xx» «юaaя»"}}
 {"id":"fc5f8bd8d32605cb","config":{"html":false},"ops":[],"text":"\"юb\" \"aax\" \"ax\"","expect":{"output":"«юb» «aax» «ax»"}}
+{"id":"fc603799ce254330","ops":[],"text":"Пишет \"%1$s\"}","expect":{"output":"Пишет «%1$s»}"}}
 {"id":"fc618b00dc8b7436","ops":[],"text":"яbaa","expect":{"output":"яbaa"}}
 {"id":"fc6298aea69d6ca8","ops":[],"text":"xюяю","expect":{"output":"xюяю"}}
 {"id":"fc6398f969b9dfbf","config":{"html":false},"ops":[],"text":"\"ab\" \"b\"","expect":{"output":"«ab» «b»"}}
@@ -63372,7 +63396,6 @@
 {"id":"febe48608af7fcab","config":{"rules":{"nobr":false}},"ops":[],"text":"Он сказал л\"\"«да» и «нет»» и ушёл.","expect":{"output":"Он сказал л\"«„да“ и „нет“» и ушёл."}}
 {"id":"febefda04d18edfc","config":{"input":"mdx","html":true,"render":{"paragraphs":false}},"ops":[],"text":"<``p@e> ``mode = \"x\"; 7 - 3`` Дальше - \"пример\".","expect":{"output":"<``p@e> ``mode = \"x\"; 7 - 3`` Дальше — «пример»."}}
 {"id":"fec02ed5cf3485a5","config":{"input":"frontmatter"},"ops":[],"text":"Автор: \"<br><!-- помета --><code>А - Б</code>\".","expect":{"output":"Автор: «<br><!-- помета --><code>А - Б</code>»."}}
-{"id":"fec07ce6307a8950","config":{"input":{"format":"frontmatter","template":"liquid"}},"ops":[],"text":"<pre title=\"первая\n\n`  уложения  меж\tсверху`\">Сырой - \"код\"</pre> Корвин - принц","expect":{"output":"<pre title=\"первая\n\n`  уложения  меж\tсверху`\">Сырой - \"код\"</pre> Корвин — принц"}}
 {"id":"fec2557dcd78080f","config":{"html":false},"ops":[],"text":"юя«юю»","expect":{"output":"юя«юю»"}}
 {"id":"fec25889fb590001","config":{"html":true},"ops":[],"text":"юxaя \"xbя\" aю","expect":{"output":"<p>юxaя «xbя» aю</p>"}}
 {"id":"fec2ed79f50fde36","config":{"html":true},"ops":[],"text":"яaяя x ююax","expect":{"output":"<p>яaяя x ююax</p>"}}

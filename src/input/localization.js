@@ -6,7 +6,9 @@ const CLOSE = '}';
 const COMPLEX_TYPES = new Set(['plural', 'selectordinal', 'select']);
 const ARGUMENT = /[\p{L}\p{N}_]+/uy;
 const NUMBER = /[+-]?(?:\d+(?:\.\d*)?|\.\d+)/y;
-const PRINTF_FLAGS = new Set(['-', '+', ' ', '#', '0', "'"]);
+// No space flag: a percent sign before a space is prose, `7% XIV век`, and `% X` would cut the
+// numeral in two.
+const PRINTF_FLAGS = new Set(['-', '+', '#', '0', "'"]);
 const PRINTF_TYPES = new Set('diuoxXfFeEgGaAcspn@');
 
 const digit = (ch) => ch >= '0' && ch <= '9';
@@ -20,9 +22,6 @@ function spaces(text, at, end) {
 }
 
 function quotedEnd(text, start, limit, checkBudget) {
-  if (text[start + 1] === "'") {
-    return start + 2;
-  }
   let at = start + 1;
 
   while (at < limit) {
@@ -52,9 +51,12 @@ function bracePairs(text, checkBudget) {
     }
     const outer = stack.at(-1);
     const next = text[at + 1];
-    if (
+    // `''` is an apostrophe of the message's text, read as one so its second half opens nothing.
+    if (text[at] === "'" && next === "'") {
+      at += 1;
+    } else if (
       text[at] === "'" &&
-      (next === "'" || next === OPEN || next === CLOSE || (outer?.plural && next === '#'))
+      (next === OPEN || next === CLOSE || (outer?.plural && next === '#'))
     ) {
       at = quotedEnd(text, at, text.length, checkBudget) - 1;
     } else if (text[at] === OPEN) {
@@ -151,10 +153,12 @@ function markIcu(text, mask, xml, checkBudget) {
         continue;
       }
       const next = text[at + 1];
-      if (
-        text[at] === "'" &&
-        (next === "'" || next === OPEN || next === CLOSE || (range.plural && next === '#'))
-      ) {
+      // The message shows `''` as an apostrophe: text to typeset, not syntax to keep.
+      if (text[at] === "'" && next === "'") {
+        at += 2;
+        continue;
+      }
+      if (text[at] === "'" && (next === OPEN || next === CLOSE || (range.plural && next === '#'))) {
         const end = quotedEnd(text, at, range.end, checkBudget);
         mask.fill(1, at, end);
         at = end;

@@ -32,7 +32,7 @@ describe('a hyphen beside an equals sign stays', () => {
       ['"= 5 - 3 »', { input: 'html' }, '«= 5 - 3»'],
       ['= 7 - 3...', undefined, '= 7 - 3…'],
       ['= 7 - 7', { html: true }, '<p>= 7 - 7</p>'],
-      ['$a - b = 0$', { input: 'markdown' }, '$a - b = 0\u{00A0}$'],
+      ['$a - b = 0$', { input: 'markdown' }, '$a - b = 0$'],
       [
         '<doc><note>4 - 6\u{00A0}=</note></doc>',
         { input: 'xml', entities: true },

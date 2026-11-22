@@ -57,7 +57,7 @@ export function writtenContentEndLookahead(referenceTo) {
 const STRONG_QUOTE_LEFT = `\\s([${G.LAQUO}${G.MDASH}${G.NDASH}\\-`;
 export const OPEN_LEFT = `${STRONG_QUOTE_LEFT}>`;
 export const WEAK_LEFT = ',;:*_~`';
-export const WEAK_STOP = `\\s.,;:!?)${G.RAQUO}${G.HELLIP}`;
+export const WEAK_STOP = `\\s.,;:!?\\p{Pe}${G.RAQUO}${G.HELLIP}`;
 const STRONG_LEFT_RE = new RegExp(`[${OPEN_LEFT}]`, 'u');
 const WEAK_LEFT_RE = new RegExp(`[${WEAK_LEFT}${CLOSE}]`, 'u');
 const WEAK_STOP_RE = new RegExp(`[${WEAK_STOP}]`, 'u');

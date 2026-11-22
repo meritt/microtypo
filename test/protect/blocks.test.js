@@ -1226,7 +1226,7 @@ describe('a < before a letter that names no HTML tag', () => {
   test('a tag HTML names is still one, and XML names a tag by any letter', () => {
     assert.equal(
       microtypo('слово <b title="x - y">"в"</b> - г', { input: 'html' }),
-      'слово <b title="x - y">«в»</b>\u{00A0}— г'
+      'слово <b title="x\u{00A0}— y">«в»</b>\u{00A0}— г'
     );
     assert.equal(
       microtypo('<док><книга имя="а - б">текст - "слово"</книга></док>', { input: 'xml' }),

@@ -77,7 +77,7 @@ const INPUT_KEYS = new Set([
   'attributes'
 ]);
 const TEXT_ATTRIBUTES = new Set(['alt', 'title', 'aria-label', 'placeholder', 'content']);
-const NO_ATTRIBUTES = Object.freeze([]);
+const ALL_ATTRIBUTES = Object.freeze([...TEXT_ATTRIBUTES]);
 const INPUT_FORMAT_MESSAGE = `expected one of ${[...INPUT_FORMATS].join('|')}`;
 
 function isBooleanish(value) {
@@ -94,10 +94,10 @@ function plainInput(format) {
   return {
     format,
     template: 'off',
-    placeholders: 'off',
-    pragmas: 'off',
-    math: false,
-    attributes: NO_ATTRIBUTES
+    placeholders: 'all',
+    pragmas: 'microtypo',
+    math: true,
+    attributes: ALL_ATTRIBUTES
   };
 }
 
@@ -136,11 +136,11 @@ function normaliseInput(input, issues) {
     issues.push(`input.template: expected one of ${[...INPUT_TEMPLATES].join('|')}`);
   }
 
-  const placeholders = input.placeholders ?? 'off';
+  const placeholders = input.placeholders ?? 'all';
   if (!INPUT_PLACEHOLDERS.has(placeholders)) {
     issues.push(`input.placeholders: expected one of ${[...INPUT_PLACEHOLDERS].join('|')}`);
   }
-  const pragmas = input.pragmas ?? 'off';
+  const pragmas = input.pragmas ?? 'microtypo';
   if (!INPUT_PRAGMAS.has(pragmas)) {
     issues.push(`input.pragmas: expected one of ${[...INPUT_PRAGMAS].join('|')}`);
   }
@@ -148,8 +148,8 @@ function normaliseInput(input, issues) {
   if (input.math !== undefined && !isBooleanish(input.math)) {
     issues.push('input.math: expected a boolean');
   }
-  const math = isOn(input.math ?? false);
-  const rawAttributes = input.attributes === undefined ? NO_ATTRIBUTES : input.attributes;
+  const math = isOn(input.math ?? true);
+  const rawAttributes = input.attributes === undefined ? ALL_ATTRIBUTES : input.attributes;
   const attributes = Array.isArray(rawAttributes)
     ? Object.freeze([...rawAttributes])
     : rawAttributes;
@@ -162,7 +162,7 @@ function normaliseInput(input, issues) {
     placeholders,
     pragmas,
     math,
-    attributes: Array.isArray(attributes) ? attributes : NO_ATTRIBUTES
+    attributes: Array.isArray(attributes) ? attributes : ALL_ATTRIBUTES
   };
 
   if (input.fields !== undefined) {

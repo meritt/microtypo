@@ -5,7 +5,7 @@ import { MicroTypoConfigError } from '../../src/errors/index.js';
 import { MicroTypo } from '../../src/index.js';
 import { scanMath } from '../../src/input/math.js';
 
-describe('opt-in Markdown math', () => {
+describe('Markdown math', () => {
   for (const formula of [
     '$a - b<c$',
     '$a - b<c - d$',
@@ -118,15 +118,37 @@ describe('opt-in Markdown math', () => {
     const source = '<span title="$">Корвин - принц $a</span>';
     assert.equal(
       new MicroTypo({ input: { format: 'markdown', math: true } }).process(source),
-      new MicroTypo({ input: 'markdown' }).process(source)
+      new MicroTypo({ input: { format: 'markdown', math: false } }).process(source)
     );
   });
   it('does not use an attribute dollar sign as a math closer', () => {
     const source = '$a - b <i title="$">текст</i>';
     assert.equal(
       new MicroTypo({ input: { format: 'markdown', math: true } }).process(source),
-      new MicroTypo({ input: 'markdown' }).process(source)
+      new MicroTypo({ input: { format: 'markdown', math: false } }).process(source)
     );
+  });
+  it('reads a space spelled as a reference as a space next to a dollar sign', () => {
+    const typo = new MicroTypo({ entities: true, input: 'markdown' });
+    assert.equal(typo.process('$&nbsp;2 - b$'), '$&nbsp;2&nbsp;&mdash; b$');
+    assert.equal(typo.process('$a - b&#160;$'), '$a&nbsp;&mdash; b&nbsp;$');
+    const once = typo.process('Цена $ 2 - "сто$"');
+    assert.equal(once, 'Цена $&nbsp;2&nbsp;&mdash; &laquo;сто$&raquo;');
+    assert.equal(typo.process(once), once);
+  });
+
+  it('reads a dollar sign bound to the amount before it as currency on the next pass', () => {
+    for (const entities of [false, true]) {
+      const typo = new MicroTypo({ entities, input: 'markdown' });
+      const once = typo.process('Цена 5 долл. "$"\n\nФормула $x$');
+      assert.equal(
+        once,
+        entities
+          ? 'Цена 5&nbsp;$. &laquo;$&raquo;\n\nФормула $x$'
+          : 'Цена 5\u{00A0}$. «$»\n\nФормула $x$'
+      );
+      assert.equal(typo.process(once), once);
+    }
   });
 
   it('keeps angle syntax inside a formula owned by the earlier math opener', () => {
@@ -137,15 +159,16 @@ describe('opt-in Markdown math', () => {
     );
   });
 
-  it('does not enable math by default or outside Markdown', () => {
+  it('keeps a formula in Markdown by default, unless math is off, and reads none outside Markdown', () => {
     const source = '$a - b$';
+    assert.equal(new MicroTypo({ input: 'markdown' }).process(source), source);
     assert.equal(
       new MicroTypo({ input: { format: 'markdown', math: false } }).process(source),
-      new MicroTypo({ input: 'markdown' }).process(source)
+      '$a — b$'
     );
     assert.equal(
       new MicroTypo({ input: { format: 'text', math: true } }).process(source),
-      new MicroTypo().process(source)
+      new MicroTypo({ input: { format: 'text', math: false } }).process(source)
     );
   });
 

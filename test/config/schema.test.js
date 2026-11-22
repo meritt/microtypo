@@ -6,15 +6,17 @@ import { MicroTypoConfigError } from '../../src/errors/index.js';
 import { MicroTypo, microtypo } from '../../src/index.js';
 import { validateConfig } from '../../src/schemas/config.js';
 
+const TEXT_ATTRIBUTES = ['alt', 'title', 'aria-label', 'placeholder', 'content'];
+
 test('empty config validates and defaults input to text', () => {
   assert.deepEqual(validateConfig({}), {
     input: {
       format: 'text',
       template: 'off',
-      placeholders: 'off',
-      pragmas: 'off',
-      math: false,
-      attributes: []
+      placeholders: 'all',
+      pragmas: 'microtypo',
+      math: true,
+      attributes: TEXT_ATTRIBUTES
     }
   });
 });
@@ -50,58 +52,58 @@ test("input accepts 'text'|'html'|'markdown'|'json'|'yaml'|'toml'|'frontmatter',
   assert.deepEqual(validateConfig({ input: 'text' }).input, {
     format: 'text',
     template: 'off',
-    placeholders: 'off',
-    pragmas: 'off',
-    math: false,
-    attributes: []
+    placeholders: 'all',
+    pragmas: 'microtypo',
+    math: true,
+    attributes: TEXT_ATTRIBUTES
   });
   assert.deepEqual(validateConfig({ input: 'html' }).input, {
     format: 'html',
     template: 'off',
-    placeholders: 'off',
-    pragmas: 'off',
-    math: false,
-    attributes: []
+    placeholders: 'all',
+    pragmas: 'microtypo',
+    math: true,
+    attributes: TEXT_ATTRIBUTES
   });
   assert.deepEqual(validateConfig({ input: 'markdown' }).input, {
     format: 'markdown',
     template: 'off',
-    placeholders: 'off',
-    pragmas: 'off',
-    math: false,
-    attributes: []
+    placeholders: 'all',
+    pragmas: 'microtypo',
+    math: true,
+    attributes: TEXT_ATTRIBUTES
   });
   assert.deepEqual(validateConfig({ input: 'json' }).input, {
     format: 'json',
     template: 'off',
-    placeholders: 'off',
-    pragmas: 'off',
-    math: false,
-    attributes: []
+    placeholders: 'all',
+    pragmas: 'microtypo',
+    math: true,
+    attributes: TEXT_ATTRIBUTES
   });
   assert.deepEqual(validateConfig({ input: 'yaml' }).input, {
     format: 'yaml',
     template: 'off',
-    placeholders: 'off',
-    pragmas: 'off',
-    math: false,
-    attributes: []
+    placeholders: 'all',
+    pragmas: 'microtypo',
+    math: true,
+    attributes: TEXT_ATTRIBUTES
   });
   assert.deepEqual(validateConfig({ input: 'toml' }).input, {
     format: 'toml',
     template: 'off',
-    placeholders: 'off',
-    pragmas: 'off',
-    math: false,
-    attributes: []
+    placeholders: 'all',
+    pragmas: 'microtypo',
+    math: true,
+    attributes: TEXT_ATTRIBUTES
   });
   assert.deepEqual(validateConfig({ input: 'frontmatter' }).input, {
     format: 'frontmatter',
     template: 'off',
-    placeholders: 'off',
-    pragmas: 'off',
-    math: false,
-    attributes: []
+    placeholders: 'all',
+    pragmas: 'microtypo',
+    math: true,
+    attributes: TEXT_ATTRIBUTES
   });
   assert.throws(() => validateConfig({ input: 'bogus' }), { code: 'ERR_MICROTYPO_CONFIG' });
   assert.throws(() => validateConfig({ input: true }), { code: 'ERR_MICROTYPO_CONFIG' });
@@ -111,52 +113,52 @@ test('input accepts the object form { format?, fields?, exclude?, template? }', 
   assert.deepEqual(validateConfig({ input: {} }).input, {
     format: 'text',
     template: 'off',
-    placeholders: 'off',
-    pragmas: 'off',
-    math: false,
-    attributes: []
+    placeholders: 'all',
+    pragmas: 'microtypo',
+    math: true,
+    attributes: TEXT_ATTRIBUTES
   });
   assert.deepEqual(validateConfig({ input: { format: 'markdown' } }).input, {
     format: 'markdown',
     template: 'off',
-    placeholders: 'off',
-    pragmas: 'off',
-    math: false,
-    attributes: []
+    placeholders: 'all',
+    pragmas: 'microtypo',
+    math: true,
+    attributes: TEXT_ATTRIBUTES
   });
   assert.deepEqual(validateConfig({ input: { template: 'liquid' } }).input, {
     format: 'text',
     template: 'liquid',
-    placeholders: 'off',
-    pragmas: 'off',
-    math: false,
-    attributes: []
+    placeholders: 'all',
+    pragmas: 'microtypo',
+    math: true,
+    attributes: TEXT_ATTRIBUTES
   });
   assert.deepEqual(validateConfig({ input: { fields: ['a.b'], exclude: ['meta.id'] } }).input, {
     format: 'text',
     template: 'off',
-    placeholders: 'off',
-    pragmas: 'off',
-    math: false,
-    attributes: [],
+    placeholders: 'all',
+    pragmas: 'microtypo',
+    math: true,
+    attributes: TEXT_ATTRIBUTES,
     fields: ['a.b'],
     exclude: ['meta.id']
   });
   assert.deepEqual(validateConfig({ input: { format: 'json' } }).input, {
     format: 'json',
     template: 'off',
-    placeholders: 'off',
-    pragmas: 'off',
-    math: false,
-    attributes: []
+    placeholders: 'all',
+    pragmas: 'microtypo',
+    math: true,
+    attributes: TEXT_ATTRIBUTES
   });
   assert.deepEqual(validateConfig({ input: { format: 'yaml' } }).input, {
     format: 'yaml',
     template: 'off',
-    placeholders: 'off',
-    pragmas: 'off',
-    math: false,
-    attributes: []
+    placeholders: 'all',
+    pragmas: 'microtypo',
+    math: true,
+    attributes: TEXT_ATTRIBUTES
   });
 });
 
@@ -164,10 +166,10 @@ test('input object accepts frontmatter, rejects unknown format/keys and bad temp
   assert.deepEqual(validateConfig({ input: { format: 'frontmatter' } }).input, {
     format: 'frontmatter',
     template: 'off',
-    placeholders: 'off',
-    pragmas: 'off',
-    math: false,
-    attributes: []
+    placeholders: 'all',
+    pragmas: 'microtypo',
+    math: true,
+    attributes: TEXT_ATTRIBUTES
   });
   assert.throws(() => validateConfig({ input: { format: 'bogus' } }), {
     code: 'ERR_MICROTYPO_CONFIG'
@@ -293,20 +295,20 @@ test('non-object input is treated as empty config', () => {
     input: {
       format: 'text',
       template: 'off',
-      placeholders: 'off',
-      pragmas: 'off',
-      math: false,
-      attributes: []
+      placeholders: 'all',
+      pragmas: 'microtypo',
+      math: true,
+      attributes: TEXT_ATTRIBUTES
     }
   });
   assert.deepEqual(validateConfig(null), {
     input: {
       format: 'text',
       template: 'off',
-      placeholders: 'off',
-      pragmas: 'off',
-      math: false,
-      attributes: []
+      placeholders: 'all',
+      pragmas: 'microtypo',
+      math: true,
+      attributes: TEXT_ATTRIBUTES
     }
   });
 });

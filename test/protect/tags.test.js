@@ -96,7 +96,7 @@ describe('a tag ends where HTML ends it', () => {
     test(`a > inside a quoted value stays in the tag (html: ${html})`, () => {
       assert.equal(
         microtypo(`<a title='a > "b"' data-x="c > 'd'">Корвин - принц</a>`, { html }),
-        wrap(`<a title='a > "b"' data-x="c > 'd'">Корвин${NBSP}— принц</a>`)
+        wrap(`<a title='a > «b»' data-x="c > 'd'">Корвин${NBSP}— принц</a>`)
       );
     });
   }

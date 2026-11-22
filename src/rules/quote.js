@@ -2203,7 +2203,7 @@ export const quoteGroup = {
         // `“` reaches here as a straight quote, and in `«„к'“»` nothing else would close it. The
         // follower is only looked at: a closer it is closes a quote glued behind it in turn.
         new RegExp(
-          `([^${SEPARATOR}])((?:"|\\\\")+)(?=\\.|${G.HELLIP}|;|:|\\?|!|,|\\s|\\)|<\\/|<|${G.RAQUO}|&|$)`,
+          `([^${SEPARATOR}])((?:"|\\\\")+)(?=\\.|${G.HELLIP}|;|:|\\?|!|,|\\s|\\p{Pe}|<\\/|<|${G.RAQUO}|&|$)`,
           'giu'
         )
       ],

@@ -687,7 +687,8 @@ test('trace reads lifted visible words rather than equal words in author attribu
     ['<b title="a">в</b> <i title="дом">дом</i>', 'nobr.nbsp_short_word', [[13, 37]]],
     ['<b title="10 кг">10</b> кг', 'abbr.nbsp_weight_unit', [[17, 26]]]
   ]) {
-    const typo = new MicroTypo({ input: 'html', html: false });
+    // The attributes stay as written, so an equal word there can only be mistaken for the visible one.
+    const typo = new MicroTypo({ input: { format: 'html', attributes: [] }, html: false });
     const result = typo.process(input, { trace: true, edits: true });
     assert.deepEqual(result.trace.find((entry) => entry.rule === rule).ranges, ranges);
     assert.equal(applyEdits(input, result.edits), result.text);

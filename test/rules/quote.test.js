@@ -307,7 +307,7 @@ test('a padded inner closer leaves the following quote to close the outer pair',
   const stable = [
     ['"„<b>день</b> “"—', '«„<b>день</b>“»—', { input: 'html' }],
     ['»"а»»', '«„а“»', {}],
-    ['"«старый »"]', '««старый »"]', { rules: { 'space.strip_quote_padding': false } }]
+    ['"«старый »"]', '«„старый “»]', { rules: { 'space.strip_quote_padding': false } }]
   ];
   for (const [text, expected, config] of stable) {
     assert.equal(microtypo(text, config), expected);

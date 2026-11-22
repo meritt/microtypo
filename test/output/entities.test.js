@@ -214,12 +214,13 @@ describe('protected regions', () => {
     assert.equal(microtypo(src, { input: { format: 'html' }, entities: true }), src);
   });
 
+  // `title` is text and typeset; an attribute that is not text stays protected.
   test('entity mode does not rewrite protected tag attributes', () => {
-    const out = microtypo('<a title="— «Амбер»">Корвин - Эрик</a>', {
+    const out = microtypo('<a data-note="— «Амбер»">Корвин - Эрик</a>', {
       entities: true,
       render: { paragraphs: false }
     });
-    assert.ok(out.includes('title="— «Амбер»"'), out);
+    assert.ok(out.includes('data-note="— «Амбер»"'), out);
   });
 
   // The inch mark is emitted as `&Prime;`, so it has to decode back, or the engine cannot read its

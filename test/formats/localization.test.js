@@ -33,6 +33,27 @@ test('ICU quoted braces after a plural number sign do not end the branch', () =>
   assert.equal(microtypo(source, config('icu')), expected);
 });
 
+// `''` is how a message writes an apostrophe: text to typeset, never syntax that hides what follows.
+test('an ICU doubled apostrophe is an apostrophe of the message', () => {
+  for (const placeholders of ['icu', 'all']) {
+    assert.equal(microtypo("O''Really, {name}!", config(placeholders)), 'O’Really, {name}!');
+    assert.equal(microtypo("It''s {n} - текст", config(placeholders)), 'It’s {n}\u{00A0}— текст');
+  }
+});
+
+// A placeholder is a word to the quotes, so a quote right after it closes before any closing bracket.
+test('a quote after a placeholder closes before a closing bracket', () => {
+  for (const [source, expected] of [
+    ['Пишет "%@"]', 'Пишет «%@»]'],
+    ['Пишет "%1$s"}', 'Пишет «%1$s»}'],
+    ['Пишет "{name}"]', 'Пишет «{name}»]'],
+    ['Пишет "{name}")', 'Пишет «{name}»)']
+  ]) {
+    assert.equal(microtypo(source), expected);
+    assert.equal(microtypo(expected), expected);
+  }
+});
+
 test('ICU ordinary apostrophes do not hide following arguments', () => {
   const source = "L'homme {name} - текст";
   assert.equal(microtypo(source, config('icu')), 'L’homme {name}\u{00A0}— текст');
@@ -75,6 +96,14 @@ for (const [format, wrap] of [
   });
 }
 
+test('a percent sign before a space is prose, not a printf flag', () => {
+  for (const placeholders of ['printf', 'all']) {
+    for (const source of ['7%  XIV ря', '7% XIV ря']) {
+      assert.equal(microtypo(source, config(placeholders)), '7% XIV ря');
+    }
+  }
+});
+
 test('literal percent pairs remain protected next to numbered printf arguments', () => {
   const source = '%%%2$.*3$f - текст';
   const expected = '%%%2$.*3$f\u{00A0}— текст';
@@ -88,9 +117,9 @@ test('interpolation keeps its variable and all mode combines the syntaxes', () =
   assert.equal(microtypo(source, config('all')), `\${var} {name} %1$s\u{00A0}— «текст»`);
 });
 
-test('localization protection is opt-in', () => {
-  const source = '{n, plural, one {# день - "текст"} other {# дней}}';
-  assert.equal(microtypo(source), microtypo(source, config('off')));
+test('localization protection is on by default and off by its option', () => {
+  assert.equal(microtypo(`\${a - b} - текст`), `\${a - b}\u{00A0}— текст`);
+  assert.equal(microtypo(`\${a - b} - текст`, config('off')), `\${a\u{00A0}— b}\u{00A0}— текст`);
 });
 
 test('unknown localization mode is a typed config error', () => {

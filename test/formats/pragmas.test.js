@@ -59,10 +59,10 @@ for (const format of ['text', 'html', 'markdown', 'frontmatter']) {
   }
 }
 
-test('pragmas are off by default', () => {
+test('pragmas are on by default and off by their option', () => {
   const input = `${FILE}\nКорвин - принц`;
-  assert.equal(microtypo(input, config('html', 'off')), microtypo(input, { input: 'html' }));
-  assert.ok(microtypo(input, { input: 'html' }).includes('Корвин\u{00A0}— принц'));
+  assert.equal(microtypo(input, { input: 'html' }), input);
+  assert.ok(microtypo(input, config('html', 'off')).includes('Корвин\u{00A0}— принц'));
 });
 
 test('a stray end pragma and an unknown directive do not protect prose', () => {

@@ -412,7 +412,8 @@ test('ordinary Markdown tag ownership ends before another paragraph of code', ()
 test('ordinary multiline attributes and HTML document ownership keep their bytes', () => {
   const code = '`  уложения  меж\tсверху`';
   for (const format of ['text', 'html', 'markdown', 'frontmatter']) {
-    const typo = new MicroTypo({ input: { format, template: 'liquid' } });
+    // A textual attribute is typeset by default; this test reads the bytes of one left as written.
+    const typo = new MicroTypo({ input: { format, template: 'liquid', attributes: [] } });
     for (const source of [
       `Пролог <span title="первая\n${code}">Корвин - принц</span>`,
       `<pre title="первая\n\n${code}">Сырой - "код"</pre> Корвин - принц`

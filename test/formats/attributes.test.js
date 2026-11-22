@@ -7,7 +7,7 @@ import { typesetAttributes } from '../../src/input/attributes.js';
 
 const make = (attributes = ['alt', 'title', 'aria-label', 'placeholder', 'content']) =>
   new MicroTypo({ input: { format: 'html', attributes } });
-describe('opt-in textual HTML attributes', () => {
+describe('textual HTML attributes', () => {
   for (const attribute of ['alt', 'title', 'aria-label', 'placeholder']) {
     it(`typesets the selected ${attribute} value only`, () => {
       assert.equal(
@@ -107,9 +107,12 @@ describe('opt-in textual HTML attributes', () => {
       assert.equal(make().process(source), source);
     });
   }
-  it('leaves all attribute bytes unchanged by default', () => {
+  it('typesets the textual attributes by default, and an empty selection leaves every byte', () => {
     const source = '<img alt="Корвин - принц" title="А - б">';
-    assert.equal(new MicroTypo({ input: 'html' }).process(source), source);
+    assert.equal(
+      new MicroTypo({ input: 'html' }).process(source),
+      '<img alt="Корвин — принц" title="А — б">'
+    );
     assert.equal(make([]).process(source), source);
   });
   for (const attributes of [true, null, 'alt', ['href'], ['onclick'], [1], Array(1)]) {
