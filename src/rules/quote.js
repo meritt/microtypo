@@ -1,7 +1,15 @@
 import { G } from '../lib/glyphs.js';
 import { count } from '../lib/strings.js';
-import { OPEN, CLOSE } from '../protect/placeholders.js';
-import { OPEN_LEFT, SEPARATOR, isDigit, paragraphSeparator, processQuotes } from './quote-state.js';
+import { OPEN, CLOSE, TRANSPARENT_TAG_KINDS } from '../protect/placeholders.js';
+import { LINKABLE_SOURCE } from '../protect/sequences.js';
+import {
+  OPEN_LEFT,
+  SEPARATOR,
+  inlineEndTagEndsAt,
+  isDigit,
+  paragraphSeparator,
+  processQuotes
+} from './quote-state.js';
 
 const ANCHOR_OPEN_RE_STR = `<${OPEN}A\\d+${CLOSE}>`;
 const ANCHOR_CLOSE_RE_STR = `<\\/${OPEN}A\\d+${CLOSE}>`;
@@ -14,6 +22,7 @@ const QUOTES_OUTSIDE_A_RE = new RegExp(
 const FIRS_OPEN = G.LAQUO;
 const FIRS_CLOSE = G.RAQUO;
 const WORD_END_RE = new RegExp(`[a-zа-яё0-9${G.HELLIP}]$`, 'iu');
+const WORD_CHAR_RE = /[a-zа-яё0-9]/iu;
 
 function repeatChar(s, char) {
   return char.repeat(count(s, '"'));
@@ -23,13 +32,32 @@ function closesBeforeParen(p1, next, offset, source) {
   return next.startsWith('(') && /^\s$/u.test(p1) && WORD_END_RE.test(source.slice(0, offset));
 }
 
-// A strong neighbour cannot end content, so any non-separating follower opens.
-const OPEN_AFTER_STRONG_RE = new RegExp(`(^|[${OPEN_LEFT}])((?:"|\\\\")+)([^${SEPARATOR}])`, 'giu');
+// A strong neighbour cannot end content, so any non-separating follower opens. The follower is only
+// looked at: a `«` there is the strong neighbour of the quote after it.
+const OPEN_AFTER_STRONG_RE = new RegExp(
+  `(^|[${OPEN_LEFT}])((?:"|\\\\")+)(?=([^${SEPARATOR}]))`,
+  'giu'
+);
+
+// The one `>` that is not a strong neighbour: an inline end tag stands after the words of its element,
+// as a word end does, and a quote behind it closes on the follower a quote behind a word closes on —
+// any but a letter or a digit, which leaves nothing for it to quote on its right.
+function closesAfterEndTag(p1, p3, offset, source) {
+  return p1 === '>' && !WORD_CHAR_RE.test(p3) && inlineEndTagEndsAt(source, offset);
+}
+
+function openAfterStrong(full, p1, p2, p3, offset, source) {
+  if (closesAfterEndTag(p1, p3, offset, source)) {
+    return full;
+  }
+
+  return openBeforeWord(full, p1, p2, p3, offset, source);
+}
 
 // A weak neighbour reads both ways: `**"Амбер"**` opens, but the closing quote of `"это *важно*".`
 // sits on the same `*`. The follower decides — sentence punctuation after the quote means it closes.
 const OPEN_AFTER_WEAK_RE = new RegExp(
-  `([,;:*_~\`${CLOSE}])((?:"|\\\\")+)([^\\s.,;:!?)${G.RAQUO}${G.HELLIP}])`,
+  `([,;:*_~\`${CLOSE}])((?:"|\\\\")+)(?=([^\\s.,;:!?)${G.RAQUO}${G.HELLIP}]))`,
   'giu'
 );
 
@@ -46,7 +74,7 @@ function openBeforeWord(full, p1, p2, p3, offset, source) {
     return full;
   }
 
-  return `${p1}${repeatChar(p2, FIRS_OPEN)}${p3}`;
+  return `${p1}${repeatChar(p2, FIRS_OPEN)}`;
 }
 
 // Whether this pass can open a quotation at this quote at all — the shape `OPEN_BEFORE_SPACE_RE`
@@ -346,12 +374,120 @@ function openSpacedQuotes(text) {
   return parts.join('');
 }
 
+// An unmatched closer falls back to the straight quote the closing rules most likely made it from,
+// or turns round into an opener. Glued to an address, or to the end of the link made of it, a
+// straight quote reads as part of the address — the end of an attribute value, which
+// `text.autolink` leaves unlinked — so a guillemet the author wrote there stays as written. Which
+// closers the author wrote is read off the text before any rule of this group ran: an address
+// placeholder names every occurrence of its address, so it counts only where each occurrence was
+// followed by `»`.
+const ADDRESS_THEN_RE = new RegExp(`(${LINKABLE_SOURCE})(?:${ANCHOR_CLOSE_RE_STR})?(.?)`, 'gsu');
+const authoredClosers = new WeakMap();
+
+// Where the text before `at` ends once the end of a link right before it is stepped over.
+function beforeLinkEnd(buf, at) {
+  if (buf[at - 1] !== '>' || buf[at - 2] !== CLOSE) {
+    return at;
+  }
+
+  let i = at - 3;
+
+  while (isDigit(buf[i])) {
+    i -= 1;
+  }
+
+  const isLinkEnd =
+    buf[i] === 'A' && buf[i - 1] === OPEN && buf[i - 2] === '/' && buf[i - 3] === '<';
+
+  return isLinkEnd ? i - 3 : at;
+}
+
+// The same holds behind an inline end tag: it stands after the words of its element, so a `»` the
+// author wrote there closes a quotation opened before the element, in this paragraph or an earlier
+// one, and is no opener. A vaulted tag names every occurrence of its tag, so it counts only where no
+// other quote mark ever follows it.
+const END_TAG_THEN_QUOTE_RE = new RegExp(
+  `(<\\/${OPEN}[${TRANSPARENT_TAG_KINDS}]\\d+${CLOSE}>)(["${G.LAQUO}${G.RAQUO}${G.BDQUO}${G.LDQUO}])`,
+  'gu'
+);
+
+// The names the first group gives, each counted where every one of its occurrences the second group
+// gives, followed by a quote, is followed by `»`.
+function keptWhereAlwaysClosed(text, re) {
+  const closed = new Set();
+  const other = new Set();
+
+  for (const [, name, next] of text.matchAll(re)) {
+    (next === FIRS_CLOSE ? closed : other).add(name);
+  }
+
+  for (const name of other) {
+    closed.delete(name);
+  }
+
+  return closed;
+}
+
+function authoredClosersIn(text) {
+  if (!text.includes(FIRS_CLOSE)) {
+    return { addresses: new Set(), endTags: new Set() };
+  }
+
+  return {
+    addresses: keptWhereAlwaysClosed(text, ADDRESS_THEN_RE),
+    endTags: keptWhereAlwaysClosed(text, END_TAG_THEN_QUOTE_RE)
+  };
+}
+
+// Where the inline end tag right before `at` starts, or -1.
+function endTagStart(buf, at) {
+  if (buf[at - 1] !== '>' || !inlineEndTagEndsAt(buf, at - 1)) {
+    return -1;
+  }
+
+  let i = at - 3;
+
+  while (/[A-Za-z0-9]/.test(buf[i])) {
+    i -= 1;
+  }
+
+  return i - 2;
+}
+
+function keptCloser({ addresses, endTags }) {
+  if (addresses.size === 0 && endTags.size === 0) {
+    return;
+  }
+
+  const longest = Math.max(0, ...[...addresses].map((address) => address.length));
+
+  return (buf, at) => {
+    const tag = endTagStart(buf, at);
+
+    if (tag !== -1 && endTags.has(buf.slice(tag, at).join(''))) {
+      return true;
+    }
+
+    const end = beforeLinkEnd(buf, at);
+    const before = buf.slice(Math.max(0, end - longest), end).join('');
+
+    for (const address of addresses) {
+      if (before.endsWith(address)) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+}
+
 function applyInnerQuotes(ctx) {
   const settings = ctx.group?.settings ?? {};
   ctx.text = processQuotes(ctx.text, {
     allowNested: settings.allowNested !== false,
     convertInches: settings.convertInches !== false,
-    checkBudget: ctx.checkBudget
+    checkBudget: ctx.checkBudget,
+    keptCloser: keptCloser(authoredClosers.get(ctx) ?? authoredClosersIn(''))
   });
 }
 
@@ -380,7 +516,7 @@ export const quoteGroup = {
         }
 
         const stepped = ctx.text
-          .replace(OPEN_AFTER_STRONG_RE, openBeforeWord)
+          .replace(OPEN_AFTER_STRONG_RE, openAfterStrong)
           .replace(OPEN_AFTER_WEAK_RE, openBeforeWord);
 
         ctx.text = openSpacedQuotes(stepped);
@@ -418,8 +554,10 @@ export const quoteGroup = {
         />«;($|\s|<|\S)/gu,
         />«\)($|\s|<|\S)/gu,
         /((?:"|\\")+)$/giu,
+        // A closing guillemet after the quote ends the quotation around this one, so this one closes:
+        // `“` reaches here as a straight quote, and in `«„к'“»` nothing else would close it.
         new RegExp(
-          `([^${SEPARATOR}])((?:"|\\\\")+)(\\.|${G.HELLIP}|;|:|\\?|!|,|\\s|\\)|<\\/|<|$)`,
+          `([^${SEPARATOR}])((?:"|\\\\")+)(\\.|${G.HELLIP}|;|:|\\?|!|,|\\s|\\)|<\\/|<|${G.RAQUO}|$)`,
           'giu'
         )
       ],
@@ -480,5 +618,9 @@ export const quoteGroup = {
       regexes: [],
       handler: applyInnerQuotes
     }
-  ]
+  ],
+
+  preParse(ctx) {
+    authoredClosers.set(ctx, authoredClosersIn(ctx.text));
+  }
 };

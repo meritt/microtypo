@@ -1,5 +1,5 @@
 import { G } from '../lib/glyphs.js';
-import { PARAGRAPH_CLOSE } from '../protect/placeholders.js';
+import { CLOSE, OPEN, PARAGRAPH_CLOSE, TRANSPARENT_TAG_KINDS } from '../protect/placeholders.js';
 
 // Every `buf` rewrite is a length-preserving in-place overwrite, so a substitution has to be a
 // single BMP code point.
@@ -20,6 +20,28 @@ const SEPARATOR_RE = new RegExp(`[${SEPARATOR}]`, 'u');
 // position, so they read one set.
 export const OPEN_LEFT = `\\s([${G.LAQUO}${G.MDASH}${G.NDASH}>-`;
 const OPEN_LEFT_RE = new RegExp(`[${OPEN_LEFT}]`, 'u');
+
+// Whether the `>` at `gt` ends a vaulted end tag of an inline element, in a string or in an array of
+// its code points. Reserved characters cannot be forged, so `</` in front of a placeholder is one.
+// A block's end tag is no word end: what follows it starts the next block.
+export function inlineEndTagEndsAt(text, gt) {
+  let i = gt - 1;
+
+  if (text[i] !== CLOSE) {
+    return false;
+  }
+
+  do {
+    i -= 1;
+  } while (i >= 0 && /[A-Za-z0-9]/.test(text[i]));
+
+  return (
+    text[i] === OPEN &&
+    TRANSPARENT_TAG_KINDS.includes(text[i + 1]) &&
+    text[i - 1] === '/' &&
+    text[i - 2] === '<'
+  );
+}
 
 // Up to this many quote marks, a chunk is cheaper to rescan than to index.
 const SCAN_LIMIT = 32;
@@ -48,6 +70,15 @@ function nextQuote(buf, off) {
   return null;
 }
 
+// Glued between a word and a Cyrillic letter, a straight quote is one `quote.open_cyrillic` opens, so
+// a closer there taken back to one would open on the next pass.
+const WORD_BEFORE_RE = /[a-zа-яё0-9]/iu;
+const CYRILLIC_AFTER_RE = /[а-яё]/iu;
+
+const keptGlued = (kept) => (buf, at) =>
+  (WORD_BEFORE_RE.test(buf[at - 1] ?? '') && CYRILLIC_AFTER_RE.test(buf[at + 1] ?? '')) ||
+  kept(buf, at);
+
 // Assumes outer "..." pairs were already converted to «...».
 export function processQuotes(text, options = {}) {
   // Every rewrite below is triggered by an angle quote, so text without one comes back unchanged —
@@ -59,22 +90,29 @@ export function processQuotes(text, options = {}) {
   const allowNested = options.allowNested !== false;
   const convertInches = options.convertInches !== false;
   const { checkBudget } = options;
+  const kept = keptGlued(options.keptCloser ?? nothingKept);
 
   const separator = paragraphSeparator(text);
   const chunks = text.split(separator);
   const out = [];
 
   for (const chunk of chunks) {
-    out.push(processChunk(chunk, allowNested, convertInches, checkBudget));
+    out.push(processChunk(chunk, allowNested, convertInches, checkBudget, kept));
   }
 
   return out.join(separator);
 }
 
+// Whether an unmatched closer stays as written, neither turned round into an opener nor taken back to
+// a straight quote. Asked with the closer's position in the code points of its paragraph.
+function nothingKept() {
+  return false;
+}
+
 // One pass in reading order. An inch conversion resumes from a balanced point and reads the quotes
 // after it again: with few quote marks in the chunk that costs a few scans of it, so the pass does
 // it in place; with more, `walkBack` takes over.
-function processChunk(chunk, allowNested, convertInches, checkBudget) {
+function processChunk(chunk, allowNested, convertInches, checkBudget, kept) {
   const buf = [...chunk];
   const balancedStack = [0];
   let lastBalanced = 0;
@@ -116,7 +154,7 @@ function processChunk(chunk, allowNested, convertInches, checkBudget) {
       continue;
     }
 
-    if (level < 0 && opensHere(buf, p.pos)) {
+    if (level < 0 && !kept(buf, p.pos) && opensHere(buf, p.pos)) {
       buf[p.pos] = LAQUO;
       level = 1;
       continue;
@@ -126,10 +164,19 @@ function processChunk(chunk, allowNested, convertInches, checkBudget) {
       many ??= countQuoteMarks(chunk) > SCAN_LIMIT;
 
       if (many) {
-        return walkBack(chunk, buf, balancedStack, lastBalanced, off, allowNested, checkBudget);
+        return walkBack(
+          chunk,
+          buf,
+          balancedStack,
+          lastBalanced,
+          off,
+          allowNested,
+          checkBudget,
+          kept
+        );
       }
 
-      const result = scanConvertInches(buf, off, balancedStack);
+      const result = scanConvertInches(buf, off, balancedStack, kept);
       ({ off } = result);
       level = 0;
 
@@ -150,8 +197,10 @@ function processChunk(chunk, allowNested, convertInches, checkBudget) {
 // A closing quote where no quotation stands open, with a boundary in front of it and a word behind,
 // is an opening one written the wrong way round: no rule of this engine puts a closer there, and read
 // as one it has no pair. A measurement never reaches here — its quote follows a digit.
+// An inline end tag stands after the words of its element, as a word end does, so no quotation opens
+// behind it.
 function opensHere(buf, at) {
-  if (at > 0 && !OPEN_LEFT_RE.test(buf[at - 1])) {
+  if (at > 0 && (!OPEN_LEFT_RE.test(buf[at - 1]) || inlineEndTagEndsAt(buf, at - 1))) {
     return false;
   }
 
@@ -178,7 +227,7 @@ function countQuoteMarks(chunk) {
 
 // `tryConvertInches` over characters: rescans the range from each balanced point it takes off the
 // stack.
-function scanConvertInches(buf, off, balancedStack) {
+function scanConvertInches(buf, off, balancedStack, kept) {
   do {
     const candidateStart = balancedStack.pop() ?? 0;
     const hadNestedMarks = hasNestedMarks(buf, candidateStart, off);
@@ -202,7 +251,10 @@ function scanConvertInches(buf, off, balancedStack) {
   } while (balancedStack.length);
 
   const fallbackPos = off - 1;
-  buf[fallbackPos] = '"';
+
+  if (!kept(buf, fallbackPos)) {
+    buf[fallbackPos] = '"';
+  }
 
   return { kind: 'fallback', off: fallbackPos + 1 };
 }
@@ -603,13 +655,22 @@ class QuoteMarks {
 // the stack as one entry. Every unmatched closer turns a mark for good — a candidate into a prime,
 // itself into an opener or a straight quote — so there are O(n) steps, each O(log n) plus O(log n)
 // per mark it rewrites.
-function walkBack(chunk, buf, balancedPoints, lastBalancedAt, offAt, allowNested, checkBudget) {
+function walkBack(
+  chunk,
+  buf,
+  balancedPoints,
+  lastBalancedAt,
+  offAt,
+  allowNested,
+  checkBudget,
+  kept
+) {
   // Without astral characters a string index is a code-point index, and the copy is the whole cost
   // of a short chunk.
   const marks = new QuoteMarks(buf, chunk.length === buf.length ? chunk : [...chunk]);
   const balancedStack = balancedPoints.map((pos) => marks.indexAt(pos));
   let lastBalanced = marks.indexAt(lastBalancedAt);
-  let off = tryConvertInches(marks, marks.indexAt(offAt), balancedStack);
+  let off = tryConvertInches(marks, marks.indexAt(offAt), balancedStack, kept);
   let level = 0;
   let iter = 0;
 
@@ -637,11 +698,11 @@ function walkBack(chunk, buf, balancedPoints, lastBalancedAt, offAt, allowNested
     marks.write(p, RAQUO);
     off = p + 1;
 
-    if (opensHere(buf, marks.at[p])) {
+    if (!kept(buf, marks.at[p]) && opensHere(buf, marks.at[p])) {
       marks.write(p, LAQUO, 1);
       level = 1;
     } else {
-      off = tryConvertInches(marks, off, balancedStack);
+      off = tryConvertInches(marks, off, balancedStack, kept);
       level = 0;
     }
   }
@@ -658,7 +719,7 @@ function walkBack(chunk, buf, balancedPoints, lastBalancedAt, offAt, allowNested
 // stands on one: a candidate past `candidateStart` is one at its index or later. Candidates only drop
 // out, so the last one before the closer answers every start the stack offers, and the start is the
 // latest balanced point at or before it. An empty stack offers the chunk start once.
-function tryConvertInches(marks, off, balancedStack) {
+function tryConvertInches(marks, off, balancedStack, kept) {
   const quotePos = marks.lastInchQuote(off - 1);
   const candidateStart = balancedStack.length ? popBalanced(marks, balancedStack, quotePos) : 0;
 
@@ -682,7 +743,7 @@ function tryConvertInches(marks, off, balancedStack) {
     return off;
   }
 
-  marks.write(off - 1, '"', 0);
+  marks.write(off - 1, kept(marks.buf, marks.at[off - 1]) ? RAQUO : '"', 0);
   balancedStack.length = 0;
   balancedStack.push(off);
 

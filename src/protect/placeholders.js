@@ -29,6 +29,13 @@ export const PLACEHOLDER_TOKEN = `${OPEN}[A-Za-z]+\\d+${CLOSE}`;
 // token itself. Built per consumer rather than shared: a `g` regex carries `lastIndex`.
 export const TAG_PLACEHOLDER_SOURCE = `<(/?)(${PLACEHOLDER_TOKEN})>`;
 
+// A character reference in XML is syntax, vaulted between its head and its `;`, and the vault holds
+// nothing: a rule reads `&#160;` as `&#160`, an empty placeholder and `;`. This source matches the
+// reference the engine writes for `glyph`, so a rule reads its own output back.
+export function vaultedReference(glyph) {
+  return `&#${glyph.codePointAt(0)}${OPEN}N\\d{1,9}${CLOSE};`;
+}
+
 // A rule reading the text around a placeholder cannot open the vault, so the prefix carries the
 // whole classification and every consumer reads the same set from here rather than spelling a subset
 // inline.

@@ -56,3 +56,16 @@ export function splitFrontmatter(src) {
 
   return MALFORMED;
 }
+
+// The header a Markdown document opens with, through its closing delimiter: the site generator's
+// data, which a Markdown document carries as it is. An opener with no close is no header there, and
+// the document is read as Markdown from its first line.
+export function scanLeadingHeader(src) {
+  const fm = splitFrontmatter(src);
+
+  if (fm === null || fm.malformed) {
+    return [];
+  }
+
+  return [[0, fm.headerStart + fm.header.length + fm.close.length]];
+}

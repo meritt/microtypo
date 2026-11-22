@@ -5,8 +5,9 @@ import { G } from './glyphs.js';
 //
 // One character, one canonical form: every named reference is listed beside the numeric reference
 // for the same code point, or the same character typesets differently depending on how the author
-// spelled it. `&#133;`, `&#0133;`, `&#151;` and `&#153;` name C1 code points that carry no character;
-// they fold with the cp1252 glyph an HTML parser resolves them to.
+// spelled it. A numeric reference is listed by its plain decimal spelling, which its hex and
+// zero-padded spellings decode as. `&#133;`, `&#151;` and `&#153;` name C1 code points that carry no
+// character; they fold with the cp1252 glyph an HTML parser resolves them to.
 //
 // A canonical form that is an ASCII stand-in (`-`, `(c)`, `...`) is re-derived by a rule, so it is
 // safe only while that rule is total — and a rule that can be switched off is not. A glyph with no
@@ -32,7 +33,7 @@ export const CHARS_TABLE = Object.freeze({
   [G.RAQUO]: { html: ['&raquo;', '&#187;', '&rdquo;', '&#8221;'], utf8: [0x00bb, 0x201d] },
   [G.NBSP]: { html: ['&nbsp;', '&#160;'], utf8: [0x00a0] },
   // Emitted as `&#8239;` in entity mode, so it has to decode back.
-  [G.NNBSP]: { html: ['&#8239;', '&#x202F;', '&#x202f;'], utf8: [0x202f] },
+  [G.NNBSP]: { html: ['&#8239;'], utf8: [0x202f] },
   [G.THINSP]: { html: ['&thinsp;', '&#8201;'], utf8: [0x2009] },
   '\u{2008}': { utf8: [0x2008] },
   // U+2010 is the hyphen itself and U+2012 only ever stands between figures, so both fold. The en
@@ -50,7 +51,7 @@ export const CHARS_TABLE = Object.freeze({
   // Own canonical form: `punctuation.ellipsis` is the only way back from `...` and can be switched
   // off. It also reached the earlier groups as `...`, where quote and dash list `…` in their boundary
   // classes and so could not see it. Typing `...` still yields `…`.
-  [G.HELLIP]: { html: ['&hellip;', '&#8230;', '&#133;', '&#0133;'], utf8: [0x2026] },
+  [G.HELLIP]: { html: ['&hellip;', '&#8230;', '&#133;'], utf8: [0x2026] },
   // Own canonical forms: `number.math` is the only way back from `!=`, `<=`, `>=`, `~=` and `+-`,
   // and can be switched off. Typing `!=` still yields `≠`; that is the rule's job, not
   // normalisation's.

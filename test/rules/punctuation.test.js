@@ -291,3 +291,27 @@ describe('punctuation.mark_ellipsis: ?… / !… drop a dot', () => {
     assert.equal(microtypo('Ты видел Амбер?..', NO_NBSP_GLUE), 'Ты видел Амбер?..'); // idempotent
   });
 });
+
+describe('punctuation.space_before_bracket', () => {
+  test('an empty pair and a Latin word before a bracket take no space', () => {
+    for (const src of [
+      'render()',
+      'a.b.c()',
+      'вызов функции()',
+      'слово()',
+      'printf(x)',
+      'f(x)',
+      'Amber(город)',
+      '<b>printf</b>(x)'
+    ]) {
+      assert.equal(microtypo(src), src);
+    }
+  });
+
+  test('a Russian word before a bracket is set apart', () => {
+    assert.equal(microtypo('слово(пояснение)'), 'слово (пояснение)');
+    assert.equal(microtypo('слово(x)'), 'слово (x)');
+    assert.equal(microtypo('<b>слово</b>(пояснение)'), '<b>слово</b> (пояснение)');
+    assert.equal(microtypo('см.(тут)'), 'см.(тут)');
+  });
+});

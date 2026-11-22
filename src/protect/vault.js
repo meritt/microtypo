@@ -12,7 +12,8 @@ export class Vault {
 
   // Per-vault prefix keeps placeholder kinds distinguishable when they coexist in one text, so every
   // one of them has to be taken exactly once. In use: `T` tags, `A` anchors, `L` block-level tags,
-  // `I` and `H` inline blocks, `B` and `N` safe blocks, `W` line indents. Reusing one that is
+  // `I` and `H` inline blocks, `B` and `N` safe blocks, `W` line indents, `E` and `F` tails; `S`
+  // is the token `SafeSequences.keep` seals a placeholder into for one rule. Reusing one that is
   // already taken makes two vaults answer to the same placeholder, and a restore then pulls the
   // wrong content into the document.
   constructor(prefix) {

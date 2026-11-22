@@ -5,7 +5,8 @@
 //   random nonce one case gives different violations from run to run, and neither a replay of the
 //   case nor a summary of the run would come out the same. Both passes of a check still draw
 //   different nonces, as two calls do in use.
-// - The rule runner records each rule that changed the text at its own step, for coverage.
+// - The rule runner, and the lifting of inline markup a builtin group's rules run behind, record
+//   each rule that changed the text at its own step, for coverage.
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -20,27 +21,39 @@ const RESTART = Symbol.for('microtypo.fuzz.restart');
 const PATCHES = [
   [
     'rule-runner.js',
-    '    ctx.text = rule.apply(ctx.text, ctx);\n',
+    '    ctx.text = keep === null ? output : keep(input, output, (t) => rule.apply(t, ctx));\n',
     (anchor) =>
       [
-        '    const before = ctx.text;',
         anchor.trimEnd(),
-        '    if (ctx.text !== before) {',
+        '    if (ctx.text !== input) {',
         "      globalThis[Symbol.for('microtypo.fuzz.trace')]?.add(compiled.name + '.' + rule.id);",
         '    }',
         ''
       ].join('\n')
   ],
+  // A rule of a builtin group runs on the text with its inline markup lifted out.
   [
-    'protect/sequences.js',
-    '    globalThis.crypto.getRandomValues(randomPool);\n',
-    () => "    globalThis[Symbol.for('microtypo.fuzz.random')](randomPool);\n"
+    'inline-lift.js',
+    '  if (next !== state) {\n',
+    (anchor) =>
+      `${anchor}    globalThis[Symbol.for('microtypo.fuzz.trace')]?.add(ctx.group.name + '.' + rule.id);\n`
+  ],
+  [
+    'inline-lift.js',
+    '    group.marked = output;\n',
+    (anchor) =>
+      `${anchor}    if (output !== input) {\n      globalThis[Symbol.for('microtypo.fuzz.trace')]?.add(ctx.group.name + '.' + rule.id);\n    }\n`
   ],
   [
     'protect/sequences.js',
-    'let poolAt = randomPool.length;\n',
+    'globalThis.crypto.getRandomValues(randomPool)',
+    () => "globalThis[Symbol.for('microtypo.fuzz.random')](randomPool)"
+  ],
+  [
+    'protect/sequences.js',
+    'let poolAt = 0;\n',
     (anchor) =>
-      `${anchor}globalThis[Symbol.for('microtypo.fuzz.restart')] = () => {\n  poolAt = randomPool.length;\n};\n`
+      `${anchor}globalThis[Symbol.for('microtypo.fuzz.restart')] = () => {\n  poolAt = poolHex.length;\n};\n`
   ]
 ];
 
@@ -56,6 +69,8 @@ globalThis[RANDOM] = (bytes) => {
     t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
     bytes[i] = (t ^ (t >>> 14)) & 0xff;
   }
+
+  return bytes;
 };
 
 // `restart()` puts the nonces back to their first value; call it before each case is run.

@@ -1,5 +1,19 @@
 import { G } from '../lib/glyphs.js';
 
+// A date with its year mark, `12.05.20г` or `12.05.2020 г.`. Only the mark is taken, with a period
+// set apart from it (`г .`), which is the mark's own: the space around it is looked at and left as
+// written, so it still starts the next date.
+const DATE_YEAR_RE =
+  /(?<=^|\s)([0-9]{2}\.[0-9]{2}\.(?:[0-9]{2})?[0-9]{2})[ \t\u{00A0}]?г(?:[ \t\u{00A0}]*\.|(?=\s))/giu;
+
+// `nowrap_date` wraps a date in its own turn, after the quote, dash, space and binding groups, and to
+// them a `г` glued to the date is a word of its own; the next pass would read `12.05.20 г.` instead.
+// The engine settles the mark before every group, past inline markup as the group's rules read.
+export const YEAR_MARKS = {
+  id: 'settle_year_marks',
+  apply: (text) => text.replace(DATE_YEAR_RE, `$1${G.NBSP}г.`)
+};
+
 export const dateGroup = {
   title: 'Даты и дни',
   classes: { nowrap: 'white-space:nowrap;' },
@@ -50,15 +64,11 @@ export const dateGroup = {
       id: 'nowrap_date',
       description: 'Привязка года к дате',
       pattern: [
-        /(\s|\u{00A0})([0-9]{2}\.[0-9]{2}\.([0-9]{2})?[0-9]{2})(\s|\u{00A0})?г(\.|\s|\u{00A0})/giu,
+        DATE_YEAR_RE,
         /(\s|\u{00A0})([0-9]{2}\.[0-9]{2}\.([0-9]{2})?[0-9]{2})(\s|\u{00A0}|\.(\s|\u{00A0}|$)|$)/giu
       ],
       replacement: [
-        (m, ctx) => {
-          const [, p1, p2, , , p5] = m;
-
-          return `${p1}${ctx.tag(`${p2} г.`, 'span', { class: 'nowrap' })}${p5 === '.' ? '' : ' '}`;
-        },
+        (m, ctx) => ctx.tag(`${m[1]} г.`, 'span', { class: 'nowrap' }),
         (m, ctx) => {
           const [, p1, p2, , p4] = m;
 

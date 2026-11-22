@@ -23,7 +23,19 @@ export function changedRanges(before, after, checkBudget) {
 
   walk(before, 0, before.length, after, 0, after.length, 0, ranges, steps);
 
-  return mergeTouching(ranges);
+  return mergeTouching(ranges.map((range) => wholePairs(after, range)));
+}
+
+// The diff compares UTF-16 units, so two characters beyond the BMP that share a high surrogate agree
+// on it and differ on the low one alone. A range edge standing between the two halves of a pair takes
+// the whole pair: a caller slicing there would hold half a character.
+function wholePairs(text, [start, end]) {
+  return [splitsPair(text, start) ? start - 1 : start, splitsPair(text, end) ? end + 1 : end];
+}
+
+// Read from a high surrogate, a whole pair is one code point past the BMP.
+function splitsPair(text, at) {
+  return at > 0 && text.codePointAt(at - 1) > 0xffff;
 }
 
 function walk(a, aStart, aEnd, b, bStart, bEnd, level, out, steps) {

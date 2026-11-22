@@ -538,9 +538,8 @@ describe('selectValueSpans', () => {
     }
   });
 
-  // A selector compared against the full path walks the whole ancestry of every span; a chain of
-  // k nested values is then k(k+1)/2 segments for one selection.
-  test('a deep chain costs each selector a bounded walk per span', () => {
+  // What each selection costs on this chain is checked in test/perf/structured-splice.perf.js.
+  test('each selector picks its spans out of a deep chain', () => {
     const depth = 4999;
     const spans = scanJson(`${'["x",'.repeat(depth)}"x"${']'.repeat(depth)}`);
     const nine = ['absent', 'a.absent', '/absent', ...misses.slice(0, 6)];
@@ -554,20 +553,16 @@ describe('selectValueSpans', () => {
       [nine, 0]
     ]) {
       for (const bucket of ['fields', 'exclude']) {
-        const started = performance.now();
         const selected = selectValueSpans(spans, { [bucket]: list });
-        const elapsed = performance.now() - started;
 
         assert.equal(selected.length, bucket === 'fields' ? picked : depth + 1 - picked);
-        assert.ok(elapsed < 50, `${bucket} ${list}: ${elapsed.toFixed(1)}ms`);
       }
     }
   });
 
   // Every value of the chain sits at index 0 but the innermost, at 1, so `exclude` names both to
-  // leave nothing for the pipeline and time the selection alone. Nothing selected means nothing
-  // after the selection reads the budget, so only the wall clock shows a selection that overran it.
-  test('deep JSON selection through the public API stays inside a small budget', () => {
+  // leave nothing for the pipeline.
+  test('deep JSON selection through the public API returns the document unchanged', () => {
     const depth = 4999;
     const src = `${'["x",'.repeat(depth)}"x"${']'.repeat(depth)}`;
 
@@ -577,10 +572,8 @@ describe('selectValueSpans', () => {
           input: { format: 'json', ...choice },
           maxProcessingMs: 100
         });
-        const started = performance.now();
 
         assert.equal(typo.process(src), src, JSON.stringify(choice));
-        assert.ok(performance.now() - started < 150, JSON.stringify(choice));
       }
     }
   });

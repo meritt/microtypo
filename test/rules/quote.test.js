@@ -2,12 +2,22 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { microtypo, MicroTypo } from '../../src/index.js';
+import { BLOCK_TAG_NAMES } from '../../src/lib/block-tags.js';
 import { PARAGRAPH_OPEN, PARAGRAPH_CLOSE } from '../../src/protect/placeholders.js';
 import { processQuotes } from '../../src/rules/quote-state.js';
 
 const BDQUO = '„';
 const LDQUO = '“';
 const PRIME = '″';
+
+test('an English pair inside low quotation marks keeps its nesting', () => {
+  assert.equal(microtypo('„Он сказал “Привет” здесь“'), '«Он\u{00A0}сказал „Привет“ здесь»');
+  assert.equal(microtypo('„Он сказал (“Привет”) здесь“'), '«Он\u{00A0}сказал („Привет“) здесь»');
+  assert.equal(
+    microtypo('„Он сказал&nbsp;“Привет” здесь“', { html: true }),
+    '<p>«Он\u{00A0}сказал\u{00A0}„Привет“ здесь»</p>'
+  );
+});
 
 // processQuotes runs after outer "…" pairs are already «…», so inputs use angle quotes directly.
 describe('quote state machine', () => {
@@ -500,6 +510,221 @@ describe('quote.open — closing quote after a tag (REG-2)', () => {
   test('opening quote glued to a tag opens the quotation, padded or not', () => {
     assert.equal(microtypo('<b>" слово"</b>', NOP), '<b>«слово»</b>');
     assert.equal(microtypo('<b>"слово"</b>', NOP), '<b>«слово»</b>');
+  });
+});
+
+// What follows a finished paragraph does not reach back into it: a quote between an inline end tag
+// and the end tag of its block closes whether the document ends there or goes on.
+describe('quote.open — a quote after an end tag closes before the end of its block (A31)', () => {
+  const HTML = { input: 'html', html: false };
+  const CLOSED = '<p>«слово <em>другое</em>»</p>';
+
+  for (const [label, tail] of [
+    ['a newline and a paragraph', '\n<p>текст</p>'],
+    ['a paragraph with no newline', '<p>текст</p>'],
+    ['a figure', '\n<figure><img src="/x"><figcaption>"Подпись"</figcaption></figure>'],
+    ['a paragraph holding code', '\n<p><code>"x" -- a  b</code></p>'],
+    ['a trailing newline', '\n'],
+    ['nothing', '']
+  ]) {
+    test(`followed by ${label}`, () => {
+      const out = new MicroTypo(HTML).process(`<p>"слово <em>другое</em>"</p>${tail}`);
+
+      assert.ok(out.startsWith(CLOSED), out);
+    });
+  }
+
+  for (const block of ['div', 'li', 'h2']) {
+    test(`in a <${block}> followed by a paragraph`, () => {
+      assert.equal(
+        new MicroTypo(HTML).process(`<${block}>"слово <em>другое</em>"</${block}>\n<p>текст</p>`),
+        `<${block}>«слово <em>другое</em>»</${block}>\n<p>текст</p>`
+      );
+    });
+  }
+
+  test('the last of two such paragraphs closes on the first call', () => {
+    const source = '<p>"первый <em>абзац</em>"</p>\n<p>"второй <em>абзац</em>"</p>\n';
+    const out = new MicroTypo(HTML).process(source);
+
+    assert.equal(out, '<p>«первый <em>абзац</em>»</p>\n<p>«второй <em>абзац</em>»</p>');
+    assert.equal(new MicroTypo(HTML).process(out), out);
+  });
+
+  for (const block of ['p', ...BLOCK_TAG_NAMES.filter((name) => name !== 'pre')]) {
+    test(`a following block leaves a closed <${block}> as it was`, () => {
+      const closed = `<${block}>«слово <em>другое</em>»</${block}>`;
+      const source = `<${block}>"слово <em>другое</em>"</${block}>`;
+
+      for (const tail of ['', '\n', '\n<p>текст</p>']) {
+        const out = new MicroTypo(HTML).process(source + tail);
+
+        assert.ok(out.startsWith(closed), `${JSON.stringify(tail)}: ${out}`);
+      }
+    });
+  }
+
+  for (const [open, close] of [
+    ['<em>', '</em>'],
+    ['<a href="/x">', '</a>'],
+    ['<b>', '</b>'],
+    ['<i>', '</i>'],
+    ['<strong>', '</strong>'],
+    ['<span>', '</span>'],
+    ['<code>', '</code>']
+  ]) {
+    test(`a following paragraph leaves the quote after ${close} closed`, () => {
+      const closed = `<p>«слово ${open}другое${close}»</p>`;
+      const source = `<p>"слово ${open}другое${close}"</p>`;
+
+      for (const tail of ['', '\n', '\n<p>текст</p>', '<p>текст</p>']) {
+        const out = new MicroTypo(HTML).process(source + tail);
+
+        assert.ok(out.startsWith(closed), `${JSON.stringify(tail)}: ${out}`);
+      }
+    });
+  }
+
+  test('a word or a sentence mark in front of the end tag is read as before', () => {
+    for (const [source, expected] of [
+      [
+        '<p>"<em>слово</em> другое"</p>\n<p>текст</p>',
+        '<p>«<em>слово</em> другое»</p>\n<p>текст</p>'
+      ],
+      [
+        '<p>"слово <em>другое</em>".</p>\n<p>текст</p>',
+        '<p>«слово <em>другое</em>».</p>\n<p>текст</p>'
+      ],
+      ['<p>"слово"</p>\n', '<p>«слово»</p>']
+    ]) {
+      assert.equal(new MicroTypo(HTML).process(source), expected);
+    }
+  });
+
+  test('a quote alone in an element still opens', () => {
+    assert.equal(new MicroTypo(HTML).process('<p><b>"</b>слово"</p>'), '<p><b>«</b>слово»</p>');
+  });
+
+  test('what closes a quote behind a word closes it behind an end tag', () => {
+    for (const [source, expected] of [
+      ['<p>"слово <em>x</em>"!</p>', '<p>«слово <em>x</em>»!</p>'],
+      ['<p>"слово <em>x</em>"?</p>\n<p>текст</p>', '<p>«слово <em>x</em>»?</p>\n<p>текст</p>'],
+      ['<p>"слово <em>x</em>"...</p>', '<p>«слово <em>x</em>»…</p>'],
+      ['<p>"слово <em>x</em>"<br>текст</p>', '<p>«слово <em>x</em>»<br>текст</p>']
+    ]) {
+      assert.equal(new MicroTypo(HTML).process(source), expected);
+    }
+  });
+
+  test('a comma, a paren, a space, and a quote behind a word read as before', () => {
+    for (const [source, expected] of [
+      ['<p>"слово <em>x</em>", - сказал он.</p>', '<p>«слово <em>x</em>», — сказал он.</p>'],
+      ['<p>("слово <em>x</em>")</p>', '<p>(«слово <em>x</em>»)</p>'],
+      ['<p>"слово <em>x</em>" и</p>', '<p>«слово <em>x</em>» и</p>'],
+      ['<p>"слово"!</p>', '<p>«слово»!</p>']
+    ]) {
+      assert.equal(new MicroTypo(HTML).process(source), expected);
+    }
+  });
+
+  test('a closing quote nothing opened is not turned round behind the end tag', () => {
+    for (const [source, expected] of [
+      ['<p><b>Сказано.</b>"</p>', '<p><b>Сказано.</b>"</p>'],
+      ['<p><b>слово</b>"цитата"</p>', '<p><b>слово</b>«цитата»</p>']
+    ]) {
+      const once = new MicroTypo(HTML).process(source);
+
+      assert.equal(once, expected);
+      assert.equal(new MicroTypo(HTML).process(once), once);
+    }
+  });
+});
+
+describe('quote.open — a quote after an end tag closes before the guillemet around it (A22)', () => {
+  test('the inner pair around a tag nests', () => {
+    assert.equal(microtypo('«"<b>слово</b>"»'), '«„<b>слово</b>“»');
+    assert.equal(
+      microtypo('<p>«"<b>слово</b>"»</p>', { input: 'html', html: true }),
+      '<p>«„<b>слово</b>“»</p>'
+    );
+  });
+
+  test('a link inside nested quotes survives a second pass', () => {
+    const once = microtypo('«„https://example.com“»', { html: true });
+
+    assert.equal(once, '<p>«„<a href="https://example.com">example.com</a>“»</p>');
+    assert.equal(microtypo(once, { html: true }), once);
+  });
+
+  test('a pair with no tag, a tag with no guillemets and a tag before a word read as before', () => {
+    assert.equal(microtypo('«"слово"»'), '«„слово“»');
+    assert.equal(microtypo('"<b>слово</b>"'), '«<b>слово</b>»');
+    assert.equal(
+      microtypo('Он сказал: «"<i>да</i>" и ушёл»'),
+      'Он\u{00A0}сказал: «„<i>да</i>“ и\u{00A0}ушёл»'
+    );
+  });
+});
+
+describe('an unmatched guillemet glued to an address stays the author’s (A23)', () => {
+  test('stays a guillemet, and the address still becomes a link', () => {
+    assert.equal(microtypo('http://x.com/a» далее'), 'http://x.com/a» далее');
+
+    const once = microtypo('http://x.com/a» далее', { html: true });
+
+    assert.equal(once, '<p><a href="http://x.com/a">x.com/a</a>» далее</p>');
+    assert.equal(microtypo(once, { html: true }), once);
+  });
+
+  test('a pair around an address, a straight quote after it and a guillemet after a word read as before', () => {
+    assert.equal(microtypo('«см. http://x.com/a» далее'), '«см.\u{00A0}http://x.com/a» далее');
+    assert.equal(microtypo('url="http://x.com/a" далее'), 'url="http://x.com/a" далее');
+    assert.equal(microtypo('слово» далее'), 'слово" далее');
+  });
+});
+
+// A quotation opened in an earlier paragraph closes in this one, and the end tag in front of its `»`
+// stands after the words of its element: the guillemet stays a closer, with its space.
+describe('an unmatched guillemet behind an end tag stays the author’s', () => {
+  test('stays as written, in markup and in plain text', () => {
+    for (const [source, options] of [
+      ['<p><b>слово</b>» далее</p>', { input: 'html', html: false }],
+      ['<b>слово</b>» далее', {}]
+    ]) {
+      const once = microtypo(source, options);
+
+      assert.equal(once, source);
+      assert.equal(microtypo(once, options), once);
+    }
+  });
+
+  test('a pair around the element reads as before', () => {
+    const options = { input: 'html', html: false };
+
+    assert.equal(microtypo('<p>«<b>слово</b>» далее</p>', options), '<p>«<b>слово</b>» далее</p>');
+    assert.equal(
+      microtypo('<p>«слово <b>два</b>» далее</p>', options),
+      '<p>«слово <b>два</b>» далее</p>'
+    );
+  });
+});
+
+// A block's end tag stands after a whole block, and what follows it starts the next one: a quote
+// there reads as it does at the start of a paragraph, on the pass that lays the paragraph out and on
+// the next.
+describe('a quote behind the end tag of a block starts the next block', () => {
+  test('reads as at the start of a paragraph, in one pass', () => {
+    for (const [source, expected] of [
+      ['<pre></pre>» е', '<pre></pre>\n\n<p>«е</p>'],
+      ['<div>а</div>» е', '<div>а</div>\n\n<p>«е</p>'],
+      ['<div>а</div>"!', '<div>а</div>\n\n<p>«!</p>'],
+      ['«слово <pre></pre>"»', '<p>«слово</p>\n\n<pre></pre>\n\n<p>«»</p>']
+    ]) {
+      const once = microtypo(source, { html: true });
+
+      assert.equal(once, expected, source);
+      assert.equal(microtypo(once, { html: true }), once, source);
+    }
   });
 });
 
@@ -1002,7 +1227,7 @@ describe('LOCK-1 — correct where cross-test siblings diverge', () => {
   });
 
   test('(c) → © even inside quotes', () => {
-    assert.ok(microtypo('«текст (c) ещё»', NOP).includes('©'));
+    assert.ok(microtypo('«текст (c) Амбер»', NOP).includes('©'));
   });
 });
 

@@ -1,3 +1,4 @@
+import { applyRule, beginGroup, endGroup, mayLift } from './inline-lift.js';
 import { deepFreeze } from './lib/deep-freeze.js';
 import { cycle } from './lib/strings.js';
 
@@ -166,13 +167,32 @@ function ensureGlobal(re) {
   return new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`);
 }
 
-export function runRuleGroup(compiled, text, ctx) {
+// A step `{ id, apply }` the engine takes on a fragment before its groups, run as a rule of a builtin
+// group. A text with nothing to lift takes it as it is: a custom group may yet add markup to it.
+export function runStep(step, text, ctx, keep, inline) {
+  if (inline === null || !mayLift(text, inline)) {
+    return step.apply(text, ctx);
+  }
+
+  const lifted = beginGroup(text, inline, ctx);
+
+  applyRule(lifted, step, ctx, keep, inline);
+
+  return endGroup(lifted, inline);
+}
+
+// `keep(before, after, rerun)` settles what one rule's change leaves in the text; see
+// `SafeSequences.keep`. `inline` is the fragment's lifting of inline markup, given to builtin groups
+// only: each rule runs on the text without the markup first (see `inline-lift.js`).
+export function runRuleGroup(compiled, text, ctx, keep = null, inline = null) {
   ctx.text = text;
   ctx.group = compiled.view;
 
   if (compiled.raw.preParse) {
     compiled.raw.preParse(ctx);
   }
+
+  const lifted = inline !== null && keep !== null ? beginGroup(ctx.text, inline, ctx) : null;
 
   for (const rule of compiled.compiledRules) {
     if (!isRuleEnabled(compiled, rule)) {
@@ -184,7 +204,19 @@ export function runRuleGroup(compiled, text, ctx) {
       continue;
     }
 
-    ctx.text = rule.apply(ctx.text, ctx);
+    if (lifted !== null) {
+      applyRule(lifted, rule, ctx, keep, inline);
+      continue;
+    }
+
+    const input = ctx.text;
+    const output = rule.apply(input, ctx);
+
+    ctx.text = keep === null ? output : keep(input, output, (t) => rule.apply(t, ctx));
+  }
+
+  if (lifted !== null) {
+    ctx.text = endGroup(lifted, inline);
   }
 
   return ctx.text;
@@ -202,6 +234,12 @@ export function describeRuleGroup(compiled) {
       )
     )
   });
+}
+
+export function isRuleOn(compiled, id) {
+  const rule = compiled.compiledRules.find((r) => r.id === id);
+
+  return rule !== undefined && isRuleEnabled(compiled, rule);
 }
 
 function isRuleEnabled(compiled, rule) {

@@ -508,3 +508,55 @@ describe('short-word binding across every opener', () => {
     }
   });
 });
+
+describe('nobr.nbsp_particle — the right edge', () => {
+  test('a particle binds before the end of the text, ! and )', () => {
+    for (const [src, want] of [
+      ['что бы', `что${NBSP}бы`],
+      ['Вот же!', `Вот${NBSP}же!`],
+      ['Вот же', `Вот${NBSP}же`],
+      ['(так ли)', `(так${NBSP}ли)`],
+      ['Вот <b>же</b>!', `Вот${NBSP}<b>же</b>!`]
+    ]) {
+      const once = microtypo(src);
+
+      assert.equal(once, want);
+      assert.equal(microtypo(once), once);
+    }
+  });
+
+  test('a particle binds as before at the other edges, and a letter after a dash is no particle', () => {
+    assert.equal(microtypo('«да же»'), `«да${NBSP}же»`);
+    assert.equal(microtypo('ну же, иди'), `ну${NBSP}же, иди`);
+    assert.equal(microtypo('как бы не так'), `как${NBSP}бы не${NBSP}так`);
+    assert.equal(microtypo('а - б'), `а${NBSP}— б`);
+  });
+});
+
+describe('nobr.nbsp_short_word — a run of hyphens is not a word', () => {
+  test('a short word before an arrow or a hyphen run stays apart', () => {
+    for (const src of ['a --> b', 'a --- b', 'х --> у']) {
+      assert.equal(microtypo(src), src);
+    }
+  });
+
+  test('a short word before a dash still binds', () => {
+    assert.equal(microtypo('и -- то'), `и${NBSP}— то`);
+    assert.equal(microtypo('а - б'), `а${NBSP}— б`);
+  });
+});
+
+// The quote a short word binds to is the left boundary of the short word inside it.
+describe('space.nbsp_before_quote — a short word inside a nested quotation (A11)', () => {
+  test('binds in the same pass as the short word in front of it', () => {
+    for (const [source, expected] of [
+      ['"a "b "c" b" a"', `«a${NBSP}„b${NBSP}„c“ b“ a»`],
+      ['Он сказал: "я "в "доме" не" был"', `Он${NBSP}сказал: «я${NBSP}„в${NBSP}„доме“ не“ был»`]
+    ]) {
+      const once = microtypo(source, FLAT);
+
+      assert.equal(once, expected);
+      assert.equal(microtypo(once, FLAT), once);
+    }
+  });
+});

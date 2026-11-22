@@ -2,6 +2,7 @@ import { G } from '../lib/glyphs.js';
 
 const BRACKET_SPACE_RE = /[ \t\u{00A0}]/u;
 const WORD_RE = /[a-zа-яё0-9]/iu;
+const CYRILLIC_RE = /[а-яё]/iu;
 const REFERENCE_TAIL_RE = /&[0-9A-Za-z#]+$/;
 // Longest HTML5 named reference (CounterClockwiseContourIntegral) plus its '&' and ';'.
 const REFERENCE_MAX = 32;
@@ -152,7 +153,7 @@ export const punctmarkGroup = {
     {
       id: 'drop_terminal_garbage',
       description: 'Удаление мусорных хвостов пунктуации после терминального знака',
-      pattern: [/([!?])[,;]+[!?]+/g, new RegExp(`\\.${G.RAQUO}\\.`, 'g')],
+      pattern: [/([!?])(?:[,;]+[!?]+)+/g, new RegExp(`\\.${G.RAQUO}\\.`, 'g')],
       replacement: ['$1', `${G.RAQUO}.`]
     },
     {
@@ -190,8 +191,20 @@ export const punctmarkGroup = {
     {
       id: 'space_before_bracket',
       description: 'Пробел перед открывающей скобочкой',
-      pattern: /([a-zа-яё])(\()/giu,
-      replacement: '$1 $2'
+      // A word of Latin letters and digits before `(` is a call or a name, `printf(x)`, and an
+      // empty pair is a call whatever word it follows. A `(c)` glued to a word is no copyright mark,
+      // and a space in front would make it one on the next run.
+      pattern: /([a-zа-яё])\((?!\)|[cс]\))/giu,
+      replacement: (m) => {
+        const [match, letter, offset, source] = m;
+        let start = offset;
+
+        while (start > 0 && WORD_RE.test(source[start - 1])) {
+          start--;
+        }
+
+        return CYRILLIC_RE.test(source.slice(start, offset + 1)) ? `${letter} (` : match;
+      }
     },
     {
       id: 'period_at_end',

@@ -1,11 +1,12 @@
 import { clearSpecialChars } from './clear-special.js';
 import { normaliseOptions, isOn, canonicalGroupName, wildcardToRegex } from './core/options.js';
 import { MicroTypoConfigError, MicroTypoInputError, MicroTypoBudgetError } from './errors/index.js';
-import { splitFrontmatter } from './input/frontmatter.js';
+import { scanLeadingHeader, splitFrontmatter } from './input/frontmatter.js';
 import { compileSpanSelectors, scanJson, selectValueSpans } from './input/json.js';
 import {
   codeSpanReader,
   commentReader,
+  linkSyntaxCuts,
   opaqueInline,
   scanFences,
   scanIndentedCode,
@@ -30,12 +31,21 @@ import { escapeReserved, hasReserved } from './protect/reserved.js';
 import { SafeSequences } from './protect/sequences.js';
 import { tagSpans } from './protect/tag-spans.js';
 import { assertTagName, SafeTags } from './protect/tags.js';
-import { compileRuleGroup, describeRuleGroup, runRuleGroup } from './rule-runner.js';
+import {
+  compileRuleGroup,
+  describeRuleGroup,
+  isRuleOn,
+  runRuleGroup,
+  runStep
+} from './rule-runner.js';
+import { YEAR_MARKS } from './rules/date.js';
 import { DEFAULT_GROUPS } from './rules/registry.js';
+import { markdownSources } from './rules/text.js';
 import { UNSAFE_PREFIX_RE, validateConfig } from './schemas/config.js';
 
 // Raw-text tags whose content is not typeset; block-level tags are excluded, since their content is.
-// `textarea` belongs here for a different reason: its content is the form's value, not display prose.
+// `textarea` belongs here for a different reason: its content is the form's value, not display prose,
+// and `math` because its content is a formula in MathML.
 // prettier-ignore
 const DEFAULT_SAFE_TAGS = [
   'pre',
@@ -47,7 +57,11 @@ const DEFAULT_SAFE_TAGS = [
   'var',
   'tt',
   'textarea',
+  'math',
 ];
+
+// MathML is foreign content in HTML, where `<math/>` closes itself as it does in XML.
+const FOREIGN_TAGS = new Set(['math']);
 
 // Of those, the two whose content a reader never sees. `abbr.currency` is the reader of the
 // difference: a sentence in front of a `<script>` has ended, while the words in a `<code>` span go
@@ -64,6 +78,8 @@ const NOTG_END = '<span class="_notg_end"></span>';
 const NOTG_RE = /<notg(?:\s(?:[^<>"']|"[^"]*"|'[^']*')*)?>([\s\S]*?)<\/notg>/gi;
 
 const DEFAULT_LAYOUT = { style: true, class: false };
+
+const BOM = '\u{FEFF}';
 
 // Formats whose document is Markdown source; frontmatter is here because its body is one.
 const BLOCK_RENDER_FORMATS = new Set(['markdown', 'frontmatter']);
@@ -142,6 +158,12 @@ export class MicroTypo {
       // Every block scanner asks one question of where an HTML block opens: a template expression
       // stays opaque to it.
       const templatesIn = (text, checkBudget) => () => scanTemplate?.(text, checkBudget) ?? [];
+
+      // Before every other block, so no line of the header opens one. The front-matter format reads
+      // its header as data and its body has none.
+      if (this.#input.format === 'markdown') {
+        this.#safeBlocks.addScanner('md-leading-header', scanLeadingHeader);
+      }
 
       // Line-oriented scanner: a same-length fence run mid-line can't close the block early. The
       // lines of an HTML block open no fence.
@@ -227,11 +249,12 @@ export class MicroTypo {
       }
 
       // Entity/char references are XML syntax, not text — must not decode to `&`. Open anchors a
-      // real reference head and requires the terminating `;` right after (lookahead), so a bare
-      // `&` never matches and a bogus head fails outright.
+      // reference head, `&#X` included, which XML does not spell but the decoder reads, and requires
+      // the terminating `;` right after (lookahead), so a bare `&` never matches and a bogus head
+      // fails outright.
       this.addSafeBlock({
         id: 'xml-entity',
-        open: '&(?:#[0-9]+|#x[0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*)(?=;)',
+        open: '&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*)(?=;)',
         close: ';',
         unsafeRegex: true
       });
@@ -286,7 +309,7 @@ export class MicroTypo {
         nests: xml || !RAW_TEXT_TAGS.has(tag),
         // HTML allows a form feed among the space before a closing `>`; XML's S production does not.
         formFeed: !xml,
-        slashOpens: !xml
+        slashOpens: !xml && !FOREIGN_TAGS.has(tag)
       });
     }
 
@@ -569,9 +592,13 @@ export class MicroTypo {
     const checkBudget = budgetCheck(this.#maxProcessingMs, performance.now());
     let result;
 
+    // A byte-order mark tells how the file is encoded, not what it says: it goes back first, and no
+    // format reads it as part of the document.
+    const bom = text.startsWith(BOM) ? BOM : '';
+
     try {
       this.#reservedPossible = this.#input.format === 'json' || hasReserved(text);
-      result = this.#typeset(text, checkBudget);
+      result = bom + this.#typeset(text.slice(bom.length), checkBudget);
     } finally {
       this.#processing = false;
     }
@@ -830,7 +857,13 @@ export class MicroTypo {
     // Per-call vault frame so an id minted for an earlier scalar can't be referenced by a later one.
     this.#safeSequences.resetFrame();
 
-    let result = this.#safeSequences.protect(text);
+    // A front-matter header's values are data; only the body is Markdown.
+    let result = this.#safeSequences.protect(
+      text,
+      destination === 'html' && BLOCK_RENDER_FORMATS.has(this.#input.format)
+        ? linkSyntaxCuts(text)
+        : undefined
+    );
     checkBudget('safeSequences.protect');
 
     // The sequence layer ran a step ago, so a scanner that has to compare source content sees
@@ -855,6 +888,17 @@ export class MicroTypo {
 
     if (indents) {
       result = this.#safeBlocks.liftIndents(result);
+    }
+
+    session.beginFragment({
+      transparent: destination !== 'xml',
+      markdown: destination === 'html' && BLOCK_RENDER_FORMATS.has(this.#input.format)
+    });
+
+    const date = this.#groups.get('date');
+
+    if (date?.builtin && this.#order.includes('date') && isRuleOn(date, 'nowrap_date')) {
+      result = session.runStep(date, YEAR_MARKS, result);
     }
 
     for (const groupName of this.#order) {
@@ -924,13 +968,13 @@ export class MicroTypo {
   // The same chain the pipeline ends with, minus the paragraph markers: a `<p>` belongs to the
   // document, never inside an attribute. Used where content has to be readable before the last thing
   // that could read it — attribute escaping — rather than after it.
-  #restoreProtected(text) {
+  #restoreProtected(text, href = false) {
     let result = this.#safeTags.restoreIblocks(text);
 
     result = this.#safeTags.restore(result);
     result = this.#safeBlocks.restore(result);
 
-    return this.#safeSequences.restore(result);
+    return this.#safeSequences.restore(result, href);
   }
 
   // One session per `process()`: the narrowed `ctx` a rule handler sees, and the group runner that
@@ -941,6 +985,23 @@ export class MicroTypo {
     // What the running custom group may keep, and null while a builtin one runs — those are trusted
     // and neither budgeted nor scrubbed.
     let budget = null;
+    // The fragment's lifting of inline markup (see `inline-lift.js`), closed over for the same reason
+    // as the accounting: a handler that could reach it could hand a builtin group forged tokens.
+    let inline = null;
+
+    // A wrapper a builtin group minted keeps its place when the markup around it is lifted, and the
+    // rule that minted it on the lifted text is checked for crossing the author's tags. A custom
+    // group's tag is read like the author's.
+    const note = ({ tokens }, nowrap) => {
+      if (inline !== null && budget === null) {
+        const open = `<${tokens[0]}>`;
+        const close = `</${tokens[1]}>`;
+
+        inline.engineOpeners.set(open, nowrap);
+        inline.engineTags.add(open).add(close);
+        inline.mints?.add(open).add(close);
+      }
+    };
 
     // A placeholder the engine minted for the group, which its input could not have carried.
     const credit = (token) => budget?.mint(token);
@@ -980,7 +1041,9 @@ export class MicroTypo {
         settled[name] =
           value === undefined
             ? value
-            : stripReservedPua(dropParagraphs(self.#restoreProtected(guard(String(value)))));
+            : stripReservedPua(
+                dropParagraphs(self.#restoreProtected(guard(String(value)), name === 'href'))
+              );
       }
 
       return settled;
@@ -1026,14 +1089,16 @@ export class MicroTypo {
           let cls = attrs.class;
           // nowrap emits a `<span>` by default; `render.nowrap: 'nobr'` opts into the legacy element.
           if (cls === 'nowrap' && self.#engineSettings.nowrap === 'nobr') {
-            return record(
-              self.#safeTags.makeTag({
-                content,
-                tag: 'nobr',
-                attributes: {},
-                layout: self.#layout
-              })
-            );
+            const made = self.#safeTags.makeTag({
+              content,
+              tag: 'nobr',
+              attributes: {},
+              layout: self.#layout
+            });
+
+            note(made, true);
+
+            return record(made);
           }
 
           if (groupClasses[cls]) {
@@ -1047,14 +1112,16 @@ export class MicroTypo {
           attrs.class = cls;
         }
 
-        return record(
-          self.#safeTags.makeTag({
-            content,
-            tag,
-            attributes: settleAttributes(attrs),
-            layout: self.#layout
-          })
-        );
+        const made = self.#safeTags.makeTag({
+          content,
+          tag,
+          attributes: settleAttributes(attrs),
+          layout: self.#layout
+        });
+
+        note(made, attributes.class === 'nowrap');
+
+        return record(made);
       },
       layout: { ...self.#layout },
       isOn: (key, scope) => isOn(scope?.settings?.[key] ?? self.#engineSettings[key]),
@@ -1063,14 +1130,60 @@ export class MicroTypo {
       checkBudget: checkBudget ?? null
     };
 
+    const keep = (before, after, rerun) => self.#safeSequences.keep(before, after, rerun);
+
+    if (BLOCK_RENDER_FORMATS.has(self.#input.format)) {
+      markdownSources.set(ctx, {
+        header: self.#input.format === 'markdown',
+        restore: (line) => self.#restoreProtected(restoreParagraphs(line))
+      });
+    }
+
     return {
       ctx,
+
+      // Inline markup is lifted for the rules of a fragment typeset for a document; an XML
+      // destination reads its elements by a vocabulary of its own, and stays as it is.
+      beginFragment({ transparent, markdown }) {
+        inline = transparent
+          ? {
+              markdown,
+              nameOf: (prefix, id) => self.#safeTags.nameOf(prefix, id),
+              rawOf: (prefix, id) => self.#safeTags.rawOf(prefix, id),
+              restoreSequences: (s) => self.#safeSequences.restore(s),
+              engineOpeners: new Map(),
+              engineTags: new Set(),
+              // Every wrapper a builtin group writes by a class, minted once for a fragment with
+              // markup: a second pass finds the ones the first wrote, and they keep their place.
+              mintForms() {
+                for (const group of self.#groups.values()) {
+                  for (const name of group.builtin ? Object.keys(group.raw.classes ?? {}) : []) {
+                    ctx.tag.call({ html: true, group }, '', 'span', { class: name });
+                  }
+                }
+              },
+              mints: null,
+              near: null,
+              loose: null,
+              cache: null,
+              bare: false
+            }
+          : null;
+      },
+
+      // A step the engine takes for builtin `group` before the groups run reads the text as the
+      // group's rules do.
+      runStep(group, step, text) {
+        ctx.group = group.view;
+
+        return runStep(step, text, ctx, keep, inline);
+      },
 
       // A custom group's return value is untrusted and is scrubbed against its own input; a builtin
       // group is trusted and skips both the scrub and the accounting.
       runGroup(group, text) {
         if (group.builtin) {
-          return runRuleGroup(group, text, ctx);
+          return runRuleGroup(group, text, ctx, keep, inline);
         }
 
         // One budget per run: opened on the text this group was handed and dropped after it, so no

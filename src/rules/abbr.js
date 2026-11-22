@@ -8,9 +8,10 @@ import {
   CLOSE,
   OPEN,
   TRANSPARENT_BARE_KINDS,
-  TRANSPARENT_TAG_KINDS
+  TRANSPARENT_TAG_KINDS,
+  vaultedReference
 } from '../protect/placeholders.js';
-import { SENTENCE_DASH } from './dash.js';
+import { DASH_IN_GAPS, INLINE_END, SENTENCE_DASH, SENTENCE_DASH_TAIL } from './dash.js';
 
 // Inline markup and an opening bracket are transparent to the question below: neither ends a
 // sentence, what stands behind them does, so putting a phrase in emphasis must not change its
@@ -49,6 +50,52 @@ const unitBind = (units, { number = '(\\d+)', flags = 'giu' } = {}) =>
 
 const BIND_UNIT = `$1$2${G.NBSP}$4`;
 
+// `долл. США` is read through Markdown emphasis on `США` and through the end of the no-break wrapper
+// a rerun finds closed after `долл`, `ГОСТ 7 долл</span>. США`.
+const USD_ABBREVIATION_RE = new RegExp(
+  String.raw`(\d) ?(долл(?:<\/${OPEN}[${TRANSPARENT_TAG_KINDS}]\d{1,9}${CLOSE}>)?\.[ *_~]{0,4}США)(?![а-яёa-z])`,
+  'giu'
+);
+
+const GLUED_USA_RE = /^(долл)\.(?=США)/iu;
+
+// Six digits on their own before `г.` and a capitalised name are a postal index, and `г.` the city of
+// the address it opens: `125009 г. Москва`. The next pass reads the index grouped by
+// `other.split_triads`, `125 009`, and has to see the same index, in XML through the reference the
+// space after `г.` is written as.
+const CITY_GAP = `(?:[ \\t${G.NBSP}]|${vaultedReference(G.NBSP)})`;
+const CITY_AFTER_RE = new RegExp(`^\\.${CITY_GAP}{0,4}[А-ЯЁA-Z]`, 'u');
+const CITY_AFTER_REACH = 40;
+const INDEX_HALF_BEFORE_RE = new RegExp(`(?:^|[^\\p{L}\\d${G.NNBSP}])\\d{3}$`, 'u');
+
+function isPostalIndex(start, number, offset, source) {
+  if (start === G.NNBSP) {
+    return (
+      number.length === 3 &&
+      INDEX_HALF_BEFORE_RE.test(source.slice(Math.max(0, offset - 4), offset))
+    );
+  }
+
+  return number.length === 6;
+}
+
+// A gram binds to its number, a city does not bind to the postal index set apart before it.
+function bindWeight(m) {
+  const [full, start, number, gap, unit, offset, source] = m;
+  const end = offset + full.length;
+
+  if (
+    gap !== undefined &&
+    unit.toLowerCase() === 'г' &&
+    CITY_AFTER_RE.test(source.slice(end, end + CITY_AFTER_REACH)) &&
+    isPostalIndex(start, number, offset, source)
+  ) {
+    return full;
+  }
+
+  return `${start}${number}${G.NBSP}${unit}`;
+}
+
 // Decimal units anchor the digit-run start with a lookbehind to keep matching linear (avoids O(n^2)
 // retries), and stay case-sensitive so `PX` and `ГЦ` are not units.
 const DECIMAL_UNIT = { number: '(?<![\\d.,])([\\d.,]+)', flags: 'gu' };
@@ -59,12 +106,12 @@ const SUP_MAP = { 2: G.SUP2, 3: G.SUP3 };
 // only period the sentence had. It comes back exactly where the sentence ends.
 function abbreviatedCurrency(symbol) {
   return (m) => {
-    const [full, digit, dot, tail, offset, source] = m;
+    const [full, digit, dot, endTags, offset, source] = m;
     const head = `${digit}${G.NBSP}${symbol}`;
 
     // The period is gone, so the sentence never ended here: the dash belongs to the amount before it.
-    if (tail) {
-      return `${head}${G.NBSP}${G.MDASH} `;
+    if (endTags !== undefined) {
+      return `${head}${endTags}${G.NBSP}${G.MDASH} `;
     }
 
     const rest = source.slice(offset + full.length);
@@ -86,10 +133,7 @@ export const abbrGroup = {
       ),
       replacement: `$1$2${G.NBSP}$4`
     },
-    // The three rules below share the measurement rules' boundaries for the same reason: openers and
-    // closers have to be there, or `(гл. 5)`, `«ул. Ардена»` and `гл. 5;` get no binding while a bare
-    // `гл. 5` does. The trailing lookahead is what keeps a run — `гл. 5 гл. 7` — from consuming the
-    // space the second one needs.
+    // A glued abbreviation must release the number before the unit rules read it: `п.3 т`.
     {
       id: 'nbsp_short_acronym',
       description: 'Пробел перед сокращениями гл., стр., рис., илл., ст., п.',
@@ -112,8 +156,16 @@ export const abbrGroup = {
       id: 'nbsp_location',
       description: 'Пробелы в сокращениях г., ул., пер., д.',
       pattern: [
+        // Before a postal index `г.` is the city: case-sensitive, for the capital of its name.
         new RegExp(
-          `${CONTENT_START_GROUP}(г|ул|пер|просп|пл|бул|наб|пр|ш|туп)\\.( |\\t)*([а-яё0-9a-z]+)${CONTENT_END_LOOKAHEAD}`,
+          `(?<=(?:^|[^\\p{L}\\d])\\d{6})${CONTENT_START_GROUP}([гГ])\\.( |\\t)*([А-ЯЁA-Z][а-яёА-ЯЁa-zA-Z0-9]*)${CONTENT_END_LOOKAHEAD}`,
+          'gu'
+        ),
+        // `г.` after a number on its line is a year or a gram, never a city. The number stands on its
+        // own, not as the digit of a unit like `м2`, and is seen through the end of an element a later
+        // rule wraps it in, or the next pass reads `г.` otherwise.
+        new RegExp(
+          `${CONTENT_START_GROUP}((?<!(?:^|[^\\p{L}\\d])\\d+(?:<\\/${OPEN}[${TRANSPARENT_TAG_KINDS}]\\d+${CLOSE}>)*[ \\t${G.NBSP}]*)г|ул|пер|просп|пл|бул|наб|пр|ш|туп)\\.( |\\t)*([а-яё0-9a-z]+)${CONTENT_END_LOOKAHEAD}`,
           'giu'
         ),
         new RegExp(
@@ -125,7 +177,7 @@ export const abbrGroup = {
           'giu'
         )
       ],
-      replacement: [`$1$2.${G.NBSP}$4`, `$1$2${G.NBSP}$4`, `$1$2.${G.NBSP}$4`]
+      replacement: [`$1$2.${G.NBSP}$4`, `$1$2.${G.NBSP}$4`, `$1$2${G.NBSP}$4`, `$1$2.${G.NBSP}$4`]
     },
     {
       id: 'nbsp_unit',
@@ -161,7 +213,7 @@ export const abbrGroup = {
       id: 'nbsp_weight_unit',
       description: 'Привязка весовых сокращений',
       pattern: unitBind('г|кг|мг|т'),
-      replacement: BIND_UNIT
+      replacement: bindWeight
     },
     {
       id: 'nbsp_volume_unit',
@@ -234,7 +286,17 @@ export const abbrGroup = {
       pattern: [
         new RegExp(`${WRAPPER_START_GROUP}и( |${G.NBSP})т\\.?[ ]?д(\\.|$|\\s)`, 'gu'),
         new RegExp(`${WRAPPER_START_GROUP}и( |${G.NBSP})т\\.?[ ]?п(\\.|$|\\s)`, 'gu'),
-        new RegExp(`${WRAPPER_START_GROUP}в( |${G.NBSP})т\\.?[ ]?ч(\\.|$|\\s)`, 'gu')
+        new RegExp(`${WRAPPER_START_GROUP}в( |${G.NBSP})т\\.?[ ]?ч(\\.|$|\\s)`, 'gu'),
+        // The phrase ends in a period, and `dash.em_after_sentence` reads a dash after it, through
+        // the end of the wrapper too. Written as text, with no wrapper to close it, it also ends in
+        // the `д.` `nbsp_location` and the `п.` `nbsp_short_acronym` bind a number to. They all run
+        // before this rule, so the number binds and the dash takes the sentence form here, as after
+        // a phrase typed out in full.
+        new RegExp(`(и${G.NBSP}т\\.${G.NBSP}[дп]\\.)[ \\t]*(?=\\d+${CONTENT_END_LOOKAHEAD})`, 'gu'),
+        new RegExp(
+          `((?:и[ ${G.NBSP}]т\\.[ ${G.NBSP}][дп]|в[ ${G.NBSP}]т\\.[ ${G.NBSP}]ч)\\.(?:${INLINE_END})*)${DASH_IN_GAPS}`,
+          'gu'
+        )
       ],
       replacement: [
         (m, ctx) =>
@@ -242,7 +304,9 @@ export const abbrGroup = {
         (m, ctx) =>
           `${m[1]}${ctx.tag('и т. п.', 'span', { class: 'nowrap' })}${m[3] !== '.' ? m[3] : ''}`,
         (m, ctx) =>
-          `${m[1]}${ctx.tag('в т. ч.', 'span', { class: 'nowrap' })}${m[3] !== '.' ? m[3] : ''}`
+          `${m[1]}${ctx.tag('в т. ч.', 'span', { class: 'nowrap' })}${m[3] !== '.' ? m[3] : ''}`,
+        `$1${G.NBSP}`,
+        `$1${SENTENCE_DASH}`
       ]
     },
     {
@@ -254,7 +318,12 @@ export const abbrGroup = {
     {
       id: 'nowrap_era',
       description: 'до н. э. / н. э.',
-      pattern: new RegExp(`${WRAPPER_START_GROUP}((?:до )?н)\\.?[ ]?э\\.`, 'gu'),
+      // `н. э.` behind a `до ` the rule left alone is that phrase's end, already in the wrapper the
+      // whole phrase stands in.
+      pattern: new RegExp(
+        `${WRAPPER_START_GROUP}(?<!(?:^|[^\\p{L}])до )((?:до )?н)\\.?[ ]?э\\.`,
+        'gu'
+      ),
       replacement: (m, ctx) => `${m[1]}${ctx.tag(`${m[2]}. э.`, 'span', { class: 'nowrap' })}`
     },
     {
@@ -271,16 +340,20 @@ export const abbrGroup = {
       // `руб.` in `рубероид`.
       pattern: [
         /(\d) ?(?:рублями|рублях|рублям|рублей|рублём|рубле|рубля|рубль)(?![а-яёa-z])/giu,
-        new RegExp(`(\\d) ?(?:руб|р)(\\.?)(?![а-яёa-z])(${SENTENCE_DASH})?`, 'giu'),
+        new RegExp(`(\\d) ?(?:руб|р)(\\.?)(?![а-яёa-z])(?:${SENTENCE_DASH_TAIL})?`, 'giu'),
         /(\d) ?(?:долларами|долларах|долларам|долларов|долларе|доллару|доллара|доллар)(?![а-яёa-z])/giu,
-        new RegExp(`(\\d) ?долл(\\.?)(?![а-яёa-z])(${SENTENCE_DASH})?`, 'giu'),
+        USD_ABBREVIATION_RE,
+        new RegExp(`(\\d) ?долл(\\.?)(?![а-яёa-z])(?:${SENTENCE_DASH_TAIL})?`, 'giu'),
         /(\d) ?евро(?![а-яёa-z])/giu,
-        /(\d) ?([₽€$])/g
+        /(?<!%\d{0,3})(\d) ?([₽€$])/g
       ],
       replacement: [
         `$1${G.NBSP}${G.RUB}`,
         abbreviatedCurrency(G.RUB),
         `$1${G.NBSP}$`,
+        // `space.space_after_period` parts `долл.США` behind a space, and the no-break space written
+        // here is one it reads on the next pass, so the parting is done here once.
+        (m) => `${m[1]}${G.NBSP}${m[2].replace(GLUED_USA_RE, '$1. ')}`,
         abbreviatedCurrency('$'),
         `$1${G.NBSP}${G.EURO}`,
         `$1${G.NBSP}$2`
@@ -301,14 +374,19 @@ export const abbrGroup = {
     {
       id: 'nbsp_currency_prefix',
       description: 'Привязка валюты к числу спереди: $100 → $ 100',
-      pattern: /(€|\$|₽)\s?(\d)/gu,
+      // A sign behind a number belongs to it, read through the tags a wrapped number closes and
+      // through the no-break space as the reference XML writes it.
+      pattern: new RegExp(
+        String.raw`(?<!\d(?:<\/${OPEN}[A-Za-z]\d{1,9}${CLOSE}>){0,2}(?:[ ${G.NBSP}]|${vaultedReference(G.NBSP)})?)(${G.EURO}|\$|${G.RUB})\s?(\d)`,
+        'gu'
+      ),
       replacement: `$1${G.NBSP}$2`
     },
     {
       id: 'nbsp_organization',
       description: 'Привязка форм собственности (ООО, ЗАО, …)',
-      pattern: /([^a-zA-Zа-яёА-ЯЁ]|^)(ООО|ЗАО|ОАО|НИИ|ПБОЮЛ) ([a-zA-Zа-яёА-ЯЁ]|"|«|„|<)/gu,
-      replacement: `$1$2${G.NBSP}$3`
+      pattern: /(?<![a-zA-Zа-яёА-ЯЁ])(ООО|ЗАО|ОАО|НИИ|ПБОЮЛ) (?=[a-zA-Zа-яёА-ЯЁ"«„<])/gu,
+      replacement: `$1${G.NBSP}`
     },
     {
       id: 'nowrap_gost',

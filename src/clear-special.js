@@ -31,9 +31,27 @@ const SORTED = ENTRIES.filter((entry) => !IDENTITY(entry)).toSorted(
   (a, b) => b[0].length - a[0].length
 );
 const LOOKUP = new Map(SORTED);
-const SCAN_RE = new RegExp(SORTED.map(([needle]) => RegExp.escape(needle)).join('|'), 'gu');
+
+// A numeric reference names one code point however it is spelled — hex with either `x`, decimal
+// with leading zeros — and the table lists each by its plain decimal spelling. A code point with
+// none there, `&#38;` and `&#60;` among them, stays as written.
+const NUMERIC_SOURCE = '&#(?:[xX]([0-9A-Fa-f]+)|([0-9]+));';
+const SCAN_RE = new RegExp(
+  [NUMERIC_SOURCE, ...SORTED.map(([needle]) => RegExp.escape(needle))].join('|'),
+  'gu'
+);
+
+function decode(m, hex, decimal) {
+  if (hex === undefined && decimal === undefined) {
+    return LOOKUP.get(m) ?? m;
+  }
+
+  const code = hex === undefined ? Number.parseInt(decimal, 10) : Number.parseInt(hex, 16);
+
+  return LOOKUP.get(`&#${code};`) ?? m;
+}
 
 // Single-pass: never rescans its own output, so a decoded result can't be re-decoded.
 export function clearSpecialChars(text) {
-  return text.replace(SCAN_RE, (m) => LOOKUP.get(m) ?? m);
+  return text.replace(SCAN_RE, decode);
 }

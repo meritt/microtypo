@@ -10,6 +10,53 @@ function entity(text) {
   return new MicroTypo({ ...P, entities: true }).process(text);
 }
 
+describe('a hyphen beside an equals sign stays', () => {
+  test('a spaced hyphen between operands of an equation is kept', () => {
+    for (const src of ['x = 5 - 3', '10 - 2 = 8', 'a = b - c', '2 + 2 = 4, 10 - 2 = 8']) {
+      const once = microtypo(src);
+
+      assert.equal(once, src);
+      assert.equal(microtypo(once), once);
+    }
+  });
+
+  test('away from an equals sign a spaced hyphen is still a range', () => {
+    assert.equal(microtypo('5 - 3'), '5–3');
+    assert.equal(microtypo('стр. 10 - 20'), 'стр. 10–20');
+    assert.equal(microtypo('x = 5 – 3'), 'x = 5–3');
+  });
+
+  test('an operand ends at the first character that is no digit or letter', () => {
+    for (const [src, opts, want] of [
+      ['(x = 5 - 3)', undefined, '(x = 5 - 3)'],
+      ['"= 5 - 3 »', { input: 'html' }, '«= 5 - 3»'],
+      ['= 7 - 3...', undefined, '= 7 - 3…'],
+      ['= 7 - 7', { html: true }, '<p>= 7 - 7</p>'],
+      ['$a - b = 0$', { input: 'markdown' }, '$a - b = 0\u{00A0}$'],
+      [
+        '<doc><note>4 - 6\u{00A0}=</note></doc>',
+        { input: 'xml', entities: true },
+        '<doc><note>4 - 6&#160;=</note></doc>'
+      ]
+    ]) {
+      const once = microtypo(src, opts);
+
+      assert.equal(once, want);
+      assert.equal(microtypo(once, opts), once);
+    }
+  });
+
+  test('an operand is a number or a word, so a dash before a formula stays a dash', () => {
+    assert.equal(microtypo('x = 2.5 - 1.5'), 'x = 2.5 - 1.5');
+    assert.ok(
+      microtypo('работа на всём пути - $W = k L^2 / 2$', { input: 'markdown' }).includes(
+        'пути — $W ='
+      )
+    );
+    assert.equal(microtypo('title = «Амбер - город»'), 'title = «Амбер — город»');
+  });
+});
+
 describe('emphatic particles attach with a hyphen', () => {
   test('ка joins the stem', () => {
     assert.equal(microtypo('принеси ка', P), 'принеси-ка');
@@ -116,7 +163,7 @@ describe('a dash settles in one pass around an abbreviation', () => {
   test('a sum before a dangling dash settles in one pass', () => {
     const once = microtypo('100 руб. 100 руб. -', P);
 
-    assert.equal(once, `100${NBSP}₽${NBSP}100${NBSP}₽${NBSP}—`);
+    assert.equal(once, `100${NBSP}₽ 100${NBSP}₽${NBSP}—`);
     assert.equal(microtypo(once, P), once);
   });
 
@@ -224,6 +271,49 @@ describe('dash.em — neighbours that are not letters', () => {
 
   test('an opening paren does not take a dash', () => {
     assert.doesNotMatch(microtypo('Отряд ( - без карты) ушёл.', NOP), /—/);
+  });
+});
+
+// The end tag of an inline element stands after the words of that element: a dash behind it reads
+// what ends inside the element, as it would with no tag there.
+describe('dash behind an inline end tag', () => {
+  const NBSP = '\u{00A0}';
+
+  test('a sentence mark inside the element is the sentence mark the dash follows', () => {
+    assert.equal(microtypo('<b>Конец.</b> - текст', NOP), `<b>Конец.</b> —${NBSP}текст`);
+    assert.equal(
+      microtypo('<b>Конец.</b> - текст', { ...NOP, rules: { 'dash.em_after_sentence': false } }),
+      '<b>Конец.</b> - текст'
+    );
+  });
+
+  test('the end tag opens no line', () => {
+    assert.equal(
+      microtypo('<i>дву</i>- и трёхкомнатные', NOP),
+      `<i>дву</i>- и${NBSP}трёхкомнатные`
+    );
+  });
+
+  test('a word inside the element and a tag that does open a line read as before', () => {
+    assert.equal(microtypo('<b>слово</b> - текст', NOP), `<b>слово</b>${NBSP}— текст`);
+    assert.equal(microtypo('<b>- пункт</b>', NOP), `<b>—${NBSP}пункт</b>`);
+  });
+
+  test('the period of an abbreviated currency inside the element ends no sentence', () => {
+    const NNBSP = '\u{202F}';
+
+    for (const [source, expected] of [
+      [
+        '<p>24 900 руб. <s>29 900 руб.</s> - скидка 17%</p>',
+        `<p>24${NNBSP}900${NBSP}₽ <s>29${NNBSP}900${NBSP}₽</s>${NBSP}— скидка 17%</p>`
+      ],
+      ['<p><b><s>5 долл.</s></b> - скидка</p>', `<p><b><s>5${NBSP}$</s></b>${NBSP}— скидка</p>`]
+    ]) {
+      const once = microtypo(source, { input: 'html', html: false });
+
+      assert.equal(once, expected, source);
+      assert.equal(microtypo(once, { input: 'html', html: false }), once, source);
+    }
   });
 });
 

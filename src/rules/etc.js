@@ -1,6 +1,6 @@
 import { G } from '../lib/glyphs.js';
 import { cycle } from '../lib/strings.js';
-import { CLOSE, OPEN, TAG_PLACEHOLDER_SOURCE } from '../protect/placeholders.js';
+import { CLOSE, OPEN, TAG_PLACEHOLDER_SOURCE, vaultedReference } from '../protect/placeholders.js';
 
 // Keyed on the full sample, placeholder id and all: a stripped key would reuse a stale regex from
 // another `process()` call.
@@ -75,15 +75,22 @@ function splitNumber(num) {
   return parts.join(' ');
 }
 
+const NUMERO_MARK = `(?:${G.NUMERO}|${vaultedReference(G.NUMERO)})`;
+const WRITTEN_GAP = `(?:\\s|${vaultedReference(G.NBSP)}|${vaultedReference(G.NNBSP)})`;
+const IDENTIFIER_LABEL = String.raw`(?<![\p{L}\d])(?:ИНН|КПП|ОГРНИП|ОГРН|БИК|СНИЛС|ОКПО|[Сс]ч[её]т|[Рр]\/с|[Кк]\/с|[Ии]ндекс|[Кк]од|[Аа]рт\.)`;
+
 // Every tag in the text, as `<token>` or `</token>`. The spans are the ones this rule can pair; a
 // tag that is not one is still an element standing between two wrappers, and what it does to
 // `white-space` cannot be read from a placeholder — an `<em style="white-space:normal;">` resets
 // the very property the wrapper carries, and the wrapper under it is not redundant at all.
 const ANY_TAG_RE = new RegExp(TAG_PLACEHOLDER_SOURCE, 'g');
 
+// The wrapper is a `<span>`, or a `<nobr>` under `render.nowrap: 'nobr'`.
+const WRAPPER_NAME_RE = /^(?:span|nobr)$/u;
+
 function spanTokenSet(ctx) {
   return new Set(
-    ctx.tags.findByTagName('span').map(({ prefix, id }) => `${OPEN}${prefix}${id}${CLOSE}`)
+    ctx.tags.findByTagName(WRAPPER_NAME_RE).map(({ prefix, id }) => `${OPEN}${prefix}${id}${CLOSE}`)
   );
 }
 
@@ -177,6 +184,28 @@ function dropNestedNowrap(ctx) {
   ctx.text = parts.join('');
 }
 
+// Where in `text` a close ends a no-break wrapper. Every close of one element name carries the same
+// placeholder, an author's `</span>` the wrapper's own, so the element a close ends is read from the
+// ones of that name open before it.
+function wrapperCloses(text, c, tokens) {
+  const closes = new Set();
+  const stack = [];
+
+  for (const m of text.matchAll(ANY_TAG_RE)) {
+    if (!tokens.has(m[2])) {
+      continue;
+    }
+
+    if (m[1] !== '/') {
+      stack.push(m[0] === c.open);
+    } else if (stack.pop() === true) {
+      closes.add(m.index);
+    }
+  }
+
+  return closes;
+}
+
 function removeNbspInNobr(ctx) {
   const c = compileNobrPatterns(ctx);
 
@@ -191,7 +220,31 @@ function removeNbspInNobr(ctx) {
   };
 
   ctx.text = cycle(ctx.text, (t) => t.replace(c.m1, '$1$3$2 '), 100, onLimit, ctx.checkBudget);
-  ctx.text = cycle(ctx.text, (t) => t.replace(c.m2, ' $2$1$3'), 100, onLimit, ctx.checkBudget);
+
+  if (ctx.text.includes(c.close)) {
+    const spans = spanTokenSet(ctx);
+    const token = c.close.slice(2, -1);
+    const tokens = spans.has(token)
+      ? spans
+      : new Set(
+          ctx.tags.findByTagName('nobr').map(({ prefix, id }) => `${OPEN}${prefix}${id}${CLOSE}`)
+        );
+
+    ctx.text = cycle(
+      ctx.text,
+      (t) => {
+        const closes = wrapperCloses(t, c, tokens);
+
+        return t.replace(c.m2, (m, close, word, after, at) =>
+          closes.has(at) ? ` ${word}${close}${after}` : m
+        );
+      },
+      100,
+      onLimit,
+      ctx.checkBudget
+    );
+  }
+
   ctx.text = ctx.text.replace(c.inner, (m) => m.replaceAll(G.NBSP, ' '));
 }
 
@@ -275,10 +328,21 @@ export const etcGroup = {
       // number — not a quantity, so `978-5-389-12345-6` must not gain a thousands separator. Only a
       // hyphen that itself follows a digit marks the run as a segment, which is what keeps a leading
       // minus working. `(?<!\d )` guards the other side: grouping `100644` behind a bare `8 ` builds
-      // `8 100 644`, which the next pass reads as one number. The digits of a numeric character
+      // `8 100 644`, which the next pass reads as one number, and so does grouping `74305` in front of
+      // a bare ` 865`. The digits of a numeric character
       // reference are an identifier for the same reason an ISBN's are — `&#128512;` is one codepoint.
+      // Digits after a decimal separator are a fraction, read digit by digit and never grouped.
+      // A number, not a quantity, is read as typed too: after `№` or a requisite's label, with a
+      // leading zero, longer than any amount, or a postal index before its city. Before `г.` only a
+      // typed space makes an index: the no-break space there is the one `date` puts before a glued
+      // year mark. The label keeps its capital spelled out: under the `i` flag `\p{Lu}` matches
+      // lowercase as well. `№` and the spaces this engine writes are read in the references it
+      // writes them as in XML, too, or a second run would group what the first left as typed.
       // The leading lookahead keeps the lookbehinds, `\p{L}` the costliest, off every non-digit.
-      pattern: /(?=[0-9]{5})(?<![\p{L}0-9<)])(?<!\d-)(?<!\d )(?<!&#)([0-9]{5,})([^a-zA-Z>(]|$)/gu,
+      pattern: new RegExp(
+        String.raw`(?=[1-9][0-9]{4})(?<![\p{L}0-9<)])(?<!\d-)(?<!\d )(?<!\d[.,])(?<!&#)(?<!${NUMERO_MARK}${WRITTEN_GAP}{0,2})(?<!${IDENTIFIER_LABEL}:?\s{0,2})(?![0-9]{6}(?:,\s{0,2}| {1,2}г\.${WRITTEN_GAP}{0,2})\p{Lu})([0-9]{5,15})(?![0-9])(?! [0-9]{3}(?![0-9]))([^a-zA-Z>(]|$)`,
+        'gu'
+      ),
       replacement: (m) => {
         const [m0, p1, p2] = m;
 

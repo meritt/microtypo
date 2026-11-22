@@ -1,7 +1,9 @@
 import { MicroTypoInputError } from '../errors/index.js';
 import { BLOCK_TAG_NAMES, VOID_BLOCK_TAG_NAMES } from '../lib/block-tags.js';
+import { G } from '../lib/glyphs.js';
 import { isFlowSpace, lineView, skipSpaces } from '../lib/strings.js';
 import { CLOSE, OPEN } from '../protect/placeholders.js';
+import { LINKABLE_SOURCE } from '../protect/sequences.js';
 import {
   COMMENT_CLOSE,
   COMMENT_OPEN,
@@ -10,6 +12,7 @@ import {
   namedAt,
   tagSpans
 } from '../protect/tag-spans.js';
+import { scanLeadingHeader } from './frontmatter.js';
 import { collectSpans } from './span-path.js';
 
 // Per-attempt scan bound that keeps link-destination scanning linear; an overrun destination
@@ -18,8 +21,7 @@ const MAX_LINK_SCAN = 8192;
 
 // A scan stopped by the bound, as opposed to no close before EOF, where literal prose is correct.
 const OVERLIMIT = Symbol('md-link-overlimit');
-
-const FENCE_CHAR = { '`': true, '~': true };
+const LINKABLE_RE = new RegExp(LINKABLE_SOURCE, 'g');
 
 // Markdown measures indentation in columns and a tab advances to the next multiple of four, so a
 // character's index is not the column it stands in. CommonMark §2.2.
@@ -193,7 +195,7 @@ function fenceOpenAt(text, pos, lineEnd) {
   const i = pos;
   const char = text[i];
 
-  if (!FENCE_CHAR[char]) {
+  if (char !== '`' && char !== '~') {
     return null;
   }
 
@@ -258,6 +260,17 @@ export function scanFences(source, checkBudget, readOpaque) {
     const { place, fresh, paragraphOpen: after } = walkLine(text, i, lineEnd, chain, before);
     const open = fenceOpenAt(text, place.content, lineEnd);
 
+    // The fence line of a container directive, `:::note{.x}` or the `:::` closing one, as Docusaurus,
+    // VitePress, remark-directive and markdown-it-container read it: three or more colons where a
+    // fence may open, with the rest of the line its name and attributes. The line is syntax and a
+    // block of its own; the lines between two of them are prose.
+    if (!open && text.startsWith(':::', place.content)) {
+      spans.push([i, lineEnd]);
+      paragraphOpen = false;
+      i = nl === -1 ? n : nl + 1;
+      continue;
+    }
+
     if (!open) {
       const html = opensHtml(place.content, !before || fresh);
 
@@ -274,51 +287,54 @@ export function scanFences(source, checkBudget, readOpaque) {
     // A fence is a block of its own, so what follows the block it closes starts fresh.
     paragraphOpen = false;
 
-    const containers = [...chain];
+    const end = fenceEnd(text, open, chain, nl, tick);
 
-    const start = i;
-    let cursor = nl === -1 ? n : nl + 1;
-    let end = n;
-    // The last line still inside the opener's container: blank lines under it are the paragraph break
-    // around what follows, not part of the block.
-    let inside = nl === -1 ? n : nl;
-
-    while (cursor < n) {
-      tick();
-
-      const brk = text.indexOf('\n', cursor);
-      const stop = brk === -1 ? n : brk;
-      const lineStop = contentEnd(text, cursor, stop);
-      // A line that leaves any container of the chain the opening line wrote leaves the fence too.
-      const line = matchContainers(text, cursor, lineStop, containers);
-
-      if (line.matched < containers.length) {
-        end = inside;
-        break;
-      }
-
-      const blank = skipSpaces(text, line.at, lineStop) === lineStop;
-      const closeEnd = blank
-        ? -1
-        : fenceCloseAt(text, line.at, lineStop, line.column, line.content, open.char, open.len);
-
-      if (closeEnd !== -1) {
-        end = closeEnd;
-        break;
-      }
-
-      if (!blank) {
-        inside = stop;
-      }
-
-      cursor = brk === -1 ? n : brk + 1;
-    }
-
-    spans.push([start, end]);
+    spans.push([i, end]);
     i = end;
   }
 
   return spans;
+}
+
+// Where the block a fence `open` opened on the line broken at `nl` ends, inside the containers the
+// opening line wrote.
+function fenceEnd(text, open, containers, nl, tick) {
+  const n = text.length;
+  let cursor = nl === -1 ? n : nl + 1;
+  // The last line still inside the opener's container: blank lines under it are the paragraph break
+  // around what follows, not part of the block.
+  let inside = nl === -1 ? n : nl;
+
+  while (cursor < n) {
+    tick();
+
+    const brk = text.indexOf('\n', cursor);
+    const stop = brk === -1 ? n : brk;
+    const lineStop = contentEnd(text, cursor, stop);
+    // A line that leaves any container of the chain the opening line wrote leaves the fence too.
+    const line = matchContainers(text, cursor, lineStop, containers);
+
+    if (line.matched < containers.length) {
+      return inside;
+    }
+
+    const blank = skipSpaces(text, line.at, lineStop) === lineStop;
+    const closeEnd = blank
+      ? -1
+      : fenceCloseAt(text, line.at, lineStop, line.column, line.content, open.char, open.len);
+
+    if (closeEnd !== -1) {
+      return closeEnd;
+    }
+
+    if (!blank) {
+      inside = stop;
+    }
+
+    cursor = brk === -1 ? n : brk + 1;
+  }
+
+  return n;
 }
 
 // A code span closes on a backtick run of exactly the opener's length, so every run's closer is
@@ -1593,14 +1609,114 @@ function scanLinkTail(text, i, n) {
   return text[j] === ')' ? j + 1 : -1;
 }
 
+const PARAGRAPH_BREAK_RE = /\n[ \t]*\r?\n/;
+
+// The `]` that closes the label of a full or collapsed reference, `[текст][метка]` or `[текст][]`,
+// whose `[` stands at `at`; -1 where it never closes within its paragraph, or where a `(` behind it
+// makes the second pair of brackets an inline link's text instead.
+function referenceLabelEnd(text, at) {
+  const close = labelEnd(text, at + 1, text.length);
+
+  return text[close] === ']' &&
+    text[close + 1] !== '(' &&
+    !PARAGRAPH_BREAK_RE.test(text.slice(at, close))
+    ? close
+    : -1;
+}
+
+// Where link syntax stands in the source: the `]` of every `](` and `][`, the `)` that closes the
+// destination behind the one and the `]` that closes the label behind the other, read as
+// `scanLinkDestinations` reads them. The sequence layer runs before this scanner and must not take
+// any of them into an address.
+export function linkSyntaxCuts(text) {
+  const n = text.length;
+  const cuts = [];
+
+  for (let at = text.indexOf(']'); at !== -1; at = text.indexOf(']', at + 1)) {
+    const next = text[at + 1];
+
+    if (next === '[') {
+      const label = referenceLabelEnd(text, at + 1);
+
+      if (label !== -1) {
+        cuts.push(at, label);
+        at = label;
+      }
+
+      continue;
+    }
+
+    if (next !== '(') {
+      continue;
+    }
+
+    cuts.push(at);
+
+    const end = scanLinkTail(text, at + 2, n);
+
+    if (end === OVERLIMIT) {
+      break;
+    }
+
+    if (end !== -1) {
+      cuts.push(end - 1);
+      at = end - 1;
+    }
+  }
+
+  return cuts;
+}
+
+// Every address in the text, as `[start, end]` in order. No address can start inside another, so
+// the addresses a search from any offset meets are the listed ones that start at or after it: one
+// pass serves every link, where a search per link would read on to the next address or the end.
+function linkableAddresses(text) {
+  const found = [];
+
+  LINKABLE_RE.lastIndex = 0;
+
+  for (let m = LINKABLE_RE.exec(text); m !== null; m = LINKABLE_RE.exec(text)) {
+    found.push([m.index, m.index + m[0].length]);
+  }
+
+  return found;
+}
+
+// The text of a link is typeset, but an address in it stays text: a link made inside one is a link
+// in a link. The bracket that opens the text is the last unescaped `[` still open in front of `](`
+// or `][`. The first address at or after `from` is found by halving, so a link costs the addresses
+// in its text, not the document behind it.
+function linkTextAddresses(addresses, from, to, spans) {
+  let k = 0;
+  let hi = addresses.length;
+
+  while (k < hi) {
+    const mid = (k + hi) >>> 1;
+
+    if (addresses[mid][0] < from) {
+      k = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+
+  for (; k < addresses.length && addresses[k][0] < to; k += 1) {
+    if (addresses[k][1] <= to) {
+      spans.push([addresses[k][0], addresses[k][1]]);
+    }
+  }
+}
+
 // Spans cover only the interior between `](` and `)`, never the delimiters, so the rules downstream
-// still see those as literal text.
+// still see those as literal text; in front of them come the addresses in the link's text.
 export function scanLinkDestinations(text, checkBudget) {
   const n = text.length;
   const spans = [];
   // No `)` at or after a destination start means this `](` can never close, which is literal prose
   // rather than a fail-open; computed once instead of once per attempt.
   const lastClose = text.lastIndexOf(')');
+  const opens = [];
+  let addresses = null;
   let i = 0;
   // A threshold rather than a mask on `i`: a match jumps `i` by a whole destination, so a fixed mask
   // could stride past every check.
@@ -1612,10 +1728,35 @@ export function scanLinkDestinations(text, checkBudget) {
       nextCheck = i + 0x4000;
     }
 
+    if (text[i] === '[' && text[i - 1] !== '\\') {
+      opens.push(i);
+    }
+
     if (text[i] !== ']' || text[i + 1] !== '(') {
+      if (text[i] === ']') {
+        const open = opens.pop();
+        const label = text[i + 1] === '[' ? referenceLabelEnd(text, i + 1) : -1;
+
+        // A full or collapsed reference: its text is a link's text, and its label is a name to match
+        // against a definition, which a typeset copy no longer does.
+        if (open !== undefined && label !== -1) {
+          addresses ??= linkableAddresses(text);
+          linkTextAddresses(addresses, Math.max(open + 1, spans.at(-1)?.[1] ?? 0), i, spans);
+
+          if (label > i + 2) {
+            spans.push([i + 2, label]);
+          }
+
+          i = label + 1;
+          continue;
+        }
+      }
+
       i += 1;
       continue;
     }
+
+    const open = opens.pop();
 
     const end = scanLinkTail(text, i + 2, n);
 
@@ -1634,6 +1775,12 @@ export function scanLinkDestinations(text, checkBudget) {
     if (end === -1) {
       i += 1;
       continue;
+    }
+
+    // Spans go out ascending, so a link inside this one's text leaves only what follows it to scan.
+    if (open !== undefined) {
+      addresses ??= linkableAddresses(text);
+      linkTextAddresses(addresses, Math.max(open + 1, spans.at(-1)?.[1] ?? 0), i, spans);
     }
 
     spans.push([i + 2, end - 1]);
@@ -1764,7 +1911,7 @@ function covered(spans, cursor, at) {
 }
 
 // A budget check once per 1024 lines of one walk.
-function lineTicker(checkBudget, label) {
+export function lineTicker(checkBudget, label) {
   let lines = 0;
 
   return () => {
@@ -1930,6 +2077,246 @@ export function scanUnclosedHtmlBlock(source, checkBudget, readOpaque) {
   }
 
   return spans;
+}
+
+// A run of `=` or of `-` with nothing but white space behind it, which makes the paragraph above it a
+// heading. Unlike in `closesBlock`, no space may part the run: under a paragraph `- - -` is a
+// thematic break and leaves the paragraph one. CommonMark §4.3.
+function setextUnderline(text, i, end) {
+  const c = text[i];
+
+  if (c !== '=' && c !== '-') {
+    return false;
+  }
+
+  let j = i;
+
+  while (j < end && text[j] === c) {
+    j += 1;
+  }
+
+  return skipSpaces(text, j, end) === end;
+}
+
+// The delimiter row under a table's header row: cells of hyphens, each with an optional colon on
+// either side, parted by pipes. A row with no pipe is a setext underline or a thematic break. GFM §4.10.
+//
+// `proseParagraphs` reads a document the dash rules have already been over, and they make the lone
+// hyphen of a cell in `| - |` an em dash bound to the pipe by a no-break space: the row is still read
+// as the delimiter row it was written as, or the table under it would be taken for a paragraph.
+const isDelimiterDash = (ch) => ch === '-' || ch === G.NDASH || ch === G.MDASH;
+
+function skipDelimiterSpaces(text, i, end) {
+  let j = i;
+
+  while (
+    j < end &&
+    (text[j] === ' ' || text[j] === '\t' || text[j] === G.NBSP || text[j] === G.NNBSP)
+  ) {
+    j += 1;
+  }
+
+  return j;
+}
+
+function delimiterRow(text, start, end) {
+  let j = skipDelimiterSpaces(text, start, end);
+  let pipes = 0;
+  let cells = 0;
+
+  if (text[j] !== '|' && text[j] !== ':' && !isDelimiterDash(text[j])) {
+    return false;
+  }
+
+  if (text[j] === '|') {
+    pipes += 1;
+    j = skipDelimiterSpaces(text, j + 1, end);
+  }
+
+  while (j < end) {
+    if (text[j] === ':') {
+      j = skipDelimiterSpaces(text, j + 1, end);
+    }
+
+    const dashes = j;
+
+    while (j < end && isDelimiterDash(text[j])) {
+      j += 1;
+    }
+
+    if (j === dashes) {
+      return false;
+    }
+
+    j = skipDelimiterSpaces(text, j, end);
+
+    if (text[j] === ':') {
+      j = skipDelimiterSpaces(text, j + 1, end);
+    }
+
+    cells += 1;
+
+    if (j === end) {
+      break;
+    }
+
+    if (text[j] !== '|') {
+      return false;
+    }
+
+    pipes += 1;
+    j = skipDelimiterSpaces(text, j + 1, end);
+  }
+
+  return cells > 0 && pipes > 0;
+}
+
+// Two spaces or more, or a backslash no other one escapes, in front of the line ending. CommonMark
+// §6.7.
+function hardBreakAt(text, start, end) {
+  let j = end;
+
+  while (j > start && text[j - 1] === ' ') {
+    j -= 1;
+  }
+
+  if (j !== end) {
+    return end - j >= 2;
+  }
+
+  while (j > start && text[j - 1] === '\\') {
+    j -= 1;
+  }
+
+  return (end - j) % 2 === 1;
+}
+
+// The paragraphs a renderer reads at the top level of the document, outside every container and
+// block construct: `paragraph` gives each line the index of the one it belongs to, or -1; `closed`
+// says of each whether a blank line or the end of the document closes it rather than a block
+// interrupting it; `hard` marks the lines that end in a hard break. `header` says the document may
+// open with a YAML or TOML header. The walk reads every construct the block scanners read, in the same
+// order, and a table besides, whose rows are no paragraph either; a line that opens a container, a
+// table row or anything else that is not plainly a paragraph's is not prose.
+export function proseParagraphs(source, header, checkBudget) {
+  const text = lineView(source);
+  const n = text.length;
+  const paragraph = new Int32Array(linesIn(text, 0, n) + 1).fill(-1);
+  const hard = new Uint8Array(paragraph.length);
+  const closed = [];
+  const opensHtml = htmlBlockOpener(text);
+  const ends = new Map();
+  const tick = lineTicker(checkBudget, 'md-prose');
+  const chain = [];
+  const nextLine = (stop) => paragraphLine(text, stop, n, chain);
+  const headerSpan = header ? scanLeadingHeader(text)[0] : undefined;
+  let paragraphOpen = false;
+  let mayDefine = true;
+  let table = false;
+  // The paragraph being read and its first line.
+  let current = -1;
+  let first = 0;
+  let i = headerSpan === undefined ? 0 : lineAfter(text, headerSpan[1]);
+  let line = linesIn(text, 0, i);
+
+  const close = (wrapped) => {
+    if (current !== -1) {
+      closed[current] = wrapped;
+      current = -1;
+    }
+  };
+
+  while (i < n) {
+    tick();
+
+    const nl = text.indexOf('\n', i);
+    const next = nl === -1 ? n : nl + 1;
+    const lineEnd = contentEnd(text, i, nl === -1 ? n : nl);
+    const before = paragraphOpen;
+    const { place, fresh, paragraphOpen: after } = walkLine(text, i, lineEnd, chain, before);
+    const blank = skipSpaces(text, i, lineEnd) === lineEnd;
+    const fence = fenceOpenAt(text, place.content, lineEnd);
+    let to = next;
+    let defined = false;
+
+    paragraphOpen = false;
+
+    if (fence !== null) {
+      to = lineAfter(text, fenceEnd(text, fence, chain, nl, tick));
+      close(false);
+    } else if (text.startsWith(':::', place.content)) {
+      close(false);
+    } else {
+      const [, textColumn] = skipIndent(text, place.base, lineEnd, place.baseColumn);
+      const code = !blank && (fresh || !before) && textColumn - place.baseColumn >= TAB_STOP;
+      const html = code || blank ? null : opensHtml(place.content, !before || fresh);
+      const definition =
+        html === null && (mayDefine || fresh) && !blank
+          ? referenceDefinition(text, place.content, lineEnd, undefined, nextLine)
+          : null;
+
+      if (html !== null) {
+        to = htmlBlockEnd(text, place.content, html, next, nl, lineEnd, chain, ends, tick).next;
+        close(false);
+      } else if (blank) {
+        close(true);
+        table = false;
+      } else if (code || chain.length > 0 || table || definition !== null) {
+        close(false);
+      } else if (!after) {
+        if (current !== -1 && setextUnderline(text, place.content, lineEnd)) {
+          paragraph.fill(-1, first, line);
+          closed.pop();
+          current = -1;
+        } else {
+          close(false);
+        }
+      } else if (
+        next < n &&
+        delimiterRow(text, next, contentEnd(text, next, endOfLine(text, next)))
+      ) {
+        close(false);
+        table = true;
+      } else {
+        if (current === -1) {
+          current = closed.push(false) - 1;
+          first = line;
+        }
+
+        paragraph[line] = current;
+        hard[line] = hardBreakAt(text, i, lineEnd) ? 1 : 0;
+      }
+
+      paragraphOpen = html === null && after;
+
+      if (definition !== null) {
+        to = lineAfter(text, definition.end);
+        defined = true;
+      }
+    }
+
+    mayDefine = defined || !paragraphOpen;
+    line += linesIn(text, i, to);
+    i = to;
+  }
+
+  close(true);
+
+  return { paragraph, closed, hard };
+}
+
+function linesIn(text, from, to) {
+  let lines = 0;
+
+  for (let k = text.indexOf('\n', from); k !== -1 && k < to; k = text.indexOf('\n', k + 1)) {
+    lines += 1;
+  }
+
+  return lines;
+}
+
+function lineAfter(text, at) {
+  return Math.min(endOfLine(text, at) + 1, text.length);
 }
 
 function endOfLine(text, at) {

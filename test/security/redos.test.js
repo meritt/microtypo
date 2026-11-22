@@ -8,30 +8,20 @@ import { processQuotes } from '../../src/rules/quote-state.js';
 
 const params = { html: true, render: { paragraphs: false } };
 
+// How the cost of these inputs grows is checked in test/perf/redos-rules.perf.js; here they only
+// have to finish inside the default time budget.
 // Bomb: scheme + '(' + long body run — the exponential backtracking source.
-test('paren after scheme stays fast', () => {
-  const bomb = `http://(${'a'.repeat(5000)}`;
-  const start = performance.now();
-  microtypo(bomb);
-  const ms = performance.now() - start;
-  assert.ok(ms < 200, `paren bomb slow: ${ms.toFixed(1)}ms`);
+test('paren after scheme finishes inside the default budget', () => {
+  assert.doesNotThrow(() => microtypo(`http://(${'a'.repeat(5000)}`));
 });
 
-test('schemeless paren bomb stays fast', () => {
-  const bomb = `www.example.com/(${'a'.repeat(5000)}`;
-  const start = performance.now();
-  microtypo(bomb);
-  const ms = performance.now() - start;
-  assert.ok(ms < 200, `schemeless paren bomb slow: ${ms.toFixed(1)}ms`);
+test('schemeless paren bomb finishes inside the default budget', () => {
+  assert.doesNotThrow(() => microtypo(`www.example.com/(${'a'.repeat(5000)}`));
 });
 
 // Almost-all-trailing-')' is the O(n^2) worst case if balance is recounted per trim.
-test('trailing close-paren run stays linear', () => {
-  const bomb = `http://${')'.repeat(29_000)}`;
-  const start = performance.now();
-  microtypo(bomb);
-  const ms = performance.now() - start;
-  assert.ok(ms < 200, `paren trimming slow: ${ms.toFixed(1)}ms`);
+test('trailing close-paren run finishes inside the default budget', () => {
+  assert.doesNotThrow(() => microtypo(`http://${')'.repeat(29_000)}`));
 });
 
 test('urls still autolink after linearization', () => {
@@ -65,6 +55,7 @@ test('url forms still autolink under bounded domain run', () => {
     'http://example.com',
     'https://example.com/path?q=1&x=2',
     'ftp://example.com/file.txt',
+    'ftps://example.com/file.txt',
     'www.example.com',
     'a.b.c.example.co.uk/path',
     'example.com/path',
@@ -99,14 +90,10 @@ test('over-long domain label still autolinks', () => {
 });
 
 // Config-time selector compile must not blow up on a long '*' run.
-test('many-star selector is rejected fast', () => {
+test('many-star selector is rejected', () => {
   const selector = `quote.c${'*'.repeat(40)}Z`;
-  const start = performance.now();
 
   assert.throws(() => new MicroTypo({ rules: { [selector]: false } }), /selector/i);
-
-  const ms = performance.now() - start;
-  assert.ok(ms < 50, `selector compile slow: ${ms.toFixed(1)}ms`);
 });
 
 test('plain wildcard selector still works', () => {
@@ -155,17 +142,12 @@ test('no-op budget leaves quotes intact', () => {
 });
 
 // 10K Cyrillic letters with no '@' must not trigger email-regex backtracking.
-test('many cyrillic letters without at-sign stay fast', () => {
-  const text = 'а'.repeat(10000);
-  const start = performance.now();
-  microtypo(text, params);
-  assert.ok(performance.now() - start < 1000, `Took too long`);
+test('many cyrillic letters without at-sign finish inside the default budget', () => {
+  assert.doesNotThrow(() => microtypo('а'.repeat(10000), params));
 });
 
-// Long digit run: isolated split is O(n); the full pipeline stays under the budget.
-test('long digit run processes quickly', () => {
-  const text = `1${'2'.repeat(10000)}`;
-  const start = performance.now();
-  new MicroTypo({ maxProcessingMs: 30_000 }).process(text);
-  assert.ok(performance.now() - start < 5_000, `Took too long`);
+test('long digit run finishes inside its budget', () => {
+  assert.doesNotThrow(() =>
+    new MicroTypo({ maxProcessingMs: 30_000 }).process(`1${'2'.repeat(10000)}`)
+  );
 });

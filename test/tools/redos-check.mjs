@@ -85,12 +85,6 @@ const ALLOWLIST = new Map([
       'quantifier; linear to 30k chars (empirically verified <1ms at adversarial worst-case shapes)'
   ],
   [
-    'Неразрывные конструкции/nbsp_after_particle[0]',
-    'leading boundary anchor limits match starts to word boundaries; greedy [а-яё]+ word scan, ' +
-      'no nested quantifier, fixed 5-way particle alternation; linear (0.4ms at 30k-я run, vs the ' +
-      'unanchored form which was O(n^2) and the perf suite caught)'
-  ],
-  [
     'Числа, дроби, математические знаки/times[0]',
     'bounded x/х alternation, no nested quantifier; linear to 30k chars'
   ],

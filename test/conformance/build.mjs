@@ -34,7 +34,7 @@ function captureSuite() {
     (f) => !f.startsWith('test/conformance/')
   );
   try {
-    const run = spawnSync(process.execPath, ['--test', ...files], {
+    const run = spawnSync(process.execPath, ['--test', '--test-concurrency=1', ...files], {
       cwd: ROOT,
       stdio: ['ignore', 'pipe', 'inherit'],
       maxBuffer: Infinity,

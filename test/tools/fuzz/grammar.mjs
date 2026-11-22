@@ -51,7 +51,7 @@ function guard(ctx, kind, text, { before = '', after = '' } = {}) {
     context:
       before === '' && after === ''
         ? null
-        : new RegExp(`${before}${RegExp.escape(plain)}${after}`, 'u')
+        : new RegExp(`(?=${RegExp.escape(plain)})${before}${RegExp.escape(plain)}${after}`, 'u')
   });
 
   return `${OPEN}${plain}${CLOSE}`;
@@ -266,6 +266,15 @@ const TAG_START_RE = /<(?=[\p{L}/!?])/gu;
 // A UUID or an IPv6 address glued to more hex digits or colons is a different token or none.
 const HEX_EDGE_BEFORE = String.raw`(?<![\p{L}\p{N}:\-])`;
 const HEX_EDGE_AFTER = String.raw`(?![\p{L}\p{N}:\-])`;
+// A code span opens and closes on backtick runs of one length (CommonMark §6.1): a backtick glued to
+// either end makes a longer run, which the span's own backticks no longer close. A backtick left open
+// earlier in the paragraph pairs with the span's first one, so the span counts only behind closed
+// pairs.
+const IN_PARAGRAPH = '(?:(?!\\n[ \\t]*\\n)[^`])*';
+const CODE_EDGE = {
+  before: `(?<!\`)(?<=(?:^|\\n[ \\t]*\\n)${IN_PARAGRAPH}(?:\`${IN_PARAGRAPH}\`${IN_PARAGRAPH})*)`,
+  after: '(?!`)'
+};
 const ROMAN = ['I', 'II', 'IV', 'V', 'IX', 'X', 'XIV', 'XIX', 'XX', 'XXI'];
 const DASHES = [
   [8, ' - '],
@@ -323,7 +332,18 @@ const ENTITIES = [
   '&thinsp;'
 ];
 const INLINE_TAGS = ['b', 'i', 'em', 'strong', 'span', 'a', 'abbr', 'small', 'sup', 'sub', 'mark'];
-const SAFE_TAGS = ['pre', 'code', 'script', 'style', 'kbd', 'samp', 'var', 'tt', 'textarea'];
+const SAFE_TAGS = [
+  'pre',
+  'code',
+  'script',
+  'style',
+  'kbd',
+  'samp',
+  'var',
+  'tt',
+  'textarea',
+  'math'
+];
 const HOSTS = [
   'example.com',
   'amber.ru',
@@ -891,8 +911,11 @@ export function createGrammar(lexicon, d) {
 
   function markdownInline(ctx) {
     return weighted([
-      [3, () => guard(ctx, 'md-code', `\`${bait({ lines: false }).replaceAll('`', "'")}\``)],
-      [1, () => guard(ctx, 'md-code', `\`\` ${word()} \` ${word()} - "x" \`\``)],
+      [
+        3,
+        () => guard(ctx, 'md-code', `\`${bait({ lines: false }).replaceAll('`', "'")}\``, CODE_EDGE)
+      ],
+      [1, () => guard(ctx, 'md-code', `\`\` ${word()} \` ${word()} - "x" \`\``, CODE_EDGE)],
       [
         3,
         () => {
@@ -905,7 +928,13 @@ export function createGrammar(lexicon, d) {
           return `${chance(0.2) ? '!' : ''}[${word()} ${chunk(ctx, 2)}${guard(ctx, 'md-link', `](${target}`, { before: String.raw`\[[^\[\]\r\n]*`, after: String.raw`(?: "[^"\r\n]*")?\)` })}${title})`;
         }
       ],
-      [1, () => `[${word()}][${pick(['ref', 'a-b', '1'])}]`],
+      [
+        1,
+        () => {
+          const label = pick(['ref', 'a-b', '1', 'a - b', 'Глава "1"', '']);
+          return `[${word()} ${chunk(ctx, 2)}][${label === '' || ctx.data ? label : guard(ctx, 'md-label', label, { before: String.raw`\[[^\[\]\r\n]*\]\[`, after: String.raw`\](?!\()` })}]`;
+        }
+      ],
       [
         2,
         () =>

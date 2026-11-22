@@ -4,7 +4,8 @@
 // and printed with the seed that reproduces it.
 //
 //   pnpm fuzz [--seed S] [--cases N] [--format F] [--keep-going] [--summary F] [--jobs N]
-//   pnpm fuzz --case K --seed S
+//             [--case-timeout S]
+//   pnpm fuzz --case K --seed S [--case-timeout S]
 //   pnpm fuzz --coverage [--cases N] [--seed S] [--jobs N]
 import { writeFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
@@ -12,9 +13,9 @@ import { parseArgs } from 'node:util';
 
 import { RULE_IDS } from './fuzz/coverage.mjs';
 import { FORMATS } from './fuzz/documents.mjs';
-import { NAMES } from './fuzz/invariants.mjs';
+import { NAMES, silence } from './fuzz/invariants.mjs';
 import { createPool } from './fuzz/pool.mjs';
-import { createSession } from './fuzz/session.mjs';
+import { createSession, groupOf } from './fuzz/session.mjs';
 import { visible } from './visible.mjs';
 
 const USAGE = `Usage: pnpm fuzz [options]
@@ -27,6 +28,9 @@ const USAGE = `Usage: pnpm fuzz [options]
   --case <k>        run case k of the seed alone and print it
   --coverage        count, per rule, the cases whose output changes when the rule is switched off
   --jobs <n>        worker threads (default: ${availableParallelism()}); the result does not depend on it
+  --case-timeout <s>
+                    seconds a worker may spend on one case (default: 10); a case it gives no answer
+                    on breaks the invariant «движок отвечает», and the worker is replaced
 `;
 
 // Further occurrences of a violation already on the list are counted; only this many are shrunk.
@@ -62,6 +66,7 @@ function readOptions(argv) {
       case: { type: 'string' },
       coverage: { type: 'boolean', default: false },
       jobs: { type: 'string', default: String(availableParallelism()) },
+      'case-timeout': { type: 'string', default: '10' },
       help: { type: 'boolean', default: false }
     }
   });
@@ -86,7 +91,84 @@ function readOptions(argv) {
     summary: values.summary ?? null,
     only: values.case === undefined ? null : integer('case', values.case),
     coverage: values.coverage,
-    jobs: integer('jobs', values.jobs, 1)
+    jobs: integer('jobs', values.jobs, 1),
+    caseTimeout: integer('case-timeout', values['case-timeout'], 1)
+  };
+}
+
+const workerData = (opts) => ({ seed: opts.seed, format: opts.format, coverage: opts.coverage });
+
+const poolFor = (opts, size) => createPool(size, workerData(opts), opts.caseTimeout * 1000);
+
+// A case the engine gives no answer on is a violation of its own. Its worker is replaced, and the
+// other cases of the block are scanned again: what the old worker found went with it.
+async function scanBlock(pool, session, opts, from, to) {
+  if (from >= to) {
+    return [];
+  }
+
+  try {
+    return await pool.run('scan', from, to);
+  } catch (error) {
+    if (error.stalled === undefined) {
+      throw error;
+    }
+
+    const at = error.stalled;
+
+    return [
+      ...(await scanBlock(pool, session, opts, from, at)),
+      { index: at, violations: [silence(session.caseAt(at).format, opts.caseTimeout)] },
+      ...(await scanBlock(pool, session, opts, at + 1, to))
+    ];
+  }
+}
+
+// A hang is shrunk from this thread, each smaller case tried on a worker under the same limit: the
+// thread that runs a hanging case goes with it. Other violations are shrunk on a worker, and one
+// whose shrinking hangs is reported as it was found.
+function examiner(pool, session) {
+  const stalls = async (kase) => {
+    try {
+      await pool.run('probe', kase);
+      return false;
+    } catch (error) {
+      if (error.stalled === undefined) {
+        throw error;
+      }
+
+      return true;
+    }
+  };
+
+  return async (index, violation) => {
+    if (violation.invariant === 'responds') {
+      let hangs = 0;
+
+      return session.examine(index, violation, async (kase) => {
+        const stalled = await stalls(kase);
+
+        if (stalled) {
+          hangs += 1;
+          console.error(`… случай ${index}: зависаний при сжатии ${hangs}`);
+        }
+
+        return stalled;
+      });
+    }
+
+    try {
+      return await pool.run('examine', index, violation);
+    } catch (error) {
+      if (error.stalled === undefined) {
+        throw error;
+      }
+
+      return {
+        group: groupOf(violation, []),
+        finding: { violation, kase: session.caseOf(index, violation), index, blame: [] }
+      };
+    }
   };
 }
 
@@ -126,14 +208,22 @@ function progress(label, total) {
 }
 
 function createReporter(session, seed) {
+  // A case the engine does not answer on is not run again here: this thread would wait with it.
   const describe = ({ violation, kase, index, blame }) => {
-    const { out, again } = session.check(kase);
+    const transparent = violation.invariant === 'transparent';
+    const { out, again } =
+      violation.invariant === 'responds'
+        ? {}
+        : session.check(kase, transparent ? 'transparent' : null);
+    const [first, second] = transparent
+      ? ['со снятой разметкой:', 'без разметки:']
+      : ['вывод 1:', 'вывод 2:'];
 
     return {
       lines: [
         `━━ ${NAMES[violation.invariant]}`,
         `виновник: ${blame.length > 0 ? blame.join(' + ') : 'не определён'}`,
-        `seed ${seed}, случай ${index}: pnpm fuzz --seed ${seed} --case ${index}`,
+        `seed ${seed}, случай ${index}${kase.transparent ? ' (проза с разметкой)' : ''}: pnpm fuzz --seed ${seed} --case ${index}`,
         `формат: ${kase.format}`,
         `конфиг: ${JSON.stringify(kase.config)}`,
         ...(violation.detail ? [`суть: ${violation.detail}`] : []),
@@ -141,7 +231,7 @@ function createReporter(session, seed) {
         block(kase.text),
         ...(out === undefined
           ? []
-          : ['вывод 1:', block(out), 'вывод 2:', block(again ?? '(второй проход бросил ошибку)')])
+          : [first, block(out), second, block(again ?? '(второй проход бросил ошибку)')])
       ].join('\n'),
       out,
       again
@@ -151,22 +241,33 @@ function createReporter(session, seed) {
   return describe;
 }
 
-async function runCase(opts) {
-  const session = await createSession({ seed: opts.seed, format: opts.format });
+// The case is checked and shrunk on a worker, so a hang is reported rather than waited on.
+async function runCase(opts, session) {
   const describe = createReporter(session, opts.seed);
   const kase = session.caseAt(opts.only);
-  const { violations } = session.check(kase);
+  await using pool = poolFor(opts, 1);
+
+  const prose = session.proseAt(opts.only);
 
   console.log(`формат: ${kase.format}\nконфиг: ${JSON.stringify(kase.config)}`);
   console.log(`ввод ${JSON.stringify(kase.text)}`);
 
-  if (violations.length === 0) {
+  if (prose !== null) {
+    console.log(`проза с разметкой (${prose.format}, ${JSON.stringify(prose.config)}):`);
+    console.log(`ввод ${JSON.stringify(prose.text)}`);
+  }
+
+  const found = await scanBlock(pool, session, opts, opts.only, opts.only + 1);
+
+  if (found.length === 0) {
     console.log('нарушений нет');
     return 0;
   }
 
-  for (const violation of violations) {
-    const { group, finding } = session.examine(opts.only, violation);
+  const examine = examiner(pool, session);
+
+  for (const violation of found[0].violations) {
+    const { group, finding } = await examine(opts.only, violation);
 
     console.log(`\n■ ${group}\n${describe(finding).lines}`);
   }
@@ -175,32 +276,29 @@ async function runCase(opts) {
 }
 
 // Stops at the lowest-numbered case with a violation, whatever order the workers finish in.
-async function runFirst(opts, pool, started) {
+async function runFirst(opts, pool, session, started) {
   const ranges = blocks(opts.cases);
   const results = [];
   const window = opts.jobs * 4;
 
   for (let i = 0; i < ranges.length; i++) {
     while (results.length < Math.min(ranges.length, i + window)) {
-      results.push(pool.run('scan', ...ranges[results.length]));
+      results.push(scanBlock(pool, session, opts, ...ranges[results.length]));
     }
 
     const found = await results[i];
 
     if (found.length > 0) {
-      await pool.close();
-
-      const session = await createSession({ seed: opts.seed, format: opts.format });
       const { index, violations } = found[0];
-      const { finding } = session.examine(index, violations[0]);
+      const { finding } = await examiner(pool, session)(index, violations[0]);
 
+      await pool.close();
       console.log(createReporter(session, opts.seed)(finding).lines);
       console.log(`\n${index + 1} случаев за ${seconds(started)} с`);
       return 1;
     }
   }
 
-  await pool.close();
   console.log(`${opts.cases} случаев за ${seconds(started)} с, нарушений нет`);
   return 0;
 }
@@ -208,11 +306,11 @@ async function runFirst(opts, pool, started) {
 // Three passes keep the result independent of how the workers share the cases: they check every
 // case, the main thread picks in case order the occurrences to shrink, they shrink those, and the
 // main thread assigns every occurrence to a group in case order again.
-async function runAll(opts, pool, started) {
+async function runAll(opts, pool, session, started) {
   const tick = progress('случаев', opts.cases);
   const scans = await Promise.all(
     blocks(opts.cases).map(([from, to]) =>
-      pool.run('scan', from, to).then((found) => {
+      scanBlock(pool, session, opts, from, to).then((found) => {
         tick(to - from);
         return found;
       })
@@ -222,12 +320,14 @@ async function runAll(opts, pool, started) {
   const seen = new Map();
   const occurrences = [];
   const tasks = [];
+  const tally = Object.fromEntries(Object.keys(NAMES).map((invariant) => [invariant, 0]));
 
   for (const { index, violations } of scans.flat()) {
     for (const violation of violations) {
       const print = `${violation.invariant}\u{0}${violation.fingerprint}`;
       const count = (seen.get(print) ?? 0) + 1;
 
+      tally[violation.invariant] += 1;
       seen.set(print, count);
       occurrences.push({ print, task: examined(count) ? tasks.length : null });
 
@@ -238,9 +338,10 @@ async function runAll(opts, pool, started) {
   }
 
   const tock = progress('разобрано нарушений', tasks.length);
+  const examine = examiner(pool, session);
   const results = await Promise.all(
     tasks.map(([index, violation]) =>
-      pool.run('examine', index, violation).then((result) => {
+      examine(index, violation).then((result) => {
         tock(1);
         return result;
       })
@@ -267,7 +368,6 @@ async function runAll(opts, pool, started) {
 
   const elapsed = seconds(started);
   const rate = Math.round(opts.cases / Math.max(Number(elapsed), 0.001));
-  const session = await createSession({ seed: opts.seed, format: opts.format });
   const describe = createReporter(session, opts.seed);
   const summary = [];
 
@@ -307,6 +407,10 @@ async function runAll(opts, pool, started) {
       `нарушений ${occurrences.length}, групп ${groups.size}`
   );
 
+  for (const [invariant, name] of Object.entries(NAMES)) {
+    console.log(`  ${name}: ${tally[invariant]}`);
+  }
+
   if (opts.summary !== null) {
     writeFileSync(
       opts.summary,
@@ -316,6 +420,7 @@ async function runAll(opts, pool, started) {
           cases: opts.cases,
           format: opts.format,
           violations: occurrences.length,
+          invariants: tally,
           groups: summary
         },
         null,
@@ -386,22 +491,24 @@ async function main() {
 
   console.log(`seed ${opts.seed}`);
 
+  const session = opts.coverage
+    ? null
+    : await createSession({ seed: opts.seed, format: opts.format });
+
   if (opts.only !== null) {
-    return runCase(opts);
+    return runCase(opts, session);
   }
 
   const started = performance.now();
-  const pool = createPool(opts.jobs, {
-    seed: opts.seed,
-    format: opts.format,
-    coverage: opts.coverage
-  });
+  await using pool = poolFor(opts, opts.jobs);
 
   if (opts.coverage) {
-    return runCoverage(opts, pool, started);
+    return await runCoverage(opts, pool, started);
   }
 
-  return opts.keepGoing ? runAll(opts, pool, started) : runFirst(opts, pool, started);
+  return await (opts.keepGoing
+    ? runAll(opts, pool, session, started)
+    : runFirst(opts, pool, session, started));
 }
 
 try {

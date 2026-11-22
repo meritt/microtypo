@@ -1,6 +1,32 @@
 import { CONTENT_END_LOOKAHEAD, CONTENT_OPEN_BRACKETS, CONTENT_START } from '../lib/boundaries.js';
 import { G } from '../lib/glyphs.js';
 import { CLOSE } from '../protect/placeholders.js';
+import { PARTICLE } from './space.js';
+
+// What a short word glues itself to: an optional second short word, then a word or a digit.
+const SHORT_WORD_TAIL = `([a-zа-яё]{1,2}[ \\t]+)?(?!-+(?![a-zа-яё0-9-]))([a-zа-яё0-9-]{2,}|[0-9])`;
+
+const WORD_START_RE = /[\p{L}\p{N}]/uy;
+const ACRONYM_AHEAD_RE = /[A-ZА-ЯЁ]{2}(?=[\s;.?!:("»“]|$)/uy;
+const SHORT_WORD_AHEAD_RE = new RegExp(`[a-zа-яё]{1,2}[ \\t]+${SHORT_WORD_TAIL}`, 'iuy');
+
+const startsWith = (re, source, at) => {
+  re.lastIndex = at;
+
+  return re.test(source);
+};
+
+// A particle binds to the word before it, so the no-break space `nbsp_short_word` glued it to the
+// next word with goes back to a space. Not one in front of a dash or an acronym, which binds them to
+// the particle, and not one in front of a short word the space would leave for `nbsp_short_word` to
+// glue on the next pass.
+function takesGlueBack(source, at) {
+  return (
+    startsWith(WORD_START_RE, source, at) &&
+    !startsWith(ACRONYM_AHEAD_RE, source, at) &&
+    !startsWith(SHORT_WORD_AHEAD_RE, source, at)
+  );
+}
 
 function wrapPhone(ctx, m) {
   const [, p1, p2, , p4, , p6, , p8, , p10, p11] = m;
@@ -61,9 +87,11 @@ export const nobrGroup = {
       // tag leave in front of content. Trailing gaps stay horizontal, so the glue never crosses a
       // line break.
       //
-      // Deliberately broad: any one- or two-letter word is glued, false positives accepted.
+      // Deliberately broad: any one- or two-letter word is glued, false positives accepted. Not a
+      // particle `nbsp_particle` bound to the dash before it: that dash keeps its own no-break space
+      // in front of the particle, and the particle took its glue to the next word back.
       pattern: new RegExp(
-        `([ \\t\\n\\r]|^|[${CONTENT_OPEN_BRACKETS}]|>|${CLOSE}|${G.MDASH}${G.NBSP})([a-zа-яё]{1,2}[ \\t]+)([a-zа-яё]{1,2}[ \\t]+)?([a-zа-яё0-9-]{2,}|[0-9])`,
+        `([ \\t\\n\\r]|^|[${CONTENT_OPEN_BRACKETS}]|>|${CLOSE}|${G.MDASH}${G.NBSP})([a-zа-яё]{1,2}(?<!${G.NBSP}${G.MDASH}${G.NBSP}(?:${PARTICLE}))[ \\t]+)${SHORT_WORD_TAIL}`,
         'giu'
       ),
       replacement: (m) => {
@@ -148,20 +176,35 @@ export const nobrGroup = {
     {
       id: 'nbsp_particle',
       description: 'Неразрывный пробел перед частицей',
-      pattern: /( |\t)+(ли|бы|б|же|ж)(\u{00A0}|\.|,|:|;|…|\?|\s)/giu,
-      replacement: (m) => {
-        const [, , p2, p3] = m;
+      // At the end of the text, before `!` and before `)` only a lowercase particle after a word
+      // binds: `а - б` and `зон А и Б` end in a letter, not the particle.
+      // Cycled: a particle the glue it took back leaves after a space binds too, `ли ли он`.
+      cycled: true,
+      pattern: [
+        new RegExp(
+          `(?<![ \\t])( |\\t)+(${PARTICLE})(?:(${G.NBSP})|(?=[.,:;${G.HELLIP}?\\s]))`,
+          'gu'
+        ),
+        /(?<=\p{L})[ \t]+(ли|бы|б|же|ж)(?=!|\)|$)/gu
+      ],
+      replacement: [
+        (m) => {
+          const [match, , particle, glue, offset, source] = m;
+          const after = glue === undefined ? '' : G.NBSP;
 
-        return `${G.NBSP}${p2}${p3 === G.NBSP ? ' ' : p3}`;
-      }
+          return `${G.NBSP}${particle}${glue !== undefined && takesGlueBack(source, offset + match.length) ? ' ' : after}`;
+        },
+        `${G.NBSP}$1`
+      ]
     },
     {
       id: 'nbsp_after_particle',
       description: 'Неразрывный пробел после усилительной частицы: Поди-кась так → Поди-кась так',
       // The leading boundary anchors the match start, so the greedy `[а-яё]+` cannot retry from every
-      // offset.
-      pattern: /(\s|^|\u{00A0}|>)([а-яё]+-(?:кась|тка|тко|ка|де))( )([а-яё]+)/giu,
-      replacement: `$1$2${G.NBSP}$4`
+      // offset. Both boundaries are only looked at: the word after the gap may be the next particle
+      // word, `е-ка ь-ка к`, and it needs the gap as its own left boundary.
+      pattern: /(?<=\s|^|>)([а-яё]+-(?:кась|тка|тко|ка|де)) (?=[а-яё])/giu,
+      replacement: `$1${G.NBSP}`
     },
     {
       id: 'nbsp_namely',

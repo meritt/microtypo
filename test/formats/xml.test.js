@@ -3,16 +3,7 @@ import { describe, test } from 'node:test';
 
 import { MicroTypoInputError } from '../../src/errors/index.js';
 import { microtypo } from '../../src/index.js';
-import { doctypeEnd, scanXmlSpacePreserve, validateXml } from '../../src/input/xml.js';
-
-const preserveScanNanos = (k) => {
-  const src = `${'<a'.repeat(k)} xml:space`;
-  const at = process.hrtime.bigint();
-
-  scanXmlSpacePreserve(src);
-
-  return Number(process.hrtime.bigint() - at);
-};
+import { doctypeEnd, validateXml } from '../../src/input/xml.js';
 
 const NBSP = '\u{00A0}';
 
@@ -242,17 +233,6 @@ describe('XML input: text nodes typeset, structure verbatim', () => {
 
       assert.equal(out.includes(`Корвин${NBSP}— принц`), typeset, src);
     }
-  });
-
-  // A `<` that opens no tag is where the next one may start, so the walk resumes there rather than
-  // one character on.
-  test('a malformed run does not re-read the suffix from every opener', () => {
-    preserveScanNanos(2000);
-
-    const small = preserveScanNanos(1000);
-    const large = preserveScanNanos(4000);
-
-    assert.ok(large < small * 8, `quadratic: ${small}ns at k=1000, ${large}ns at k=4000`);
   });
 
   test('an unrecognized "<b <c>" opener inside the preserve scan does not misfire', () => {

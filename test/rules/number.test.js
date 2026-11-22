@@ -137,6 +137,20 @@ describe('subscript and superscript', () => {
     assert.ok(microtypo('печать H_2 Дворкина', cfg).includes('<sub>'));
   });
 
+  test('only a one-letter base takes a subscript', () => {
+    const html = { html: true };
+
+    for (const src of ['utf_8', 'file_2.txt', 'log_2', 'snake_case_2', 'H_2O']) {
+      assert.equal(microtypo(src, html), `<p>${src}</p>`);
+    }
+    assert.equal(microtypo('x_1', html), '<p>x<sub><small>1</small></sub></p>');
+    assert.equal(microtypo('a_12', html), '<p>a<sub><small>12</small></sub></p>');
+    assert.equal(
+      microtypo('x_1 + y_2', html),
+      '<p>x<sub><small>1</small></sub> + y<sub><small>2</small></sub></p>'
+    );
+  });
+
   test('number.sub:false leaves H_2 raw', () => {
     const out = microtypo('печать H_2 Дворкина', { ...cfg, rules: { 'number.sub': false } });
     assert.ok(out.includes('H_2'));
@@ -381,6 +395,74 @@ describe('currency', () => {
 
   test('currency bundle converts руб to ₽', () => {
     assert.ok(microtypo('Рэндом отдал 5 руб', cfg).includes('₽'));
+  });
+
+  test('$ after a printf argument index is not a currency sign', () => {
+    for (const src of ['за %1$s', '%2$d из %1$s']) {
+      assert.equal(microtypo(src), src);
+      assert.equal(microtypo(src, { input: 'markdown' }), src);
+    }
+    const json = '{"a": "за %1$s", "b": "%2$d из %1$s"}';
+    assert.equal(microtypo(json, { input: 'json' }), json);
+  });
+
+  test('долл. США stays a word and binds to its amount', () => {
+    for (const [src, want] of [
+      ['10 долл. США', `10${NBSP}долл. США`],
+      ['5 долл. США и 3 евро', `5${NBSP}долл. США и${NBSP}3${NBSP}€`]
+    ]) {
+      const once = microtypo(src);
+
+      assert.equal(once, want);
+      assert.equal(microtypo(once), once);
+    }
+  });
+
+  test('долл. США is read through Markdown emphasis on США', () => {
+    assert.equal(microtypo('10 долл. **США**', { input: 'markdown' }), `10${NBSP}долл. **США**`);
+  });
+
+  test('долл. without США still becomes $', () => {
+    assert.equal(microtypo('10 долл.'), `10${NBSP}$.`);
+    assert.equal(microtypo('10 долл. в день'), `10${NBSP}$ в${NBSP}день`);
+    assert.equal(microtypo('10 руб.'), `10${NBSP}₽.`);
+  });
+
+  test('a currency sign after its amount does not bind to the next number', () => {
+    for (const [src, want] of [
+      ['3 руб. 20 коп.', `3${NBSP}₽ 20 коп.`],
+      ['3 руб. 20 коп. и 5 руб.', `3${NBSP}₽ 20 коп. и${NBSP}5${NBSP}₽.`]
+    ]) {
+      const once = microtypo(src);
+
+      assert.equal(once, want);
+      assert.equal(microtypo(once), once);
+    }
+    assert.equal(microtypo('3 руб.'), `3${NBSP}₽.`);
+    assert.equal(microtypo('20 коп.'), '20 коп.');
+  });
+
+  test('a rerun reads the sign behind a wrapped or XML-encoded amount as the first run did', () => {
+    const html = new MicroTypo({ html: true });
+    const xml = new MicroTypo({ input: 'xml', entities: true });
+
+    for (const [typo, src, want] of [
+      [html, 'ГОСТ5руб 5', `<p><span style="white-space:nowrap;">ГОСТ 5</span>${NBSP}₽ 5</p>`],
+      [html, '0.2.2.2$5', `<p><span style="white-space:nowrap;">0.2.2.2</span>${NBSP}$5</p>`],
+      [xml, '<doc><p>6$6</p></doc>', '<doc><p>6&#160;$6</p></doc>'],
+      [html, 'ГОСТ 7 долл. США', '<p><span style="white-space:nowrap;">ГОСТ 7 долл</span>. США</p>']
+    ]) {
+      const once = typo.process(src);
+
+      assert.equal(once, want);
+      assert.equal(typo.process(once), once);
+    }
+  });
+
+  test('$ after an amount still binds to it', () => {
+    assert.equal(microtypo('цена 5 $'), `цена 5${NBSP}$`);
+    assert.equal(microtypo('$ 5'), `$${NBSP}5`);
+    assert.equal(microtypo('100 $ и 5 %'), `100${NBSP}$ и${NBSP}5%`);
   });
 });
 

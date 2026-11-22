@@ -1,6 +1,19 @@
 import { G } from '../lib/glyphs.js';
 import { OPEN, CLOSE } from '../protect/placeholders.js';
 
+const GAP_RE = /[ \t]+/g;
+
+// Whether a digit stands before the run of spaces and tabs that ends at `at`, the run not empty.
+function digitBeforeGap(str, at) {
+  let i = at;
+
+  while (str[i - 1] === ' ' || str[i - 1] === '\t') {
+    i -= 1;
+  }
+
+  return i < at && str[i - 1] >= '0' && str[i - 1] <= '9';
+}
+
 export const numberGroup = {
   title: 'Числа, дроби, математические знаки',
   classes: { nowrap: 'white-space:nowrap;' },
@@ -47,7 +60,7 @@ export const numberGroup = {
       description: 'Нижний индекс',
       // Under `html: false` the consumed `_` marker would vanish and corrupt the input.
       htmlOnly: true,
-      pattern: /([a-zа-яё0-9])_(\d{1,3})([^@а-яёa-z0-9]|$)/giu,
+      pattern: /(?<![\p{L}\d_])([a-zа-яё])_(\d{1,3})([^@а-яёa-z0-9]|$)/giu,
       replacement: (m, ctx) => {
         const [, p1, p2, p3] = m;
 
@@ -80,7 +93,7 @@ export const numberGroup = {
       // rule anyway — it is its own canonical form in CHARS_TABLE.
       pattern: [
         /!=/g,
-        /<=/g,
+        /<=(?![>=])/g,
         new RegExp(`([^=${OPEN}${CLOSE}]|^)>=`, 'gu'),
         /~=/g,
         /(?<![-+])\+-(?![-+])/g
@@ -93,11 +106,16 @@ export const numberGroup = {
       // The lookarounds skip digit-space chains, so phone numbers and IBANs — non-triadic groups —
       // are left whole. The letter guard is the one `split_triads` already carries: digits stuck to a
       // word are part of that word, not a quantity, and without it `ab12 345678` never settles.
-      pattern: /(?<!\d)(?<!\p{L})(?<!\d )([0-9]{1,3}( [0-9]{3}){1,})(?!\d)(.|$)/gu,
+      //
+      // A gap is a run of spaces and tabs: `space.collapse_spaces` makes it one space later, and the
+      // number it leaves is the one read here. The gap in front of the match is read in the
+      // replacement, once per match: a lookbehind over a run is reread from every start by a
+      // backtracking engine.
+      pattern: /(?<!\d)(?<!\p{L})([0-9]{1,3}([ \t]+[0-9]{3}){1,})(?!\d)(.|$|(?=\n\s*$))/gu,
       replacement: (m) => {
         const [m0, p1, , p4, offset, str] = m;
 
-        if (p4 === '-') {
+        if (p4 === '-' || digitBeforeGap(str, offset)) {
           return m0;
         }
 
@@ -107,7 +125,7 @@ export const numberGroup = {
           return m0;
         }
 
-        return p1.replaceAll(' ', G.NNBSP) + p4;
+        return p1.replace(GAP_RE, G.NNBSP) + p4;
       }
     },
     {

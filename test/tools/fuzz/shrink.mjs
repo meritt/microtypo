@@ -41,7 +41,7 @@ function configVariants(config, format) {
 }
 
 // ddmin: drop ever smaller runs of units while the case still fails the same way.
-function ddmin(units, test) {
+async function ddmin(units, test) {
   let current = units;
   let n = 2;
 
@@ -52,7 +52,7 @@ function ddmin(units, test) {
     for (let start = 0; start < current.length; start += size) {
       const candidate = [...current.slice(0, start), ...current.slice(start + size)];
 
-      if (test(candidate)) {
+      if (await test(candidate)) {
         current = candidate;
         n = Math.max(n - 1, 2);
         reduced = true;
@@ -78,9 +78,10 @@ const GRANULARITIES = [
   (text) => [...text]
 ];
 
-export function shrink(kase, fails) {
+// `fails` may answer with a promise: a hang is asked about on another thread.
+export async function shrink(kase, fails) {
   let tries = 0;
-  const test = (candidate) => {
+  const test = async (candidate) => {
     if (tries >= MAX_TRIES) {
       return false;
     }
@@ -91,7 +92,7 @@ export function shrink(kase, fails) {
 
   let current = kase;
 
-  const shrinkConfig = () => {
+  const shrinkConfig = async () => {
     let changed = true;
 
     while (changed) {
@@ -100,7 +101,7 @@ export function shrink(kase, fails) {
       for (const config of configVariants(current.config, current.format)) {
         const candidate = { ...current, config };
 
-        if (test(candidate)) {
+        if (await test(candidate)) {
           current = candidate;
           changed = true;
           break;
@@ -109,17 +110,17 @@ export function shrink(kase, fails) {
     }
   };
 
-  shrinkConfig();
+  await shrinkConfig();
 
   for (const split of GRANULARITIES) {
-    const units = ddmin(split(current.text), (candidate) =>
+    const units = await ddmin(split(current.text), (candidate) =>
       test({ ...current, text: candidate.join('') })
     );
 
     current = { ...current, text: units.join('') };
   }
 
-  shrinkConfig();
+  await shrinkConfig();
 
   return current;
 }
@@ -140,15 +141,15 @@ const ALL_RULES = DEFAULT_GROUPS.flatMap(([group, def]) =>
 // The rules a violation goes away without. Halving the catalogue finds each in a handful of runs
 // rather than one per rule: switching a set off clears the violation exactly when the set holds a
 // rule the violation needs. Empty when switching every rule off does not clear it.
-export function culprits(kase, fails) {
-  const clearedWithout = (selectors) =>
-    !fails({
+export async function culprits(kase, fails) {
+  const clearedWithout = async (selectors) =>
+    !(await fails({
       ...kase,
       config: selectors.reduce((config, selector) => withRuleOff(config, selector), kase.config)
-    });
+    }));
   const found = [];
-  const search = (selectors) => {
-    if (!clearedWithout(selectors)) {
+  const search = async (selectors) => {
+    if (!(await clearedWithout(selectors))) {
       return;
     }
 
@@ -159,11 +160,11 @@ export function culprits(kase, fails) {
 
     const half = Math.ceil(selectors.length / 2);
 
-    search(selectors.slice(0, half));
-    search(selectors.slice(half));
+    await search(selectors.slice(0, half));
+    await search(selectors.slice(half));
   };
 
-  search(ALL_RULES);
+  await search(ALL_RULES);
 
   return found;
 }

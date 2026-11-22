@@ -146,6 +146,62 @@ describe('frontmatter input: YAML/TOML header + Markdown body', () => {
   });
 });
 
+const on = (render) => ({ html: true, entities: false, input: { format: 'frontmatter' }, render });
+
+// A header value is data, never a document, so `<p>` and `<br>` asked for explicitly lay out only
+// the body's top-level prose paragraphs.
+describe('frontmatter with paragraphs and breakline on', () => {
+  const OFF = { html: true, entities: false, input: { format: 'frontmatter' } };
+  const PROSE = 'Корвин - принц\nРэндом - брат';
+  const LAID_OUT = [
+    [on({ paragraphs: true }), `<p>Корвин${NBSP}— принц\nРэндом${NBSP}— брат</p>`],
+    [on({ breakline: true }), `Корвин${NBSP}— принц<br>\nРэндом${NBSP}— брат`],
+    [
+      on({ paragraphs: true, breakline: true }),
+      `<p>Корвин${NBSP}— принц<br>\nРэндом${NBSP}— брат</p>`
+    ]
+  ];
+  const BODY = `# Заголовок - тут\n\n${PROSE}\n\n\`\`\`\nкод - "x"\nещё\n\`\`\`\n\n- раз - два\n- три\n\n| a - b | c |\n| - | - |\n| 1 | 2 |\n\n${PROSE}`;
+
+  for (const [name, header] of [
+    ['YAML', '---\ntitle: "А - б"\nlist: |\n  строка - раз\n  строка - два\n\n  абзац - три\n---'],
+    ['TOML', '+++\ntitle = "А - б"\nbody = """строка - раз\nстрока - два\n\nабзац"""\n+++']
+  ]) {
+    test(`a ${name} header and the body's blocks come out as with them off`, () => {
+      const src = `${header}\n\n${BODY}`;
+      const typeset = microtypo(src, OFF);
+
+      assert.doesNotMatch(typeset, /<p>|<br>/);
+
+      for (const [options, laidOut] of LAID_OUT) {
+        const out = microtypo(src, options);
+
+        assert.equal(
+          out,
+          typeset.replaceAll(`Корвин${NBSP}— принц\nРэндом${NBSP}— брат`, laidOut),
+          JSON.stringify(options.render)
+        );
+        assert.equal(microtypo(out, options), out);
+      }
+    });
+  }
+
+  test('a template in front of the spaces of a hard break ends the body paragraph', () => {
+    for (const render of [{ paragraphs: true }, { paragraphs: true, breakline: true }]) {
+      const options = { ...on(render), input: { format: 'frontmatter', template: 'liquid' } };
+
+      for (const [src, out] of [
+        ['---\na: 1\n---\n{%%}  \n', '---\na: 1\n---\n<p>{%%}</p>'],
+        ['---\na: 1\n---\n{% if x %}\n', '---\na: 1\n---\n<p>{% if x %}</p>'],
+        ['---\na: 1\n---\n{% if x %}  \nтекст', '---\na: 1\n---\n<p>{% if x %}  \nтекст</p>']
+      ]) {
+        assert.equal(microtypo(src, options), out, JSON.stringify(render));
+        assert.equal(microtypo(out, options), out);
+      }
+    }
+  });
+});
+
 describe('splitFrontmatter: leading-block detection', () => {
   test('open delimiter not on line 1 returns null (absent, not malformed)', () => {
     assert.equal(splitFrontmatter('\n---\na: 1\n---\n'), null);

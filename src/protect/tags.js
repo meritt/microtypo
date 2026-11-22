@@ -42,6 +42,8 @@ const LEADING_NAME_RE = new RegExp(String.raw`^([${NAME_START}][\p{L}\p{N}._:-]*
 // The vaults `findByTagName` reads, in the order it reports them.
 const NAMED_KINDS = ['T', 'A', 'L'];
 
+// Every `&` is escaped, so the browser reads exactly the value given. A rule that checked an `href`
+// cannot have a reference in it decode into something it did not check.
 function escapeAttr(v) {
   return String(v)
     .replace(/&/g, '&amp;')
@@ -252,6 +254,23 @@ export class SafeTags {
     }
 
     return out;
+  }
+
+  // The name of a vaulted inline tag, lowercased, or null for a comment, a declaration or an id the
+  // vault does not hold. Engine-only: the lifting of inline markup pairs tags by it.
+  nameOf(prefix, id) {
+    const heads = NAMED_KINDS.includes(prefix) ? this.#headsOf(prefix) : null;
+    const head = heads?.[id];
+
+    return head == null ? null : head.name.toLowerCase();
+  }
+
+  // A vaulted inline tag as written between its angle brackets, or null. Engine-only: the lifting of
+  // inline markup reads whether an author's element already keeps its words together.
+  rawOf(prefix, id) {
+    const vault = NAMED_KINDS.includes(prefix) ? this.#vaults.get(prefix) : null;
+
+    return vault == null || id >= vault.size ? null : vault.retrieve(id);
   }
 
   // A vault only grows within a `process()`, so each entry's head is parsed once however many rules

@@ -1,6 +1,6 @@
 import { CONTENT_END_LOOKAHEAD, CONTENT_START_GROUP } from '../lib/boundaries.js';
 import { G } from '../lib/glyphs.js';
-import { CLOSE } from '../protect/placeholders.js';
+import { CLOSE, OPEN, TRANSPARENT_TAG_KINDS, vaultedReference } from '../protect/placeholders.js';
 
 // The trailing boundary is a lookahead, so there is nothing to put back on the right. The leading
 // one is consumed and returned as it came: a non-breaking space in front of the head is one the dash
@@ -25,6 +25,11 @@ const hyphenJoin = (head, tail, { lead = '-?', trail = '-?', notBefore = '' } = 
 // form: it reaches every rule below unfolded, as the author typed it.
 const AUTHORED_DASH = `${G.MDASH}${G.NDASH}-`;
 
+// The end tag of an inline element stands after the words of that element, so what a dash follows is
+// what ends inside it, and the tag opens no line: `<span>2020 г.</span> -` ends in a period.
+export const INLINE_END = `<\\/${OPEN}[${TRANSPARENT_TAG_KINDS}]\\d+${CLOSE}>`;
+const TAG_GT = `(?<!<\\/${OPEN}[${TRANSPARENT_TAG_KINDS}]\\d+${CLOSE})>`;
+
 // Anything that ends content takes the dash: an enumerated allowlist would leave `]`, `*`, `%` and a
 // vault placeholder without one. Sentence marks stay out — `em_after_sentence` spaces those the
 // other way round — and so do openers and dashes, which would turn a `- - -` break or a `( - x)`
@@ -33,18 +38,25 @@ const AUTHORED_DASH = `${G.MDASH}${G.NDASH}-`;
 // The separator may already be a non-breaking space, since a half-typeset source glues short words
 // before anyone converts its dashes. A spaced `–` between words still means an em dash; glued
 // (`отец–сын`) it stays what it is.
+//
+// A hyphen glued to the start of an element whose text opens with a digit is the minus it is glued
+// to that digit without one: `-<span>7 °F</span>` is what `symbol.fahrenheit` makes of `-7F`.
 const EM_AFTER_CONTENT_RE = new RegExp(
-  `([^\\s(\\[{<.!?${G.LAQUO}${G.BDQUO}${G.HELLIP}${G.NDASH}${G.MDASH}-])( |\\t|${G.NBSP})+([${AUTHORED_DASH}])(\\s|$|<)`,
+  `((?:[^\\s(\\[{<>.!?${G.LAQUO}${G.BDQUO}${G.HELLIP}${G.NDASH}${G.MDASH}-]|${TAG_GT})(?:${INLINE_END})*)( |\\t|${G.NBSP})+([${AUTHORED_DASH}])(\\s|$|<(?!${OPEN}[A-Za-z]+\\d+${CLOSE}>\\d))`,
   'giu'
 );
 
 const EM_GLUED_RE = new RegExp(`(,|:|\\)|")([${AUTHORED_DASH}])(\\s|$|<)`, 'giu');
 
-// What `em_after_sentence` leaves behind the mark it read as a sentence end. `abbr.currency` reads
-// this exact form back — it removes the abbreviation period this rule mistook for that mark, so it
-// has to undo the spacing too — and reads it from here, because a literal copy there would stop
-// matching silently the first time this changed.
+// What `em_after_sentence` leaves behind the mark it read as a sentence end: the inline end tags it
+// read through, captured, then this exact form. `abbr.currency` reads it back — it removes the
+// abbreviation period this rule mistook for that mark, so it has to undo the spacing too — and reads
+// it from here, because a literal copy there would stop matching silently the first time this changed.
 export const SENTENCE_DASH = ` ${G.MDASH}${G.NBSP}`;
+export const SENTENCE_DASH_TAIL = `((?:${INLINE_END})*)${SENTENCE_DASH}`;
+
+// A dash in its gaps after a sentence mark, as `em_after_sentence` reads it.
+export const DASH_IN_GAPS = `(?: |\\t|${G.NBSP})+[${AUTHORED_DASH}](?: |\\t|${G.NBSP})+`;
 
 // Same separator set as em, and still ahead of it, so a spaced range stays a range. The en dash is
 // accepted as written, or `12 – 19` falls through to `em`, which raises the range's own dash to an em
@@ -56,6 +68,73 @@ const EN_RANGE_RE = new RegExp(
   `(?<![\\d${RANGE_DASH}])(\\d+)${DASH_GAP}[${RANGE_DASH}]${DASH_GAP}(\\d+)(?![\\d${RANGE_DASH}])`,
   'gu'
 );
+
+// An operand is a number or a word. It is read only up to the first other character, so `$W` is no
+// operand and `3` stays one after a later rule glues `)`, `%` or `…` to it.
+const OPERAND_CHAR_RE = /[\p{L}\p{N}_.,]/u;
+const isOperandChar = (c) => c !== undefined && OPERAND_CHAR_RE.test(c);
+const isGap = (c) => c === ' ' || c === '\t' || c === G.NBSP;
+
+// `==`, `<=`, `>=`, `!=` and `=>` compare or point; only a lone `=` makes an equation. The `>` that
+// closes a tag placeholder is no part of a sign.
+function isEqualsSign(source, at) {
+  const before = source[at - 1] === '>' && source[at - 2] === CLOSE ? ' ' : (source[at - 1] ?? ' ');
+
+  return source[at] === '=' && !'=<>!'.includes(before) && !'=>'.includes(source[at + 1] ?? ' ');
+}
+
+// A hyphen in spaces between two operands of an equation, `x = 5 - 3` or `10 - 2 = 8`, is the minus
+// as the author typed it. `leftEnd` is where the operand before the hyphen ends, `dashEnd` where the
+// hyphen does.
+function inEquation(source, leftEnd, dashEnd) {
+  if (!isGap(source[dashEnd])) {
+    return false;
+  }
+
+  let rightStart = dashEnd;
+
+  while (isGap(source[rightStart])) {
+    rightStart++;
+  }
+
+  let rightEnd = rightStart;
+
+  while (isOperandChar(source[rightEnd])) {
+    rightEnd++;
+  }
+
+  let leftStart = leftEnd;
+
+  while (isOperandChar(source[leftStart - 1])) {
+    leftStart--;
+  }
+
+  return (
+    leftStart < leftEnd &&
+    rightStart < rightEnd &&
+    (equalsBefore(source, leftStart) || equalsAfter(source, rightEnd))
+  );
+}
+
+// The gap between an operand and `=`, the no-break space included as XML writes it.
+const EQUALS_GAP = `(?:[ \\t${G.NBSP}]|${vaultedReference(G.NBSP)})`;
+const GAP_AFTER_RE = new RegExp(`${EQUALS_GAP}+`, 'uy');
+const GAP_BEFORE_RE = new RegExp(`${EQUALS_GAP}+$`, 'u');
+const GAP_BEFORE_REACH = 64;
+
+function equalsAfter(source, at) {
+  GAP_AFTER_RE.lastIndex = at;
+
+  const gap = GAP_AFTER_RE.exec(source);
+
+  return gap !== null && isEqualsSign(source, at + gap[0].length);
+}
+
+function equalsBefore(source, end) {
+  const gap = GAP_BEFORE_RE.exec(source.slice(Math.max(0, end - GAP_BEFORE_REACH), end));
+
+  return gap !== null && isEqualsSign(source, end - gap[0].length - 1);
+}
 
 export const dashGroup = {
   title: 'Дефисы и тире',
@@ -76,18 +155,43 @@ export const dashGroup = {
       description: 'Диапазон чисел с пробелами вокруг дефиса: «12 - 19» → «12–19»',
       // Runs before em, so `dash.em` cannot take `12 - 19` for a text em dash.
       pattern: EN_RANGE_RE,
-      replacement: `$1${G.NDASH}$2`
+      replacement: (m) => {
+        const [match, from, to, offset, source] = m;
+        let dash = from.length;
+
+        while (isGap(match[dash])) {
+          dash++;
+        }
+
+        if (match[dash] === '-' && inEquation(source, offset + from.length, offset + dash + 1)) {
+          return match;
+        }
+
+        return `${from}${G.NDASH}${to}`;
+      }
     },
     {
       id: 'em',
       description: 'Тире после слов, кавычек, скобочек, пунктуации',
       pattern: [EM_AFTER_CONTENT_RE, EM_GLUED_RE],
-      replacement: [`$1${G.NBSP}${G.MDASH}$4`, `$1${G.NBSP}${G.MDASH}$3`]
+      replacement: [
+        (m) => {
+          const [match, before, , , after, offset, source] = m;
+          const dashEnd = offset + match.length - after.length;
+
+          if (source[dashEnd - 1] === '-' && inEquation(source, offset + before.length, dashEnd)) {
+            return match;
+          }
+
+          return `${before}${G.NBSP}${G.MDASH}${after}`;
+        },
+        `$1${G.NBSP}${G.MDASH}$3`
+      ]
     },
     {
       id: 'em_line_start',
       description: 'Тире после переноса строки',
-      pattern: new RegExp(`(\\n|\\r|^|>|${CLOSE})[${AUTHORED_DASH}](\\t| )`, 'gu'),
+      pattern: new RegExp(`(\\n|\\r|^|${TAG_GT}|${CLOSE})[${AUTHORED_DASH}](\\t| )`, 'gu'),
       replacement: `$1${G.MDASH}${G.NBSP}`
     },
     {
@@ -99,11 +203,11 @@ export const dashGroup = {
       // A dash that ends the text has no next clause to open, so it binds backwards instead — the
       // form `em` gives every other dangling dash.
       pattern: [
+        new RegExp(`([.!?${G.HELLIP}](?:${INLINE_END})*)${DASH_IN_GAPS}`, 'gu'),
         new RegExp(
-          `([.!?${G.HELLIP}])(?: |\\t|${G.NBSP})+[${AUTHORED_DASH}](?: |\\t|${G.NBSP})+`,
+          `([.!?${G.HELLIP}](?:${INLINE_END})*)(?: |\\t|${G.NBSP})+[${AUTHORED_DASH}]$`,
           'gu'
-        ),
-        new RegExp(`([.!?${G.HELLIP}])(?: |\\t|${G.NBSP})+[${AUTHORED_DASH}]$`, 'gu')
+        )
       ],
       replacement: [`$1${SENTENCE_DASH}`, `$1${G.NBSP}${G.MDASH}`]
     },

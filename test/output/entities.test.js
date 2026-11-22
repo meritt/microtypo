@@ -63,6 +63,39 @@ describe('entity decode and round-trip', () => {
   });
 });
 
+describe('a numeric reference decodes however it is spelled', () => {
+  test('hex and zero-padded decimal decode as the decimal does', () => {
+    for (const src of [
+      '&#34;слово&#34;',
+      '&#x22;слово&#x22;',
+      '&#X22;слово&#X22;',
+      '&#034;слово&#0034;'
+    ]) {
+      assert.equal(microtypo(src), '«слово»', src);
+    }
+
+    assert.equal(clearSpecialChars('&#x2014;&#X2014;&#x0201C;&#x201c;&#08212;'), '——""—');
+    assert.equal(clearSpecialChars('&#xA0;&#x00a0;'), `${NBSP}${NBSP}`);
+  });
+
+  test('a code point the table has no decimal reference for stays as written', () => {
+    const src = '&#38; &#x26; &#X26; &#60; &#x3C; &#62; &#x3e; &#9999; &#x270F; &#x110000;';
+
+    assert.equal(clearSpecialChars(src), src);
+  });
+
+  test('a reference is decoded once, never out of an escaped ampersand', () => {
+    assert.equal(clearSpecialChars('&amp;#x22;слово&amp;#X22;'), '&amp;#x22;слово&amp;#X22;');
+    assert.equal(clearSpecialChars('&#x26;#x22;'), '&#x26;#x22;');
+  });
+
+  test('XML keeps every reference as written', () => {
+    const src = '<a>&#x22;слово&#X22; &#34;с&#034;</a>';
+
+    assert.equal(microtypo(src, { input: 'xml' }), src);
+  });
+});
+
 describe('author space preservation', () => {
   test('author &nbsp; round-trips to real NBSP (U+00A0), not plain space', () => {
     const out = microtypo('a&nbsp;b', PARAMS);

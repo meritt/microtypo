@@ -272,6 +272,46 @@ test('textarea content is protected while the text around it is typeset', () => 
   assert.ok(out.includes('«Амбер»'), out);
 });
 
+// A formula is MathML notation: a hyphen in it is a minus, and its quotes and spaces are its own.
+describe('the content of a math element is a formula', () => {
+  test('it is protected in every format while the text around it is typeset', () => {
+    for (const [options, src, expected] of [
+      [{}, '<math>a - b</math> а - б', '<math>a - b</math> а\u{00A0}— б'],
+      [{}, '<MATH>"a"</MATH> а - б', '<MATH>"a"</MATH> а\u{00A0}— б'],
+      [
+        { input: 'html' },
+        '<p>Формула <math><mi>a</mi><mo>-</mo><mi>b</mi></math> - тут</p>',
+        '<p>Формула <math><mi>a</mi><mo>-</mo><mi>b</mi></math>\u{00A0}— тут</p>'
+      ],
+      [
+        { input: 'markdown' },
+        'Формула <math>"a" - b</math> - тут',
+        'Формула <math>"a" - b</math>\u{00A0}— тут'
+      ],
+      [
+        { input: 'xml' },
+        '<doc><math>a - b</math> а - б</doc>',
+        '<doc><math>a - b</math> а\u{00A0}— б</doc>'
+      ],
+      [{ input: 'json' }, '{"a":"<math>a - b</math> - x"}', '{"a":"<math>a - b</math>\u{00A0}— x"}']
+    ]) {
+      assert.equal(microtypo(src, options), expected, src);
+    }
+  });
+
+  test('<math/> is empty and the prose after it is typeset', () => {
+    assert.equal(microtypo('<math/> а - б'), '<math/> а\u{00A0}— б');
+    assert.equal(
+      microtypo('<doc><math/> а - б</doc>', { input: 'xml' }),
+      '<doc><math/> а\u{00A0}— б</doc>'
+    );
+  });
+
+  test('a name that only begins with math is another element', () => {
+    assert.equal(microtypo('<mathx>a - b</mathx>'), '<mathx>a\u{00A0}— b</mathx>');
+  });
+});
+
 describe('a raw-text element ends at the first closing tag, whatever its own text says', () => {
   const NO_BREAKS = { html: true, render: { paragraphs: false, breakline: false } };
 

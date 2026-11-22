@@ -4,13 +4,16 @@ import { parse as parseToml } from 'smol-toml';
 import { parse as parseYaml } from 'yaml';
 
 import { visible } from '../visible.mjs';
+import { checkTransparent } from './transparent.mjs';
 
 export const NAMES = {
+  responds: 'движок отвечает',
   errors: 'типизированные ошибки',
   traces: 'нет следов хранилищ',
   protected: 'защищённое байт в байт',
   shape: 'форма документа',
-  idempotence: 'идемпотентность'
+  idempotence: 'идемпотентность',
+  transparent: 'строчная разметка прозрачна'
 };
 
 const TRACES = [
@@ -157,13 +160,34 @@ function checkShape(format, text, out, before, after) {
   return difference === null ? null : `разбор отличается: ${difference}`;
 }
 
-// An address the text group turns into a link is kept byte for byte in its `href`, where HTML
-// writes an `&` as `&amp;` unless it already starts a character reference.
-const BARE_AMPERSAND_RE = /&(?![A-Za-z][A-Za-z0-9]*;|#[0-9]+;|#[xX][0-9A-Fa-f]+;)/gu;
+// An address the text group turns into a link reaches its `href` with its character references
+// decoded once and then escaped as attribute text.
+const REFERENCE_RE = /&(?:(amp|lt|gt|quot|apos)|#([0-9]{1,7})|#[xX]([0-9A-Fa-f]{1,6}));/gu;
+const NAMED_REFERENCES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+
+function hrefOf(address) {
+  const decoded = address.replaceAll(REFERENCE_RE, (whole, name, decimal, hex) => {
+    if (name !== undefined) {
+      return NAMED_REFERENCES[name];
+    }
+
+    const code = decimal === undefined ? Number.parseInt(hex, 16) : Number.parseInt(decimal, 10);
+
+    return code === 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)
+      ? '\u{FFFD}'
+      : String.fromCodePoint(code);
+  });
+
+  return decoded
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
 
 const forms = (item) =>
   item.kind === 'url' || item.kind === 'email'
-    ? [item.text, `href="${item.text.replaceAll(BARE_AMPERSAND_RE, '&amp;')}"`]
+    ? [item.text, `href="${hrefOf(item.text)}"`]
     : [item.text];
 
 // A fingerprint tells occurrences of one defect from another without running anything: letters and
@@ -205,6 +229,17 @@ function firstEdit(a, b) {
   return `[…]${classes(visible(a.slice(p, p + 8)))}`;
 }
 
+// A case the engine gives no answer on within the limit. `check` cannot see one: the pool that runs
+// the case on a worker does, and replaces the worker.
+export function silence(format, seconds) {
+  return {
+    invariant: 'responds',
+    key: format,
+    fingerprint: format,
+    detail: `нет ответа за ${seconds} с`
+  };
+}
+
 // One function per engine: `check(case)` runs a case through a `MicroTypo` built from its
 // configuration and returns every invariant it breaks. The last instance is kept, since shrinking
 // asks about one configuration many times over. `restart` runs before the first pass, so what a case
@@ -224,8 +259,85 @@ export function createChecker(MicroTypo, restart) {
     return cached;
   }
 
+  let plainKey = null;
+  let plainEngine = null;
+
+  // The output with the configuration of `config` and no character references, or null.
+  function typesetPlain(config, text) {
+    const key = JSON.stringify(config);
+
+    try {
+      if (key !== plainKey) {
+        plainEngine = new MicroTypo({ ...config, entities: false });
+        plainKey = key;
+      }
+
+      restart();
+
+      return plainEngine.process(text);
+    } catch {
+      return null;
+    }
+  }
+
+  // A case built for the transparency invariant is checked for it too; asked about it alone, the
+  // outputs returned are the two it compares.
+  const transparent = (kase) => {
+    const typo = engine(kase.config);
+
+    return checkTransparent(
+      kase,
+      (text) => {
+        restart();
+        return typo.process(text);
+      },
+      typesetPlain,
+      classes
+    );
+  };
+
   // `only` names the one invariant a caller asks about, so shrinking does not pay for the others.
-  return function check({ format, config, text, protect }, only = null) {
+  function check(kase, only = null) {
+    if (only === 'transparent') {
+      let violation = null;
+
+      try {
+        violation = transparent(kase);
+      } catch {
+        // An engine that cannot be built for the case breaks another invariant.
+      }
+
+      return {
+        violations: violation === null ? [] : [violation],
+        out: violation?.out,
+        again: violation?.again
+      };
+    }
+
+    const result = checkOne(kase, only);
+
+    if (kase.transparent && only === null) {
+      try {
+        const violation = transparent(kase);
+
+        if (violation !== null) {
+          const { out: _out, again: _again, ...found } = violation;
+
+          result.violations.push(found);
+        }
+      } catch {
+        // As above.
+      }
+    }
+
+    return result;
+  }
+
+  check.typesetPlain = typesetPlain;
+
+  return check;
+
+  function checkOne({ format, config, text, protect }, only) {
     const wants = (invariant) => only === null || only === invariant;
     let typo;
     let out;
@@ -332,5 +444,5 @@ export function createChecker(MicroTypo, restart) {
     }
 
     return { violations, out, again };
-  };
+  }
 }

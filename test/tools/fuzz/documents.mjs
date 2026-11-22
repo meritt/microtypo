@@ -99,6 +99,10 @@ export function templateOf(config) {
 // blank line, and for indented code a heading before that blank line.
 const AFTER_BLANK = String.raw`(?:^(?:[ \t]*\r?\n)*|\n(?:[ \t]*\r?\n)+)`;
 const AFTER_HEADING = String.raw`(?:^(?:[ \t]*\r?\n)*|(?:^|\n)#{1,6} [^\n]*\n(?:[ \t]*\r?\n)+)`;
+// A container directive's fence is a line of its own, and one no HTML block holds: the stretch from
+// the blank line or document start in front of it has no line opening with a tag.
+const OUTSIDE_HTML_BLOCK = String.raw`(?:^|\n[ \t]*\r?\n)(?:(?![ \t]*<)[^\r\n]*\r?\n)*`;
+const LINE_END = String.raw`(?:\r?\n|$)`;
 
 const YAML_PLAIN_RE = /^[А-Яа-яЁёA-Za-z][^:#\n\r]*[^\s:#]$/u;
 
@@ -239,7 +243,18 @@ export function createDocuments(lexicon, d) {
           `| ${g.word()} | ${g.word()} |${e()}|---|:-:|${e()}| ${g.finish(ctx, g.chunk(ctx))} | ${g.finish(ctx, g.chunk(ctx))} |`,
         rule: () => pick(['---', '***', '* * *', '___']),
         comment: () => g.guard(ctx, 'comment', `<!-- ${g.word()} - "${g.word()}" -->`),
-        container: () => `:::${pick(['note', 'warning'])}${e()}${prose(ctx)}${e()}:::`,
+        container: () => {
+          const fence = (source) =>
+            g.guard(ctx, 'md-directive', source, { before: OUTSIDE_HTML_BLOCK, after: LINE_END });
+          const name = pick([
+            'note',
+            'warning',
+            ' tip Заголовок - "тире"',
+            'note{.x title="a - b"}'
+          ]);
+
+          return `${fence(`:::${name}`)}${e()}${prose(ctx)}${e()}${fence(pick([':::', '::::']))}`;
+        },
         math: () => `$$${e()}a - b = "c"${e()}$$`,
         hardbreak: () => `${line(ctx)}  ${e()}${line(ctx)}`
       }[kind]();
@@ -253,7 +268,7 @@ export function createDocuments(lexicon, d) {
 
   function markdown(ctx) {
     const header = chance(0.1)
-      ? `---${nl(ctx)}title: "${g.word()} - ${g.word()}"${nl(ctx)}---${nl(ctx)}${nl(ctx)}`
+      ? `${g.guard(ctx, 'md-header', `---${nl(ctx)}title: "${g.word()} - ${g.word()}"${nl(ctx)}---`, { before: '^' })}${nl(ctx)}${nl(ctx)}`
       : '';
 
     // Spaces closing the document are the one place Markdown leaves trailing spaces to the rules.
@@ -441,7 +456,17 @@ export function createDocuments(lexicon, d) {
             () =>
               `${tag(`<${name} type="${esc(`${g.word()} - "${g.word()}"`)}">`)}${line(ctx)}${tag(`</${name}>`)}`
           ],
-          [1, () => g.guard(ctx, '<code>', `<code>${esc(g.bait({ lines: false }))}</code>`)],
+          [
+            1,
+            () => {
+              const safe = pick(['code', 'math']);
+              return g.guard(
+                ctx,
+                `<${safe}>`,
+                `<${safe}>${esc(g.bait({ lines: false }))}</${safe}>`
+              );
+            }
+          ],
           [
             1,
             () =>
@@ -470,10 +495,12 @@ export function createDocuments(lexicon, d) {
   function frontmatter(ctx) {
     const eol = chance(0.8) ? '\n' : '\r\n';
     const body = markdownBlocks(ctx);
+    // The header's values are data: Markdown there is text the scanners may still see, not syntax.
+    const header = { ...ctx, eol: ' ', data: true };
 
     return weighted([
-      [5, () => `---${eol}${yamlBody({ ...ctx, eol: ' ' }, eol)}${eol}---${eol}${eol}${body}`],
-      [2, () => `+++${eol}${tomlBody({ ...ctx, eol: ' ' }, eol)}${eol}+++${eol}${eol}${body}`],
+      [5, () => `---${eol}${yamlBody(header, eol)}${eol}---${eol}${eol}${body}`],
+      [2, () => `+++${eol}${tomlBody(header, eol)}${eol}+++${eol}${eol}${body}`],
       [1, () => body]
     ])();
   }

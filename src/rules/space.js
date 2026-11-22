@@ -191,6 +191,9 @@ function isPartOfMultiSegmentId(terminator) {
 
 const WORD_CHAR_RE = /[\p{L}\p{N}]/u;
 
+// The particles `nobr.nbsp_particle` binds to the word before them, in either case.
+export const PARTICLE = '[Лл][Ии]|[Бб][Ыы]|[Бб]|[Жж][Ее]|[Жж]';
+
 // Whether closing this gap would glue two marks into a pair the punctuation group swallows. That
 // group runs four groups earlier, so the pair would survive this pass and be rewritten on the next
 // one, a mark short of what the author typed. It owns the table.
@@ -246,8 +249,13 @@ export const spaceGroup = {
     {
       id: 'space_after_comma',
       description: 'Пробел после запятой',
-      pattern: [/( |\t|\u{00A0}),([а-яёa-z0-9])/giu, /([^0-9]),([а-яёa-z0-9«„])/giu],
-      replacement: [', $2', '$1, $2']
+      // A gap is matched from its first character only: tried from every one, a long gap with no
+      // comma behind it is reread to its end each time.
+      pattern: [
+        /(?<![ \t\u{00A0}])[ \t\u{00A0}]+,([а-яёa-z0-9])/giu,
+        /([^0-9]),([а-яёa-z0-9«„])/giu
+      ],
+      replacement: [', $1', '$1, $2']
     },
     {
       id: 'space_after_punctuation',
@@ -291,7 +299,9 @@ export const spaceGroup = {
     {
       id: 'strip_quote_padding',
       description: 'Удаление пробелов сразу после открывающей и перед закрывающей кавычкой',
-      pattern: [/([«„])( |\t|\u{00A0})+/gu, /( |\t|\u{00A0})+([»“])/gu],
+      // The gap before a closing quote is matched from its first character only, as in
+      // `space_after_comma`.
+      pattern: [/([«„])( |\t|\u{00A0})+/gu, /(?<![ \t\u{00A0}])( |\t|\u{00A0})+([»“])/gu],
       replacement: ['$1', '$2']
     },
     {
@@ -305,9 +315,15 @@ export const spaceGroup = {
       id: 'nbsp_before_quote',
       description: 'Неразрывный пробел перед открывающей кавычкой',
       // The shared left boundary carries brackets and a newline, so `(в «Амбере»)` and a short word
-      // opening a second line lose the same breakable space a bare one does.
-      pattern: new RegExp(`${CONTENT_START_GROUP}([a-zа-яё]{1,2}) ([${G.LAQUO}${G.BDQUO}])`, 'gu'),
-      replacement: `$1$2${G.NBSP}$3`
+      // opening a second line lose the same breakable space a bare one does. The quote is only looked
+      // at: it is the left boundary of the short word inside it, `«а „б „в`. A particle after a space
+      // is no short word: `nobr.nbsp_particle` binds it to the word before and takes this space back.
+      // Nor is a unit bound to its number, `5 м «`: the units rules glue it later, and only then.
+      pattern: new RegExp(
+        `${CONTENT_START_GROUP}(?<!\\d${G.NBSP})([a-zа-яё]{1,2})(?<![ \\t${G.NBSP}](?:${PARTICLE})) (?=[${G.LAQUO}${G.BDQUO}])`,
+        'gu'
+      ),
+      replacement: `$1$2${G.NBSP}`
     },
     {
       id: 'nbsp_before_month',
@@ -319,7 +335,7 @@ export const spaceGroup = {
     {
       id: 'trim_line_end',
       description: 'Удаление пробелов в конце текста',
-      pattern: / +$/g,
+      pattern: /(?<! ) +$/g,
       replacement: ''
     },
     {

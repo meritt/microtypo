@@ -204,7 +204,7 @@ describe('a stray < outside an HTML document', () => {
       microtypo(JSON.stringify({ a: 'Если x<y, то "всё" - хорошо, а <b>это</b>' }), {
         input: 'json'
       }),
-      JSON.stringify({ a: `Если x<y, то${NBSP}«всё»${NBSP}— хорошо, а <b>это</b>` })
+      JSON.stringify({ a: `Если x<y, то${NBSP}«всё»${NBSP}— хорошо, а${NBSP}<b>это</b>` })
     );
   });
 
@@ -339,12 +339,10 @@ describe('void and block tags are not <p>-wrapped', () => {
 });
 
 describe('inert markup is never welded into a tag', () => {
-  // `< img …>` reads as text, so the space-before-bracket rule spaces `alert(1)`, which is a separate
-  // question from the tag property.
   test('inert "< img …>" stays text', () => {
     assert.equal(
       microtypo('Корвин < img src=x onerror=alert(1) > Эрик', flat),
-      'Корвин < img src=x onerror=alert (1) > Эрик'
+      'Корвин < img src=x onerror=alert(1) > Эрик'
     );
   });
 

@@ -1,5 +1,5 @@
-// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node from
-// `.nvmrc`, one file at a time, and no other test run, coverage or build beside it. Ratio
+// Timings here compare only under `pnpm test:perf` on an otherwise idle machine: Node pinned in
+// `package.json`, one file at a time, and no other test run, coverage or build beside it. Ratio
 // checks hold on any machine; absolute limits were set on an Intel i9-10910 under macOS and are
 // smoke limits elsewhere.
 
@@ -144,6 +144,26 @@ test('cycled rule respects maxProcessingMs (interrupted promptly, not after 100 
   assert.throws(() => typo.process('a'), MicroTypoBudgetError);
   const ms = performance.now() - start;
   assert.ok(ms < 100, `cycle() ignored the budget: took ${ms.toFixed(1)}ms (expected < 100)`);
+});
+
+// Whether it finishes or trips the budget, a megabyte of nested quotes holds the thread for no more
+// than a small multiple of that budget.
+test('adversarial nested quotes hold the thread for a bounded multiple of the budget', () => {
+  const budgetMs = 500;
+  const typo = new MicroTypo({ maxInputLength: 1_000_000, maxProcessingMs: budgetMs });
+  const input = '«'.repeat(500_000) + '»'.repeat(500_000);
+  const start = performance.now();
+
+  try {
+    typo.process(input);
+  } catch (error) {
+    if (!(error instanceof MicroTypoBudgetError)) {
+      throw error;
+    }
+  }
+
+  const ms = performance.now() - start;
+  assert.ok(ms < budgetMs * 4, `held the thread for ${ms.toFixed(0)}ms on a ${budgetMs}ms budget`);
 });
 
 // Isolated at the SafeBlocks level, because the full pipeline's URL and email scan would mask
