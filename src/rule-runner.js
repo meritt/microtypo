@@ -1,8 +1,10 @@
+import { MicroTypoConfigError } from './errors/index.js';
 import { applyRule, beginGroup, endGroup, mayLift } from './inline-lift.js';
 import { deepFreeze } from './lib/deep-freeze.js';
 import { executeRule } from './lib/rule-budget.js';
 import { hasRequiredFeatures } from './lib/rule-features.js';
 import { cycle } from './lib/strings.js';
+import { dataPattern } from './schemas/data-rules.js';
 
 const MAX_CYCLE_ITER = 100;
 
@@ -125,7 +127,26 @@ function makeApplyFn(rule, groupName) {
     );
   }
 
-  const patterns = Array.isArray(rule.pattern) ? rule.pattern : [rule.pattern];
+  const patterns = (Array.isArray(rule.pattern) ? rule.pattern : [rule.pattern]).map((pattern) =>
+    pattern instanceof RegExp || pattern === null || typeof pattern !== 'object'
+      ? pattern
+      : dataPattern(pattern)
+  );
+  const hasDataPattern = (Array.isArray(rule.pattern) ? rule.pattern : [rule.pattern]).some(
+    (pattern) => pattern !== null && typeof pattern === 'object' && !(pattern instanceof RegExp)
+  );
+  if (
+    hasDataPattern &&
+    !(
+      typeof rule.replacement === 'string' ||
+      (Array.isArray(rule.replacement) &&
+        rule.replacement.every((replacement) => typeof replacement === 'string'))
+    )
+  ) {
+    throw new MicroTypoConfigError('data rule replacement must be a string', {
+      details: { rule: `${groupName}.${rule.id}` }
+    });
+  }
 
   for (const p of patterns) {
     if (!(p instanceof RegExp)) {

@@ -181,6 +181,10 @@ export class MicroTypo {
 
     this.#initVaults();
 
+    for (const group of validated.ruleGroups ?? []) {
+      this.registerRuleGroup(group, { name: group.name, position: group.position });
+    }
+
     // A string-aware scan, so a delimiter inside a quoted expression does not close the span early.
     const readTemplates =
       this.#input.template === 'off' ? null : templateReader(this.#input.template);
@@ -582,11 +586,29 @@ export class MicroTypo {
   // take effect is refused rather than ignored; naming the format the instance already has is still
   // a no-op and still passes.
   applyOptions(options) {
-    const validated = validateConfig(options);
+    const catalogue = new Map(
+      DEFAULT_GROUPS.map(([name, def]) => [name, def.rules.map((rule) => rule.id)])
+    );
+    for (const [name, group] of this.#groups) {
+      catalogue.set(
+        name,
+        group.compiledRules.map((rule) => rule.id)
+      );
+    }
+    const validated = validateConfig(options, catalogue);
     // What the caller wrote, not what validation filled in: an absent `input` arrives here spelled
     // out as `text`, and comparing that against the real format would read every partial update as a
     // request to become a plain-text engine.
     const asked = Object(options ?? {});
+
+    if (asked.ruleGroups !== undefined) {
+      throw new MicroTypoConfigError(
+        'ruleGroups is settled by the constructor; use registerRuleGroup',
+        {
+          details: { option: 'ruleGroups' }
+        }
+      );
+    }
 
     if (
       Object.hasOwn(asked, 'input') &&
@@ -609,7 +631,7 @@ export class MicroTypo {
   }
 
   #applyValidatedOptions(validated) {
-    const intent = normaliseOptions(validated);
+    const intent = normaliseOptions(validated, new Set(this.#groups.keys()));
 
     for (const [key, value] of Object.entries(intent.engineSettings)) {
       this.#applyEngineSetting(key, value);

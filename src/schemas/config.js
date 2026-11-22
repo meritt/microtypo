@@ -1,22 +1,22 @@
 import {
   BUNDLE_NAMES,
   isOn,
-  KNOWN_GROUPS,
   SETTING_SELECTORS,
   canonicalGroupName,
   wildcardToRegex
 } from '../core/options.js';
 import { MicroTypoConfigError } from '../errors/index.js';
 import { DEFAULT_GROUPS } from '../rules/registry.js';
+import { validateDataGroups } from './data-rules.js';
 
 const RULE_IDS = new Map(DEFAULT_GROUPS.map(([name, def]) => [name, def.rules.map((r) => r.id)]));
 
-function selectorMatchesRule(group, selector) {
+function selectorMatchesRule(group, selector, catalogue) {
   if (selector === '*') {
     return true;
   }
 
-  const ids = RULE_IDS.get(group) ?? [];
+  const ids = catalogue.get(group) ?? [];
   const re = wildcardToRegex(selector);
 
   return ids.some((id) => re.test(id));
@@ -30,7 +30,8 @@ const TOP_LEVEL_KEYS = new Set([
   'presets',
   'html',
   'rules',
-  'render'
+  'render',
+  'ruleGroups'
 ]);
 
 const RENDER_KEYS = new Set(['paragraphs', 'autolink', 'breakline', 'nowrap', 'hanging', 'prefix']);
@@ -194,7 +195,7 @@ function normaliseInput(input, issues) {
   return normalised;
 }
 
-export function validateConfig(config) {
+export function validateConfig(config, registered = RULE_IDS) {
   if (
     config !== undefined &&
     config !== null &&
@@ -208,6 +209,19 @@ export function validateConfig(config) {
 
   const cfg = config ?? {};
   const issues = [];
+
+  if (cfg.ruleGroups !== undefined) {
+    validateDataGroups(cfg.ruleGroups, issues);
+  }
+  const catalogue = new Map(registered);
+  for (const group of Array.isArray(cfg.ruleGroups) ? cfg.ruleGroups : []) {
+    if (group?.name && Array.isArray(group.rules)) {
+      catalogue.set(
+        canonicalGroupName(group.name),
+        group.rules.map((rule) => rule?.id).filter((id) => typeof id === 'string')
+      );
+    }
+  }
 
   for (const key of Object.keys(cfg)) {
     if (!TOP_LEVEL_KEYS.has(key)) {
@@ -300,7 +314,7 @@ export function validateConfig(config) {
 
         const dot = key.indexOf('.');
         if (dot === -1) {
-          if (!KNOWN_GROUPS.has(canonicalGroupName(key))) {
+          if (!catalogue.has(canonicalGroupName(key))) {
             issues.push(`rules: unknown key "${key}"`);
           }
           continue;
@@ -308,7 +322,7 @@ export function validateConfig(config) {
 
         const groupRaw = key.slice(0, dot);
         const group = canonicalGroupName(groupRaw);
-        if (!KNOWN_GROUPS.has(group)) {
+        if (!catalogue.has(group)) {
           issues.push(`rules: unknown group "${groupRaw}"`);
           continue;
         }
@@ -318,7 +332,7 @@ export function validateConfig(config) {
           continue;
         }
 
-        if (!selectorMatchesRule(group, key.slice(dot + 1))) {
+        if (!selectorMatchesRule(group, key.slice(dot + 1), catalogue)) {
           issues.push(`rules: "${key}" does not match any rule id in group "${groupRaw}"`);
         }
       }
