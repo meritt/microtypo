@@ -78,11 +78,12 @@ const serialize = (value, quote) => {
   return value.replace(/[\t\n\r\f "'`=<>]/g, (character) => `&#${character.codePointAt(0)};`);
 };
 
-export function typesetAttributes(text, selected, transform, isProtected, checkBudget) {
+export function typesetAttributes(text, selected, transform, isProtected, checkBudget, onEdits) {
   if (selected.size === 0 || !text.includes('<')) {
     return text;
   }
   const result = [];
+  const edits = onEdits === undefined ? null : [];
   let cursor = 0;
   const tags = tagSpans(text);
   for (const [start, close] of tags) {
@@ -115,14 +116,17 @@ export function typesetAttributes(text, selected, transform, isProtected, checkB
       if (field.name === 'content' && !textMeta) {
         continue;
       }
-      const value = serialize(transform(field.value), field.quote);
+      const value = serialize(transform(field.value, field.start, field.end), field.quote);
       if (value === field.value) {
         continue;
       }
       result.push(text.slice(cursor, field.start), value);
+      edits?.push({ start: field.start, end: field.end, text: value });
       cursor = field.end;
     }
   }
   result.push(text.slice(cursor));
-  return result.join('');
+  const output = result.join('');
+  onEdits?.(output, edits);
+  return output;
 }

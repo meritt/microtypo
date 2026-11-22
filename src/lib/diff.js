@@ -35,6 +35,37 @@ export function equalRanges(before, after, checkBudget) {
   return equal;
 }
 
+export function replacementEdits(before, after, checkBudget) {
+  if (before === after) {
+    return [];
+  }
+  const edits = [];
+  let a = 0;
+  let b = 0;
+  for (let [start, next, length] of equalRanges(before, after, checkBudget)) {
+    if (splitsPair(before, start) || splitsPair(after, next)) {
+      start++;
+      next++;
+      length--;
+    }
+    if (splitsPair(before, start + length) || splitsPair(after, next + length)) {
+      length--;
+    }
+    if (length <= 0) {
+      continue;
+    }
+    if (start > a || next > b) {
+      edits.push({ start: a, end: start, text: after.slice(b, next) });
+    }
+    a = start + length;
+    b = next + length;
+  }
+  if (a < before.length || b < after.length) {
+    edits.push({ start: a, end: before.length, text: after.slice(b) });
+  }
+  return edits;
+}
+
 // The diff compares UTF-16 units, so two characters beyond the BMP that share a high surrogate agree
 // on it and differ on the low one alone. A range edge standing between the two halves of a pair takes
 // the whole pair: a caller slicing there would hold half a character.

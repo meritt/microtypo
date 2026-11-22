@@ -34,11 +34,13 @@ import {
 } from './input/xml.js';
 import { scanYaml } from './input/yaml.js';
 import { BLOCK_TAG_NAMES, VOID_BLOCK_TAG_NAMES } from './lib/block-tags.js';
-import { changedRanges } from './lib/diff.js';
+import { changedRanges, replacementEdits } from './lib/diff.js';
 import { G, unicodeToEntities, unicodeToXmlEntities } from './lib/glyphs.js';
 import { fileLineStyle, restoreFileEndings, restoreFileTail } from './lib/line-endings.js';
+import { SourceMap, jsonSourceMap, representedMap } from './lib/provenance.js';
 import { bindRuleBudget } from './lib/rule-budget.js';
 import { F, featureMask } from './lib/rule-features.js';
+import { RuleTrace, bindRuleTrace, ruleTraceOf } from './lib/rule-trace.js';
 import { edgeWhitespace, leadingIndent, trimBlankLines } from './lib/strings.js';
 import { SafeBlocks, scanHtmlComments, scanLineIndent } from './protect/blocks.js';
 import { TokenBudget } from './protect/forgery.js';
@@ -154,6 +156,7 @@ export class MicroTypo {
   // can hold one its document does not spell, since `JSON.parse` decodes ``; elsewhere one look
   // at the document spares a structured format the check on every value.
   #reservedPossible = false;
+  #trace = null;
   onCycleLimit = null;
 
   constructor(config = {}) {
@@ -740,7 +743,7 @@ export class MicroTypo {
       });
     }
 
-    const withChanges = readProcessOptions(options);
+    const diagnostics = readProcessOptions(options);
 
     // A recursive call would reset vaults mid-pipeline and corrupt the outer call's restore chain.
     if (this.#processing) {
@@ -760,6 +763,8 @@ export class MicroTypo {
     this.#processing = true;
 
     const checkBudget = budgetCheck(this.#maxProcessingMs, performance.now());
+    const trace = diagnostics.trace ? [] : null;
+    this.#trace = trace;
     let result;
 
     // A byte-order mark tells how the file is encoded, not what it says: it goes back first, and no
@@ -768,7 +773,7 @@ export class MicroTypo {
 
     try {
       this.#reservedPossible = this.#input.format === 'json' || hasReserved(text);
-      result = bom + this.#typeset(text.slice(bom.length), checkBudget);
+      result = bom + this.#typeset(text.slice(bom.length), checkBudget, bom.length);
       if (this.#ignoredFile) {
         result = text;
       }
@@ -778,16 +783,22 @@ export class MicroTypo {
       checkBudget('restore');
     } finally {
       this.#processing = false;
+      this.#trace = null;
     }
 
-    if (!withChanges) {
+    if (!diagnostics.changes && !diagnostics.edits && !diagnostics.trace) {
       return result;
     }
 
-    return { text: result, changes: changedRanges(text, result, checkBudget) };
+    return {
+      text: result,
+      ...(diagnostics.trace ? { trace: this.#ignoredFile ? [] : trace } : {}),
+      ...(diagnostics.changes ? { changes: changedRanges(text, result, checkBudget) } : {}),
+      ...(diagnostics.edits ? { edits: replacementEdits(text, result, checkBudget) } : {})
+    };
   }
 
-  #typeset(text, checkBudget) {
+  #typeset(text, checkBudget, offset) {
     // Reserved PUA in the input is escaped per fragment in `#runPipeline`, where placeholders live.
     // Snapshot the hook so a rule callback can't swap it mid-process.
     const hook = this.onCycleLimit;
@@ -801,15 +812,15 @@ export class MicroTypo {
         : null;
 
     if (this.#input.format === 'json') {
-      return this.#processJson(text, session, checkBudget);
+      return this.#processJson(text, session, checkBudget, offset);
     }
 
     if (this.#input.format === 'toml') {
-      return this.#typesetStructured(text, scanToml, session, checkBudget);
+      return this.#typesetStructured(text, scanToml, session, checkBudget, offset);
     }
 
     if (this.#input.format === 'yaml') {
-      return this.#typesetStructured(text, scanYaml, session, checkBudget);
+      return this.#typesetStructured(text, scanYaml, session, checkBudget, offset);
     }
 
     if (this.#input.format === 'xml') {
@@ -822,19 +833,25 @@ export class MicroTypo {
 
       return (
         text.slice(0, start) +
-        this.#runPipeline(core, session, checkBudget, { destination: 'xml' }) +
+        this.#runPipeline(core, session, checkBudget, {
+          destination: 'xml',
+          sourceMap: this.#trace === null ? null : new SourceMap(core, offset + start, checkBudget)
+        }) +
         text.slice(end)
       );
     }
 
     if (this.#input.format === 'frontmatter') {
-      return this.#typesetFrontmatter(text, session, checkBudget);
+      return this.#typesetFrontmatter(text, session, checkBudget, offset);
     }
 
     // Markdown trims edge-aware, keeping the leading indent of indented code; text and HTML trim
     // as `String.prototype.trim` does, all but the indent of the first line with content.
     if (this.#input.format === 'markdown' || this.#input.format === 'mdx') {
-      return this.#runPipeline(text, session, checkBudget, { trim: this.#trimBlankLines });
+      return this.#runPipeline(text, session, checkBudget, {
+        trim: this.#trimBlankLines,
+        sourceMap: this.#trace === null ? null : new SourceMap(text, offset, checkBudget)
+      });
     }
 
     // Spliced out rather than lifted onto a line of its own, which would put a line break in front of
@@ -845,7 +862,11 @@ export class MicroTypo {
       destination: this.#input.format === 'plain' ? 'plain' : 'html',
       trim: (s) => s.trim(),
       indents: true,
-      firstIndent: text.slice(from, to)
+      firstIndent: text.slice(from, to),
+      sourceMap:
+        this.#trace === null
+          ? null
+          : new SourceMap(text, offset, checkBudget).fork(text.slice(0, from) + text.slice(to))
     });
 
     return body;
@@ -853,11 +874,14 @@ export class MicroTypo {
 
   // `null` is no header, the whole document being a Markdown body; MALFORMED is an opening delimiter
   // with no close, which is rejected rather than reparsed.
-  #typesetFrontmatter(text, session, checkBudget) {
+  #typesetFrontmatter(text, session, checkBudget, offset) {
     const fm = splitFrontmatter(text);
 
     if (fm === null) {
-      return this.#runPipeline(text, session, checkBudget, { trim: this.#trimBlankLines });
+      return this.#runPipeline(text, session, checkBudget, {
+        trim: this.#trimBlankLines,
+        sourceMap: this.#trace === null ? null : new SourceMap(text, offset, checkBudget)
+      });
     }
 
     if (fm.malformed) {
@@ -869,11 +893,25 @@ export class MicroTypo {
 
     const typedHeader =
       fm.open === '+++'
-        ? this.#typesetStructured(fm.header, scanToml, session, checkBudget)
-        : this.#typesetStructured(fm.header, scanYaml, session, checkBudget);
+        ? this.#typesetStructured(
+            fm.header,
+            scanToml,
+            session,
+            checkBudget,
+            offset + fm.headerStart
+          )
+        : this.#typesetStructured(
+            fm.header,
+            scanYaml,
+            session,
+            checkBudget,
+            offset + fm.headerStart
+          );
     const boundary = /^(?:[ \t]*(?:\r\n?|\n))+/u.exec(fm.body)?.[0] ?? '';
     const typedBody = this.#runPipeline(fm.body, session, checkBudget, {
-      trim: this.#trimBlankLines
+      trim: this.#trimBlankLines,
+      sourceMap:
+        this.#trace === null ? null : new SourceMap(fm.body, offset + fm.bodyStart, checkBudget)
     });
 
     // Delimiter lines come straight from the original text, so they stay byte-exact.
@@ -887,7 +925,7 @@ export class MicroTypo {
   }
 
   // Splices right-to-left so earlier offsets stay valid; no doc-level trim.
-  #processJson(text, session, checkBudget) {
+  #processJson(text, session, checkBudget, offset) {
     // `JSON.parse` is the ground truth for malformation `scanJson` cannot catch — a trailing comma,
     // a garbage tail. The native parse cannot be interrupted, so `maxInputLength` is its only bound
     // and the budget is read once it returns.
@@ -915,14 +953,23 @@ export class MicroTypo {
         });
       }
 
-      return JSON.stringify(this.#typesetValue(decoded, session, checkBudget));
+      return JSON.stringify(
+        this.#typesetValue(
+          decoded,
+          session,
+          checkBudget,
+          this.#trace === null
+            ? null
+            : jsonSourceMap(text.slice(start, end), offset + start, decoded, checkBudget)
+        )
+      );
     });
   }
 
   // A structured value keeps its own edge whitespace: the pipeline trims what it is handed, so only
   // the core goes through it and the edges are put back around the result. A value that is nothing
   // but whitespace has no core and is returned as it came.
-  #typesetValue(value, session, checkBudget) {
+  #typesetValue(value, session, checkBudget, sourceMap) {
     const { start, end } = edgeWhitespace(value);
 
     if (start === end) {
@@ -938,7 +985,8 @@ export class MicroTypo {
     return (
       value.slice(0, start) +
       this.#runPipeline(core, session, checkBudget, {
-        destination: 'data-value'
+        destination: 'data-value',
+        sourceMap: sourceMap?.slice(start, end)
       }).trim() +
       value.slice(end)
     );
@@ -947,24 +995,32 @@ export class MicroTypo {
   // Eligibility is decided up front by the scanner, so the raw interior is the value and needs no
   // decode: `scanToml` reports escape-free strings only, and `scanYaml` reports quoted scalars,
   // block-scalar content lines and plain scalars that resolve to a string.
-  #typesetStructured(text, scan, session, checkBudget) {
+  #typesetStructured(text, scan, session, checkBudget, offset) {
     // Keys are dropped by `selectValueSpans`, which every format goes through, so filtering them
     // here would copy the whole span array for a predicate already known false.
     const spans = scan(text, checkBudget).filter((span) => span.eligible);
     const selected = selectValueSpans(spans, this.#select, checkBudget);
 
-    return this.#spliceQuotedSpans(text, selected, session, checkBudget);
+    return this.#spliceQuotedSpans(text, selected, session, checkBudget, offset);
   }
 
   // Each span's raw interior is the value, so it is re-wrapped in the original delimiter with the
   // value's edge whitespace preserved.
-  #spliceQuotedSpans(text, spans, session, checkBudget) {
+  #spliceQuotedSpans(text, spans, session, checkBudget, offset) {
     return this.#spliceSpans(text, spans, (span) => {
       // Every span states its own wrapper — one character, three for a TOML multi-line string, none
       // for a YAML block or plain scalar — rather than the engine re-deriving it from the source.
       const { start, end, delim: quote } = span;
       const interior = text.slice(start + quote.length, end - quote.length);
-      const typed = this.#typesetValue(interior, session, checkBudget);
+      const traceStart = this.#trace?.map(({ count, ranges }) => [count, ranges.length]);
+      const typed = this.#typesetValue(
+        interior,
+        session,
+        checkBudget,
+        this.#trace === null
+          ? null
+          : new SourceMap(interior, offset + start + quote.length, checkBudget)
+      );
 
       // The scanner guarantees the input interior holds no bare wrapper quote, but glyph folding can
       // produce one (a typographic `”` or a `&#34;` reference lands as ASCII `"`), and re-wrapping
@@ -973,11 +1029,17 @@ export class MicroTypo {
       // leave the scalar untypeset rather than change what the document means. A YAML block scalar
       // line has no wrapper at all, so there is nothing it could close early; a plain scalar has no
       // wrapper either and carries its own guard, because what ends it is a token inside the value.
-      if (quote !== '' && typed.includes(quote)) {
+      if ((quote !== '' && typed.includes(quote)) || (span.guard && !span.guard(typed))) {
+        if (traceStart !== undefined) {
+          this.#trace.length = traceStart.length;
+          for (let i = 0; i < traceStart.length; i++) {
+            this.#trace[i].count = traceStart[i][0];
+            this.#trace[i].ranges.length = traceStart[i][1];
+          }
+        }
         return text.slice(start, end);
       }
-
-      return span.guard && !span.guard(typed) ? text.slice(start, end) : quote + typed + quote;
+      return quote + typed + quote;
     });
   }
 
@@ -1052,6 +1114,7 @@ export class MicroTypo {
         close: ';',
         unsafeRegex: true
       });
+      engine.#trace = this.#trace;
       const state = engine.#makeSession(session.ctx.onCycleLimit, checkBudget);
       state.lineStyle = null;
       const foreign = new RegExp(
@@ -1067,12 +1130,17 @@ export class MicroTypo {
       session.attributeWorker = worker;
     }
     const { engine, state, inherited } = worker;
-    const transform = (value) => {
+    let sourceMap = null;
+    const transform = (value, sourceStart, sourceEnd) => {
       const { start, end } = edgeWhitespace(value);
       if (start === end) {
         return value;
       }
+      if (sourceMap === null && session.traceFrame !== null) {
+        sourceMap = representedMap(session.traceFrame.map, text, session.traceFrame.render);
+      }
       engine.#groups = this.#groups;
+      engine.#trace = this.#trace;
       engine.#order = this.#order;
       engine.#engineSettings = this.#engineSettings;
       engine.#resetVaults();
@@ -1082,7 +1150,8 @@ export class MicroTypo {
         engine
           .#runPipeline(value.slice(start, end), state, checkBudget, {
             destination: 'data-value',
-            inherited
+            inherited,
+            sourceMap: sourceMap?.slice(sourceStart, sourceEnd).slice(start, end)
           })
           .trim() +
         value.slice(end)
@@ -1093,18 +1162,44 @@ export class MicroTypo {
       this.#attributeNames,
       transform,
       (name) => this.#safeBlocks.protectsTag(name),
-      checkBudget
+      checkBudget,
+      session.traceFrame === null
+        ? undefined
+        : (output, edits) => {
+            if (sourceMap !== null) {
+              session.traceFrame.map = sourceMap.edited(output, edits);
+            }
+          }
     );
   }
 
   #runPipeline(text, session, checkBudget, options) {
     const escaped = this.#reservedPossible ? escapeReserved(text) : null;
-
-    if (escaped === null) {
-      return this.#typesetFragment(text, session, checkBudget, options);
+    const previous = session.traceFrame;
+    if (this.#trace !== null) {
+      session.traceFrame = {
+        map: options?.sourceMap ?? new SourceMap(text, 0, checkBudget),
+        render: (value, mapping) => {
+          const restored = this.#restoreProtected(
+            restoreParagraphs(value, mapping),
+            false,
+            mapping
+          );
+          return escaped === null ? restored : escaped.unescape(restored, mapping);
+        }
+      };
     }
-
-    return escaped.unescape(this.#typesetFragment(escaped.text, session, checkBudget, options));
+    try {
+      const result = this.#typesetFragment(
+        escaped === null ? text : escaped.text,
+        session,
+        checkBudget,
+        options
+      );
+      return escaped === null ? result : escaped.unescape(result);
+    } finally {
+      session.traceFrame = previous;
+    }
   }
 
   #typesetFragment(
@@ -1257,13 +1352,13 @@ export class MicroTypo {
   // The same chain the pipeline ends with, minus the paragraph markers: a `<p>` belongs to the
   // document, never inside an attribute. Used where content has to be readable before the last thing
   // that could read it — attribute escaping — rather than after it.
-  #restoreProtected(text, href = false) {
-    let result = this.#safeTags.restoreIblocks(text);
+  #restoreProtected(text, href = false, mapping) {
+    let result = this.#safeTags.restoreIblocks(text, mapping);
 
-    result = this.#safeTags.restore(result);
-    result = this.#safeBlocks.restore(result);
+    result = this.#safeTags.restore(result, mapping);
+    result = this.#safeBlocks.restore(result, mapping);
 
-    return this.#safeSequences.restore(result, href);
+    return this.#safeSequences.restore(result, href, mapping);
   }
 
   // One session per `process()`: the narrowed `ctx` a rule handler sees, and the group runner that
@@ -1426,7 +1521,15 @@ export class MicroTypo {
 
     bindRuleBudget(ctx, ruleBudget);
 
-    const keep = (before, after, rerun) => self.#safeSequences.keep(before, after, rerun);
+    const reject = this.#trace === null ? undefined : () => ruleTraceOf(ctx).discard();
+    const keep = (before, after, rerun) =>
+      self.#safeSequences.keep(
+        before,
+        after,
+        rerun,
+        reject,
+        reject === undefined ? undefined : ruleTraceOf(ctx)
+      );
 
     if (BLOCK_RENDER_FORMATS.has(self.#input.format)) {
       markdownSources.set(ctx, {
@@ -1436,8 +1539,9 @@ export class MicroTypo {
       });
     }
 
-    return {
+    const session = {
       ctx,
+      traceFrame: null,
 
       canSkipValue(value) {
         if (
@@ -1516,6 +1620,10 @@ export class MicroTypo {
         }
       }
     };
+    if (this.#trace !== null) {
+      bindRuleTrace(ctx, new RuleTrace(() => session.traceFrame, this.#trace));
+    }
+    return session;
   }
 }
 
@@ -1544,25 +1652,21 @@ function budgetCheck(budget, start) {
   };
 }
 
-// Callers pass constructor options here, so anything other than `changes` is ignored. `changes`
-// decides the return type, so a value that is not a boolean is refused rather than guessed at.
 function readProcessOptions(options) {
-  const changes =
-    options !== null && typeof options === 'object' && Object.hasOwn(options, 'changes')
-      ? options.changes
-      : undefined;
-
-  if (changes === undefined) {
-    return false;
+  const result = {};
+  for (const option of ['changes', 'edits', 'trace']) {
+    const value =
+      options !== null && typeof options === 'object' && Object.hasOwn(options, option)
+        ? options[option]
+        : undefined;
+    if (value !== undefined && typeof value !== 'boolean') {
+      throw new MicroTypoConfigError(`process() option "${option}" must be a boolean`, {
+        details: { option, receivedType: typeof value }
+      });
+    }
+    result[option] = value === true;
   }
-
-  if (typeof changes !== 'boolean') {
-    throw new MicroTypoConfigError('process() option "changes" must be a boolean', {
-      details: { option: 'changes', receivedType: typeof changes }
-    });
-  }
-
-  return changes;
+  return result;
 }
 
 function unwrapBlocks(text) {

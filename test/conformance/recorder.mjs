@@ -7,8 +7,15 @@ import { snapshot, Unsupported } from './snapshot.mjs';
 export * from '../../src/engine.js';
 
 // The calls a case replays, in order. Any other call that changes the engine stops it producing
-// cases: `registerRuleGroup` takes rule code, which no other implementation can run.
-const RECORDED = new Set(['applyOptions', 'setLayout', 'setPrefix', 'addSafeTag', 'addSafeBlock']);
+// cases. Function and RegExp definitions have no JSON snapshot; data-rule groups do.
+const RECORDED = new Set([
+  'applyOptions',
+  'setLayout',
+  'setPrefix',
+  'addSafeTag',
+  'addSafeBlock',
+  'registerRuleGroup'
+]);
 const PASSED = new Set(['constructor', 'process', 'getRuleGroup', 'listRuleGroups']);
 
 const cases = [];

@@ -405,11 +405,148 @@ function formatCases() {
   ]) {
     add('А - б', input);
   }
+  cases.push(
+    { config: { input: 'chaos' }, ops: [] },
+    { config: {}, ops: [], text: 'Амбер - вечен\n' }
+  );
+  return cases;
+}
+
+function diagnosticCases() {
+  const documents = {
+    text: '\uFEFF"Амбер" в <em>доме</em>. 10:00-12:00\r\n',
+    html: '\uFEFF<p title="Амбер - город">"Амбер" в <em>доме</em>.</p>\r\n',
+    plain: '😀 "Амбер" <b>в доме</b>',
+    markdown: '\uFEFF`"код"`\r\n\n"Амбер" в *доме*.\n',
+    mdx: 'export const x = "код";\n\n"Амбер" <X value={"код"} />\n',
+    json: '\uFEFF{"a":"\\u0022Амбер\\u0022 😀", "b":"\\u0022Амбер\\u0022 😀"}\r\n',
+    yaml: 'a: \'"Амбер"\'\r\nb: \'"Амбер"\'\n',
+    toml: 'a = \'"Амбер"\'\r\nb = \'"Амбер"\'\n',
+    xml: '\uFEFF<doc>"Амбер" &amp; "Тень"</doc>\r\n',
+    frontmatter: '\uFEFF---\r\ntitle: \'"Амбер"\'\r\n---\r\n\n"Амбер" в *доме*.\n'
+  };
+  const cases = [];
+  for (const [format, text] of Object.entries(documents)) {
+    for (const html of [false, true]) {
+      for (const entities of [false, true]) {
+        for (let mask = 1; mask < 8; mask++) {
+          const options = {
+            changes: (mask & 1) !== 0,
+            edits: (mask & 2) !== 0,
+            trace: (mask & 4) !== 0
+          };
+          cases.push({
+            name: `diagnostics-${format}-${mask}-${html}-${entities}`,
+            text,
+            config: {
+              html,
+              entities,
+              input: { format, attributes: format === 'html' ? ['title'] : [] }
+            },
+            ops: [],
+            options
+          });
+        }
+      }
+    }
+  }
+  const ruleGroups = [
+    {
+      name: 'terms',
+      rules: [
+        { id: 'first', pattern: { source: 'a', flags: 'g' }, replacement: 'b' },
+        { id: 'unchanged', pattern: { source: 'b', flags: 'g' }, replacement: 'b' },
+        { id: 'second', pattern: { source: '(b)(b)', flags: 'g' }, replacement: '$2$1c' }
+      ]
+    }
+  ];
+  cases.push({
+    name: 'diagnostics-rejected-inline-trial',
+    text: '5 <i>руб.</i>',
+    config: { html: true, render: { paragraphs: false } },
+    ops: [],
+    options: { trace: true, edits: true }
+  });
+  const roundtrip = {
+    rules: [
+      {
+        id: 'roundtrip',
+        pattern: [
+          { source: 'a', flags: 'g' },
+          { source: 'b', flags: 'g' }
+        ],
+        replacement: ['b', 'a']
+      }
+    ]
+  };
+  for (const [format, text] of Object.entries({
+    text: '\uFEFFa <code>a</code>',
+    html: '<code>a</code><b title="a">a</b><b title="a">a</b>',
+    plain: '😀a a',
+    markdown: '`a`\r\n\na *a*\n',
+    mdx: 'export const x = "a";\n\na *a*\n',
+    json: '\uFEFF{"x":"\\u0061","y":"a"}\r\n',
+    xml: '<doc>a &amp; a</doc>\r\n',
+    yaml: 'first: a\r\nlast: a\n',
+    toml: "first = 'a'\r\nlast = 'a'\n",
+    frontmatter: '\uFEFF---\r\nfirst: a\r\n---\r\n\na *a*\n'
+  })) {
+    cases.push({
+      name: `diagnostics-net-zero-${format}`,
+      text,
+      config: { presets: false, input: { format, attributes: format === 'html' ? ['title'] : [] } },
+      ops: [{ method: 'registerRuleGroup', args: [roundtrip, { name: 'terms' }] }],
+      options: { trace: true, edits: true, changes: true }
+    });
+  }
+  cases.push({
+    name: 'diagnostics-engine-year-step',
+    text: '12.05.20г и 13.05.20г',
+    config: {},
+    ops: [],
+    options: { trace: true, edits: true }
+  });
+  for (const [name, extra] of [
+    ['enabled', {}],
+    ['group-disabled', { rules: { terms: false } }],
+    ['mask-disabled', { rules: { 'terms.sec*': false } }]
+  ]) {
+    cases.push({
+      name: `data-rules-${name}`,
+      config: { presets: false, ruleGroups, ...extra },
+      ops: [],
+      text: 'aa aa <code>aa</code>',
+      options: { trace: true, edits: true, changes: true }
+    });
+  }
+  cases.push({
+    name: 'data-rules-registration',
+    config: { presets: false },
+    ops: [
+      { method: 'registerRuleGroup', args: [ruleGroups[0], { name: 'terms' }] },
+      { method: 'applyOptions', args: [{ rules: { 'terms.second': false } }] }
+    ],
+    text: 'aa aa',
+    options: { trace: true, edits: true }
+  });
+  for (const pattern of [
+    { source: '(', flags: 'g' },
+    { source: 'a', flags: 'gg' }
+  ]) {
+    cases.push({
+      name: `data-rules-invalid-${pattern.source === '(' ? 'source' : 'flags'}`,
+      config: {
+        ruleGroups: [{ name: 'terms', rules: [{ id: 'invalid', pattern, replacement: 'b' }] }]
+      },
+      ops: [],
+      text: 'a'
+    });
+  }
   return cases;
 }
 
 const captured = captureSuite();
-const all = [...captured, ...generatedCases(prosePool()), ...formatCases()];
+const all = [...captured, ...generatedCases(prosePool()), ...formatCases(), ...diagnosticCases()];
 const unique = new Map();
 
 for (const c of all) {

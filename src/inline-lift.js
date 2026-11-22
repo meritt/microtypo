@@ -2,6 +2,7 @@ import { VOID_TAG_NAMES } from './lib/block-tags.js';
 import { G } from './lib/glyphs.js';
 import { executeRule } from './lib/rule-budget.js';
 import { hasRequiredFeatures } from './lib/rule-features.js';
+import { ruleTraceOf } from './lib/rule-trace.js';
 import { CLOSE, OPEN } from './protect/placeholders.js';
 
 // Inline markup lifted out of the text a builtin rule reads, so that a rule binding words sees them
@@ -1036,6 +1037,32 @@ export function materialize(state) {
   parts.push(visible.slice(cursor));
 
   return parts.join('');
+}
+
+function traceProjection(state) {
+  const edits = state.pos.map((start, k) => ({
+    start,
+    end: state.toks.flag[k] & STANDS_IN ? start + STAND_IN.length : start,
+    text: state.toks.str[k],
+    retain: true
+  }));
+  const output = materialize(state);
+  return {
+    text: state.visible,
+    tokens: state.toks,
+    edits,
+    render(mapping) {
+      mapping.record(state.visible, output, edits);
+      return output;
+    }
+  };
+}
+
+function acceptTrace(ctx, state) {
+  const trace = ruleTraceOf(ctx);
+  if (trace !== undefined) {
+    trace.accept(traceProjection(state));
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2121,7 +2148,8 @@ function run(state, rule, ctx, keep, cx, checkBudget) {
   cx.mints = cx.mintLog;
 
   try {
-    return keep(before, executeRule(rule, before, ctx, checkBudget), (t) =>
+    const projection = ruleTraceOf(ctx) === undefined ? undefined : traceProjection(state);
+    return keep(before, executeRule(rule, before, ctx, checkBudget, projection), (t) =>
       executeRule(rule, t, ctx, checkBudget)
     );
   } catch (error) {
@@ -2143,7 +2171,10 @@ export function applyLifted(state, rule, ctx, keep, cx, checkBudget = null) {
   if (after === current.visible || current.pos.length === 0) {
     cx.mints = null;
 
-    return after === current.visible ? state : { visible: after, pos: state.pos, toks: state.toks };
+    const next =
+      after === current.visible ? state : { visible: after, pos: state.pos, toks: state.toks };
+    acceptTrace(ctx, next);
+    return next;
   }
 
   let next = realign(current, after, cx);
@@ -2161,6 +2192,7 @@ export function applyLifted(state, rule, ctx, keep, cx, checkBudget = null) {
   cx.loose = null;
 
   if (next !== null) {
+    acceptTrace(ctx, next);
     return current === state
       ? next
       : settle(relift(materialize(next), cx), rule, ctx, keep, cx, checkBudget);
@@ -2168,19 +2200,14 @@ export function applyLifted(state, rule, ctx, keep, cx, checkBudget = null) {
 
   const input = materialize(state);
 
-  return settle(
-    relift(
-      keep(input, executeRule(rule, input, ctx, checkBudget), (t) =>
-        executeRule(rule, t, ctx, checkBudget)
-      ),
-      cx
+  const fallback = relift(
+    keep(input, executeRule(rule, input, ctx, checkBudget), (t) =>
+      executeRule(rule, t, ctx, checkBudget)
     ),
-    rule,
-    ctx,
-    keep,
-    cx,
-    checkBudget
+    cx
   );
+  acceptTrace(ctx, fallback);
+  return settle(fallback, rule, ctx, keep, cx, checkBudget);
 }
 
 // Where white space and the tags of `minted` from `at` on in `s` end.
@@ -2271,8 +2298,11 @@ function settle(state, rule, ctx, keep, cx, checkBudget) {
   cx.loose = null;
 
   if (next === null) {
+    ruleTraceOf(ctx)?.discard();
     return state;
   }
+
+  acceptTrace(ctx, next);
 
   return current === state ? next : relift(materialize(next), cx);
 }
@@ -2347,6 +2377,7 @@ export function applyRule(group, rule, ctx, keep, cx, features = null, checkBudg
     );
 
     group.marked = output;
+    ruleTraceOf(ctx)?.accept();
 
     if (output !== input) {
       group.state = null;

@@ -274,14 +274,14 @@ export class SafeSequences {
 
   // In an `href` an address written without a scheme gets `http://`, as GFM links `www.` addresses;
   // written in a link with none, it would be a path relative to the page.
-  restore(text, href = false) {
+  restore(text, href = false, mapping) {
     const nonce = this.#nonce;
     const string = typeof text === 'string';
     let result = text;
 
     if (!string || this.#urls.length > 0) {
       URL_RESTORE_RE.lastIndex = 0;
-      result = result.replace(URL_RESTORE_RE, (m, n, id) => {
+      const urlReplacement = (m, n, id) => {
         const url = n === nonce ? this.#urls[Number(id)] : undefined;
 
         if (url === undefined || !href) {
@@ -289,10 +289,13 @@ export class SafeSequences {
         }
 
         return SCHEME_RE.test(url) ? decodeReferences(url) : `http://${decodeReferences(url)}`;
-      });
+      };
+      result =
+        mapping?.replace(result, URL_RESTORE_RE, urlReplacement) ??
+        result.replace(URL_RESTORE_RE, urlReplacement);
       URL_RESTORE_NOPROTO_RE.lastIndex = 0;
 
-      result = result.replace(URL_RESTORE_NOPROTO_RE, (m, n, id) => {
+      const coreReplacement = (m, n, id) => {
         if (n !== nonce) {
           return m;
         }
@@ -300,12 +303,15 @@ export class SafeSequences {
         const u = this.#urls[Number(id)];
 
         return u == null ? m : u.replace(/^[^:]+:\/\//, '');
-      });
+      };
+      result =
+        mapping?.replace(result, URL_RESTORE_NOPROTO_RE, coreReplacement) ??
+        result.replace(URL_RESTORE_NOPROTO_RE, coreReplacement);
     }
 
     if (!string || this.#emails.length > 0) {
       EMAIL_RESTORE_RE.lastIndex = 0;
-      result = result.replace(EMAIL_RESTORE_RE, (m, n, id) => {
+      const emailReplacement = (m, n, id) => {
         const email = n === nonce ? this.#emails[Number(id)] : undefined;
 
         if (email === undefined || !href) {
@@ -313,13 +319,17 @@ export class SafeSequences {
         }
 
         return decodeReferences(email);
-      });
+      };
+      result =
+        mapping?.replace(result, EMAIL_RESTORE_RE, emailReplacement) ??
+        result.replace(EMAIL_RESTORE_RE, emailReplacement);
     }
     if (!string || this.#tokens.length > 0) {
       TOKEN_RESTORE_RE.lastIndex = 0;
-      result = result.replace(TOKEN_RESTORE_RE, (m, n, id) =>
-        n === nonce ? (this.#tokens[Number(id)] ?? m) : m
-      );
+      const tokenReplacement = (m, n, id) => (n === nonce ? (this.#tokens[Number(id)] ?? m) : m);
+      result =
+        mapping?.replace(result, TOKEN_RESTORE_RE, tokenReplacement) ??
+        result.replace(TOKEN_RESTORE_RE, tokenReplacement);
     }
 
     return result;
@@ -329,7 +339,7 @@ export class SafeSequences {
   // one along, and the rest no longer restores. A change that leaves fewer whole placeholders than
   // it found is made again on the text with each placeholder sealed into a vault-shaped token no
   // pattern matches inside, and dropped if it still does.
-  keep(before, after, rerun) {
+  keep(before, after, rerun, reject, mapping) {
     if (after === before || this.#urls.length + this.#emails.length + this.#tokens.length === 0) {
       return after;
     }
@@ -342,8 +352,9 @@ export class SafeSequences {
     }
 
     const sealed = [];
+    const sealEdits = mapping === undefined ? null : [];
     const nonce = this.#nonce;
-    const text = before.replace(WHOLE_RE, (m, lead, url, email, token) => {
+    const text = before.replace(WHOLE_RE, (m, lead, url, email, token, at) => {
       if ((url ?? email ?? token) !== nonce) {
         return m;
       }
@@ -352,12 +363,32 @@ export class SafeSequences {
 
       sealed.push(m.slice(link.length));
 
-      return `${link}${OPEN}S${sealed.length - 1}${CLOSE}`;
+      const replacement = `${link}${OPEN}S${sealed.length - 1}${CLOSE}`;
+      sealEdits?.push({ start: at, end: at + m.length, text: replacement });
+      return replacement;
     });
-    const again = rerun(text).replace(SEALED_RE, (m, id) => sealed[Number(id)] ?? m);
+    if (mapping !== undefined) {
+      mapping.seal(text, sealEdits);
+    }
+    const raw = rerun(text);
+    const unsealEdits = mapping === undefined ? null : [];
+    const again = raw.replace(SEALED_RE, (m, id, at) => {
+      const replacement = sealed[Number(id)] ?? m;
+      if (replacement !== m) {
+        unsealEdits?.push({ start: at, end: at + m.length, text: replacement });
+      }
+      return replacement;
+    });
+    if (mapping !== undefined) {
+      mapping.unseal(again, unsealEdits);
+    }
     const kept = this.#census(again);
 
-    return holds(found, kept) ? this.#remember(again, kept) : this.#remember(before, found);
+    if (holds(found, kept)) {
+      return this.#remember(again, kept);
+    }
+    reject?.();
+    return this.#remember(before, found);
   }
 
   #remember(text, counts) {

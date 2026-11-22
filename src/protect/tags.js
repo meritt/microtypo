@@ -173,12 +173,16 @@ export class SafeTags {
     return parts.join('');
   }
 
-  restore(text) {
-    return text.replace(VAULTED_TAG_RE, (m, slash, prefix, id) => {
+  restore(text, mapping) {
+    const replacement = (m, slash, prefix, id) => {
       const value = this.#vaults.get(prefix)?.retrieve(Number(id));
 
       return value == null ? m : `<${slash}${value}>`;
-    });
+    };
+    return (
+      mapping?.replace(text, VAULTED_TAG_RE, replacement) ??
+      text.replace(VAULTED_TAG_RE, replacement)
+    );
   }
 
   makeTag({ content, tag = 'span', attributes = {}, layout = DEFAULT_LAYOUT }) {
@@ -232,13 +236,16 @@ export class SafeTags {
   // An inline block may hold another one — a rule group that boxes the whole text wraps whatever the
   // `<notg>` layer already vaulted — so one pass uncovers the outer token and stops on the inner,
   // leaving the engine's own placeholder in the output in place of the author's words.
-  restoreIblocks(text) {
+  restoreIblocks(text, mapping) {
     let result = text;
     let previous;
 
     do {
       previous = result;
-      result = this.#hiddenIblockVault.restoreAll(this.#iblockVault.restoreAll(result));
+      result = this.#hiddenIblockVault.restoreAll(
+        this.#iblockVault.restoreAll(result, mapping),
+        mapping
+      );
     } while (previous !== result);
 
     return result;

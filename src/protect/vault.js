@@ -64,7 +64,7 @@ export class Vault {
   }
 
   // Unknown ids are left untouched: blanking them would silently erase legitimate content.
-  restoreAll(text) {
+  restoreAll(text, mapping) {
     this.#restoreRe.lastIndex = 0;
     const entries = this.#entries;
 
@@ -72,6 +72,7 @@ export class Vault {
       return text;
     }
     if (
+      mapping === undefined &&
       entries.length === 1 &&
       this.#restoreZeroRe !== null &&
       typeof entries[0] === 'string' &&
@@ -80,10 +81,14 @@ export class Vault {
       return text.replace(this.#restoreZeroRe, entries[0]);
     }
 
-    return text.replace(this.#restoreRe, (m, id) => {
+    const replacement = (m, id) => {
       const value = entries[Number(id)];
 
       return value == null ? m : value;
-    });
+    };
+    return (
+      mapping?.replace(text, this.#restoreRe, replacement) ??
+      text.replace(this.#restoreRe, replacement)
+    );
   }
 }

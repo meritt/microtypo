@@ -78,7 +78,16 @@ export function dropParagraphs(text) {
   return text.replace(PARAGRAPH_RESTORE_RE, '');
 }
 
-export function restoreParagraphs(text) {
+export function restoreParagraphs(text, mapping) {
+  if (mapping !== undefined) {
+    let result = mapping.replace(text, PARAGRAPH_OPEN_TAGGED_RE, (_, ph) => `<${ph}>`);
+    result = mapping.replace(result, PARAGRAPH_CLOSE_TAGGED_RE, (_, ph) => `</${ph}>`);
+    return mapping.replace(
+      result,
+      PARAGRAPH_RESTORE_RE,
+      (_, kind) => PARAGRAPH_TO_HTML[kind] ?? ''
+    );
+  }
   return text
     .replace(PARAGRAPH_OPEN_TAGGED_RE, (_, ph) => `<${ph}>`)
     .replace(PARAGRAPH_CLOSE_TAGGED_RE, (_, ph) => `</${ph}>`)

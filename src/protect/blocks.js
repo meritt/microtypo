@@ -929,16 +929,20 @@ export class SafeBlocks {
     return text.replace(LIFTED_INDENT_RE, (_, token) => `\n${this.#indentVault.restoreAll(token)}`);
   }
 
-  restore(text) {
+  restore(text, mapping) {
     // Nested blocks leave nested placeholders after one pass; iterate until stable.
     let result = text;
     let prev;
 
     do {
       prev = result;
-      result = this.#hiddenTailVault.restoreAll(this.#tailVault.restoreAll(result));
+      result = this.#hiddenTailVault.restoreAll(
+        this.#tailVault.restoreAll(result, mapping),
+        mapping
+      );
       result = this.#indentVault.restoreAll(
-        this.#hiddenVault.restoreAll(this.#vault.restoreAll(result))
+        this.#hiddenVault.restoreAll(this.#vault.restoreAll(result, mapping), mapping),
+        mapping
       );
     } while (prev !== result);
 

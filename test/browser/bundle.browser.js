@@ -43,6 +43,57 @@ test('the bundle typesets the corpus exactly as the sources do', async () => {
   }
 });
 
+test('the bundle executes JSON data rules and exposes reconstructing edits and original trace ranges', () => {
+  const config = {
+    presets: false,
+    input: 'json',
+    ruleGroups: [
+      {
+        name: 'terms',
+        rules: [
+          { id: 'first', pattern: { source: 'a', flags: 'g' }, replacement: 'b' },
+          { id: 'second', pattern: { source: 'b', flags: 'g' }, replacement: 'c' }
+        ]
+      }
+    ]
+  };
+  const input = '{"x":"\\u0061a"}';
+  const result = new bundle.MicroTypo(config).process(input, {
+    trace: true,
+    edits: true,
+    changes: true
+  });
+  assert.equal(result.text, '{"x":"cc"}');
+  assert.deepEqual(
+    result.trace.map(({ count, ranges }) => ({ count, ranges })),
+    [
+      {
+        count: 2,
+        ranges: [
+          [6, 12],
+          [12, 13]
+        ]
+      },
+      {
+        count: 2,
+        ranges: [
+          [6, 12],
+          [12, 13]
+        ]
+      }
+    ]
+  );
+  let output = input;
+  for (const { start, end, text } of result.edits.toReversed()) {
+    output = output.slice(0, start) + text + output.slice(end);
+  }
+  assert.equal(output, result.text);
+  assert.deepEqual(
+    result,
+    new main.MicroTypo(config).process(input, { trace: true, edits: true, changes: true })
+  );
+});
+
 test('the bundle typesets every format and option as the sources do', async () => {
   const fixtures = new URL('../fixtures/big-text/', import.meta.url);
   const texts = [

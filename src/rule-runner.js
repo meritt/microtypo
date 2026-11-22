@@ -3,6 +3,7 @@ import { applyRule, beginGroup, endGroup, mayLift } from './inline-lift.js';
 import { deepFreeze } from './lib/deep-freeze.js';
 import { executeRule } from './lib/rule-budget.js';
 import { hasRequiredFeatures } from './lib/rule-features.js';
+import { ruleTraceOf, stringReplacement } from './lib/rule-trace.js';
 import { cycle } from './lib/strings.js';
 import { dataPattern } from './schemas/data-rules.js';
 
@@ -87,6 +88,8 @@ function compileRule(rule, groupName) {
 
   return {
     id,
+    groupName,
+    kind: typeof rule.handler === 'function' ? 'handler' : 'regex',
     budgetStage: `group:${groupName}`,
     defaultEnabled: rule.enabled !== false,
     description: rule.description ?? '',
@@ -113,11 +116,15 @@ function makeApplyFn(rule, groupName) {
     // registered output, which snapshotRaw already denies to classes and preParse.
     const { handler } = rule;
 
-    return (text, ctx) => {
+    const invoke = (text, ctx) => {
       ctx.text = text;
       const r = handler(ctx);
-
       return typeof r === 'string' ? r : ctx.text;
+    };
+    return (text, ctx) => {
+      const trace = ruleTraceOf(ctx);
+
+      return trace === undefined ? invoke(text, ctx) : trace.handler(text, () => invoke(text, ctx));
     };
   }
 
@@ -176,7 +183,12 @@ function makeApplyFn(rule, groupName) {
     const replacement = replacements[index];
 
     if (typeof replacement === 'string' || replacement == null) {
-      return (result) => {
+      return (result, ctx) => {
+        const trace = ruleTraceOf(ctx);
+        if (trace !== undefined) {
+          re.lastIndex = 0;
+          return trace.replace(result, re, (args) => stringReplacement(replacement ?? '', args));
+        }
         if (typeof result === 'string') {
           re.lastIndex = 0;
           if (!re.test(result)) {
@@ -189,10 +201,23 @@ function makeApplyFn(rule, groupName) {
     }
 
     if (typeof replacement !== 'function') {
-      return (result) => result.replace(re, replacement ?? '');
+      return (result, ctx) => {
+        const trace = ruleTraceOf(ctx);
+        if (trace !== undefined) {
+          re.lastIndex = 0;
+          const template = `${replacement}`;
+          return trace.replace(result, re, (args) => stringReplacement(template, args));
+        }
+        return result.replace(re, replacement);
+      };
     }
 
     return (result, ctx) => {
+      const trace = ruleTraceOf(ctx);
+      if (trace !== undefined) {
+        re.lastIndex = 0;
+        return trace.replace(result, re, (args) => replacement(args, ctx));
+      }
       if (typeof result === 'string') {
         re.lastIndex = 0;
         if (!re.test(result)) {
@@ -229,6 +254,14 @@ function ensureGlobal(re) {
 // A step `{ id, apply }` the engine takes on a fragment before its groups, run as a rule of a builtin
 // group. A text with nothing to lift takes it as it is: a custom group may yet add markup to it.
 export function runStep(step, text, ctx, keep, inline, features = null, checkBudget = null) {
+  const trace = ruleTraceOf(ctx);
+  trace?.begin({ ...step, groupName: ctx.group.name }, text);
+  const result = runStepBody(step, text, ctx, keep, inline, features, checkBudget);
+  trace?.finish(result);
+  return result;
+}
+
+function runStepBody(step, text, ctx, keep, inline, features, checkBudget) {
   if (features !== null && !hasRequiredFeatures(step, text, features, false)) {
     return text;
   }
@@ -236,10 +269,18 @@ export function runStep(step, text, ctx, keep, inline, features = null, checkBud
     if (features !== null && !hasRequiredFeatures(step, text, features)) {
       return text;
     }
-    return executeRule(step, text, ctx, checkBudget);
+    const output = executeRule(step, text, ctx, checkBudget);
+    ruleTraceOf(ctx)?.accept();
+    return output;
   }
 
   const lifted = beginGroup(text, inline, ctx);
+
+  if (lifted === null) {
+    const output = executeRule(step, text, ctx, checkBudget);
+    ruleTraceOf(ctx)?.accept();
+    return output;
+  }
 
   applyRule(lifted, step, ctx, keep, inline, features, checkBudget);
 
@@ -267,6 +308,7 @@ export function runRuleGroup(
   }
 
   const lifted = inline !== null && keep !== null ? beginGroup(ctx.text, inline, ctx) : null;
+  const trace = ruleTraceOf(ctx);
 
   for (const rule of compiled.compiledRules) {
     if (!isRuleEnabled(compiled, rule)) {
@@ -279,7 +321,9 @@ export function runRuleGroup(
     }
 
     if (lifted !== null) {
+      trace?.begin(rule, endGroup(lifted, inline));
       applyRule(lifted, rule, ctx, keep, inline, features, checkBudget);
+      trace?.finish(endGroup(lifted, inline));
       continue;
     }
 
@@ -288,10 +332,13 @@ export function runRuleGroup(
     }
 
     const input = ctx.text;
+    trace?.begin(rule, input);
     const output = executeRule(rule, input, ctx, checkBudget);
     const next =
       keep === null ? output : keep(input, output, (t) => executeRule(rule, t, ctx, checkBudget));
     ctx.text = next;
+    trace?.accept();
+    trace?.finish(next);
   }
 
   if (lifted !== null) {
