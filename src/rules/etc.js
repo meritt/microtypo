@@ -198,9 +198,7 @@ function wrapperCloses(text, c, tokens) {
 
 function wrapperTokens(ctx, c) {
   const spans = spanTokenSet(ctx);
-  return spans.has(c.close.slice(2, -1))
-    ? spans
-    : new Set(tagTokens(ctx.tags, 'nobr'));
+  return spans.has(c.close.slice(2, -1)) ? spans : new Set(tagTokens(ctx.tags, 'nobr'));
 }
 
 // Each outermost wrapper, its tags included, through `edit`. It ends at the close `wrapperCloses`

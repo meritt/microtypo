@@ -102,14 +102,7 @@ export const GLYPH_TO_ENTITY = Object.freeze({
 // class.
 const GLYPH_RE = new RegExp(`[${Object.keys(GLYPH_TO_ENTITY).map(RegExp.escape).join('')}]`, 'gu');
 
-const EXTENDED_FRACTION_GLYPHS = [
-  G.FRAC13,
-  G.FRAC23,
-  G.FRAC18,
-  G.FRAC38,
-  G.FRAC58,
-  G.FRAC78
-];
+const EXTENDED_FRACTION_GLYPHS = [G.FRAC13, G.FRAC23, G.FRAC18, G.FRAC38, G.FRAC58, G.FRAC78];
 // Every vulgar fraction the engine writes, as the body of a character class.
 export const FRACTION_GLYPHS = `${G.FRAC12}${G.FRAC14}${G.FRAC34}${EXTENDED_FRACTION_GLYPHS.join('')}`;
 

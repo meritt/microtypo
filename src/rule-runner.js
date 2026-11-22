@@ -182,11 +182,13 @@ function makeApplyFn(rule, groupName) {
     const re = ensureGlobal(pattern);
     const replacement = replacements[index] ?? '';
     const called = typeof replacement === 'function';
+    const coerced = !called && typeof replacement !== 'string';
+    let foreignRe;
 
     return (result, ctx) => {
-      re.lastIndex = 0;
       const trace = ruleTraceOf(ctx);
       if (trace !== undefined) {
+        re.lastIndex = 0;
         return trace.replace(
           result,
           re,
@@ -195,13 +197,20 @@ function makeApplyFn(rule, groupName) {
             : (args) => stringReplacement(`${replacement}`, args)
         );
       }
+      let target = re;
       if (typeof result === 'string') {
-        if (!re.test(result)) {
+        re.lastIndex = 0;
+        // `replace` converts a non-string replacement even when nothing matches.
+        if (!coerced && !re.test(result)) {
           return result;
         }
         re.lastIndex = 0;
+      } else {
+        // A foreign `replace` receives the expression, so it never gets the copy engines share.
+        foreignRe ??= new RegExp(re);
+        target = foreignRe;
       }
-      return result.replace(re, called ? (...args) => replacement(args, ctx) : replacement);
+      return result.replace(target, called ? (...args) => replacement(args, ctx) : replacement);
     };
   });
 
