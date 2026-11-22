@@ -321,9 +321,11 @@ describe('indent at the start of a line', () => {
     ]) {
       for (const indent of ['    ', '\t', ' \t ']) {
         assert.equal(siteText(`${indent}${line}`), `${indent}${siteText(line)}`, line);
+        const flush = siteText(`Пролог.\n${line}\nЭпилог.`);
+        const lineStart = flush.indexOf('\n') + 1;
         assert.equal(
           siteText(`Пролог.\n${indent}${line}\nЭпилог.`),
-          siteText(`Пролог.\n${line}\nЭпилог.`).replace('\n', `\n${indent}`),
+          `${flush.slice(0, lineStart)}${indent}${flush.slice(lineStart)}`,
           line
         );
       }

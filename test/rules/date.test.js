@@ -266,7 +266,8 @@ describe('date.year_range', () => {
       const record = `по${gap}19<em>98${gap}-${gap}20</em>04${gap}гг.`;
       const linked = `по${gap}19<a href="/docs"><b>98${gap}-${gap}20</b></a><i>04</i>${gap}гг.`;
       const source = `«Летопись ${record}». «Сведения ${linked}».`;
-      const bare = source.replaceAll(/<[^>]+>/gu, '');
+      const plain = `по${gap}1998${gap}-${gap}2004${gap}гг.`;
+      const bare = `«Летопись ${plain}». «Сведения ${plain}».`;
       const [first, second] = typo.process(bare).split(' «');
       const expected = [
         first.replace('1998–2004', '19<em>98–20</em>04'),

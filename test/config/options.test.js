@@ -435,15 +435,15 @@ describe('render plumbing (end-to-end)', () => {
   });
 
   test('render.autolink default wraps bare URL in <a href>', () => {
-    const out = microtypo('Корвин зашёл на http://example.com сегодня', NOP);
-    assert.ok(out.includes('href="http://example.com"'));
+    const out = microtypo('Корвин зашёл на http://amber.example сегодня', NOP);
+    assert.match(out, /<a href="http:\/\/amber\.example">/u);
   });
   test('render.autolink:false leaves URL as plain text', () => {
-    const out = microtypo('Корвин зашёл на http://example.com сегодня', {
+    const out = microtypo('Корвин зашёл на http://amber.example сегодня', {
       ...NOP,
       render: { autolink: false }
     });
-    assert.ok(out.includes('http://example.com'));
+    assert.match(out, /\shttp:\/\/amber\.example\s/u);
     assert.ok(!out.includes('<a '));
   });
 
