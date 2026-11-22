@@ -5,5 +5,5 @@
   "trailingComma": "none",
   "sortImports": true,
   "sortPackageJson": true,
-  "ignorePatterns": [".github/", "test/fixtures/corpus.json"]
+  "ignorePatterns": [".github/", "test/fixtures/corpus.json", "test/fixtures/real/"]
 }
