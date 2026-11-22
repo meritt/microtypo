@@ -2369,8 +2369,8 @@ test('only removable padding can precede the final endpoint of touching titles',
     assert.equal(microtypo(source), expected);
     assert.equal(microtypo(expected), expected);
     // Collapsing tabs remains active when only quote padding is disabled.
-    assert.equal(preserve.process(source), source.replace('\t', ' '));
-    assert.equal(preserve.process(directed), directed.replace('\t', ' '));
+    assert.equal(preserve.process(source), source.replaceAll('\t', ' '));
+    assert.equal(preserve.process(directed), directed.replaceAll('\t', ' '));
   }
   const line = `Книги: «Клеймо '""Летний сад\n».`;
   assert.equal(microtypo(line), line);

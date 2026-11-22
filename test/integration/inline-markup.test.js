@@ -6,7 +6,7 @@ import { microtypo, MicroTypo } from '../../src/index.js';
 // Expectations are written with the signs of the brief: `⍽` a no-break space, `⎵` a narrow one.
 const nb = (text) => text.replaceAll('⍽', '\u{A0}').replaceAll('⎵', '\u{202F}');
 const NOWRAP = '<span style="white-space:nowrap;">';
-const stripTags = (text) => text.replace(/<[^>]*>/gu, '');
+const stripTags = (text) => text.split(/<[^>]*>/u).join('');
 
 const HTML = { input: 'html', html: false };
 const TEXT = { input: 'text', html: false };

@@ -396,12 +396,13 @@ describe('reentrancy', () => {
   });
 
   test('a placeholder from one call cannot surface in the next', () => {
-    const typo = new MicroTypo({ html: true, render: { paragraphs: false } });
+    const config = { html: true, render: { paragraphs: false } };
+    const typo = new MicroTypo(config);
     const withUrl = typo.process('Смотри https://amber.io/pattern тут.');
     const plain = typo.process('Обычный текст без ссылок.');
 
     assert.doesNotMatch(plain, /[\u{E000}\u{E001}\u{E100}\u{E101}]/u);
-    assert.ok(!plain.includes('amber.io'), plain);
+    assert.equal(plain, new MicroTypo(config).process('Обычный текст без ссылок.'));
     assert.equal(typo.process('Смотри https://amber.io/pattern тут.'), withUrl);
   });
 });

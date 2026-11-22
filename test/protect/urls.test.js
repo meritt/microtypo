@@ -156,9 +156,9 @@ describe('autolink href escaping', () => {
         const out = microtypo(input, html);
 
         assert.doesNotMatch(out, residue, `vault residue for ${JSON.stringify(input)}: ${out}`);
-        assert.ok(
-          out.includes('https://amber.example/pattern') ||
-            out.includes('href="https://amber.example/pattern"'),
+        assert.match(
+          out,
+          /(?:^|[^\w.-])https:\/\/amber\.example\/pattern/u,
           `URL lost for ${JSON.stringify(input)}: ${out}`
         );
       }

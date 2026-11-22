@@ -89,7 +89,7 @@ test('new line boundaries use the document style without moving surviving mixed 
   const typo = new MicroTypo({ html: false, input: { format: 'markdown' } });
   typo.registerRuleGroup(
     {
-      rules: [{ id: 'break', handler: (ctx) => ctx.text.replace('|', '\n') }]
+      rules: [{ id: 'break', handler: (ctx) => ctx.text.replaceAll('|', '\n') }]
     },
     { name: 'other' }
   );

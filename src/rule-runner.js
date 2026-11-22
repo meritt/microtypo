@@ -200,13 +200,11 @@ function makeApplyFn(rule, groupName) {
       let target = re;
       if (typeof result === 'string') {
         re.lastIndex = 0;
-        // `replace` converts a non-string replacement even when nothing matches.
         if (!coerced && !re.test(result)) {
           return result;
         }
         re.lastIndex = 0;
       } else {
-        // A foreign `replace` receives the expression, so it never gets the copy engines share.
         foreignRe ??= new RegExp(re);
         target = foreignRe;
       }

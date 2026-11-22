@@ -46,26 +46,34 @@ jobs:
           fi
 
       - name: Setup
+        id: setup
         uses: pnpm/setup@731dfb6463bbd11c11fd0ee11fe00ed0e36d48a1 # v3.2.0
         with:
           cache: true
           require-lockfile: true
 
       - name: Lint
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm lint --format=github
 
       - name: Format
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm format:check
 
       - name: Policy
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: |
-          pnpm lint:glyphs
-          pnpm lint:redos
+          status=0
+          pnpm lint:glyphs || status=1
+          pnpm lint:redos || status=1
+          exit "$status"
 
       - name: Test
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm coverage
 
       - name: Build
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm test:browser
 
       - name: Coverage
@@ -75,8 +83,8 @@ jobs:
           format: lcov
           fail-on-error: false
 
-      # Wall-clock ratios are noisy on a shared runner; a real growth defect fails every attempt.
       - name: Budget
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: |
           state="$RUNNER_TEMP/perf-rerun.json"
           for attempt in 1 2 3; do
@@ -102,7 +110,6 @@ jobs:
           echo "digest=$(sha256sum SHA256SUMS | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
 
       - name: Upload
-        if: github.ref_type == 'tag'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release
@@ -110,6 +117,55 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+
+  smoke:
+    name: Smoke
+    if: github.ref_type != 'tag'
+    needs: test
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash --noprofile --norc -euo pipefail {0}
+        working-directory: release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            package.json
+            scripts/ship-package.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Setup
+        uses: pnpm/setup@731dfb6463bbd11c11fd0ee11fe00ed0e36d48a1 # v3.2.0
+        with:
+          install: false
+
+      - name: Download
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: release
+
+      - name: Verify
+        env:
+          DIGEST: ${{ needs.test.outputs.digest }}
+        run: |
+          files=(*)
+          if [ "${#files[@]}" -ne 3 ] || [ "$(sha256sum SHA256SUMS | cut -d ' ' -f 1)" != "$DIGEST" ]; then
+            echo "::error::release input is not the tested set"
+            exit 1
+          fi
+          sha256sum --check --strict SHA256SUMS
+
+      - name: Rehearsal
+        env:
+          REGISTRY: https://npm.pkg.github.com
+        run: bash ../scripts/ship-package.sh "meritt-microtypo-$(jq -r .version ../package.json).tgz" --dry-run
 
   release:
     name: Release
@@ -129,13 +185,16 @@ jobs:
       REF: ${{ github.ref_name }}
     defaults:
       run:
+        shell: bash --noprofile --norc -euo pipefail {0}
         working-directory: release
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          sparse-checkout: package.json
+          sparse-checkout: |
+            package.json
+            scripts/ship-package.sh
           sparse-checkout-cone-mode: false
 
       - name: Setup
@@ -165,11 +224,26 @@ jobs:
             exit 1
           fi
           sha256sum --check --strict SHA256SUMS
+          if answer="$(gh api "repos/$GH_REPO/releases/tags/$REF" --silent 2>&1)"; then
+            for asset in *; do
+              gh release verify-asset "$REF" "$asset"
+            done
+          elif [[ "$answer" != *'HTTP 404'* ]]; then
+            echo "::error::release state for the tag is unknown"
+            exit 1
+          fi
 
       - name: Attest
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-checksums: release/SHA256SUMS
+
+      - name: Ship
+        env:
+          PNPM_CONFIG__AUTH: |
+            {"https://npm.pkg.github.com": {"@meritt": {"authToken": ${{ toJSON(github.token) }}}}}
+          REGISTRY: https://npm.pkg.github.com
+        run: SPEC="@meritt/microtypo@${REF#v}" bash ../scripts/ship-package.sh "meritt-microtypo-${REF#v}.tgz"
 
       - name: Publish
         env:
@@ -208,20 +282,3 @@ jobs:
           for asset in *; do
             gh release verify-asset "$REF" "$asset"
           done
-
-      - name: Ship
-        env:
-          PNPM_CONFIG__AUTH: |
-            {"https://npm.pkg.github.com": {"@meritt": {"authToken": ${{ toJSON(github.token) }}}}}
-          REGISTRY: https://npm.pkg.github.com
-        run: |
-          spec="@meritt/microtypo@${REF#v}"
-          tarball="meritt-microtypo-${REF#v}.tgz"
-          integrity="sha512-$(openssl dgst -sha512 -binary "$tarball" | base64 -w0)"
-          if [[ "$(pnpm view "$spec" dist.integrity --registry "$REGISTRY" 2> /dev/null)" != sha512-* ]]; then
-            pnpm publish "$tarball" --registry "$REGISTRY" --no-git-checks --publish-wait-timeout 60000
-          fi
-          if [ "$(pnpm view "$spec" dist.integrity --registry "$REGISTRY")" != "$integrity" ]; then
-            echo "::error::GitHub Packages holds different bytes for $spec"
-            exit 1
-          fi

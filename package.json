@@ -1,6 +1,6 @@
 {
   "name": "microtypo",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Russian typography that never mangles your code, URLs, or markup. Zero-dependency, safe on untrusted text",
   "keywords": [
     "cyrillic",
@@ -43,6 +43,7 @@
   "scripts": {
     "build:browser": "node scripts/build-browser.mjs",
     "build:conformance": "node test/conformance/build.mjs",
+    "check": "pnpm lint && pnpm format:check && pnpm lint:glyphs && pnpm lint:redos && pnpm coverage && pnpm test:browser && pnpm test:perf",
     "coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-lines=98 --test-coverage-branches=94 --test-coverage-functions=96 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info 'test/**/*.test.js'",
     "diff:texts": "node test/tools/text-diff.mjs",
     "format": "oxfmt",

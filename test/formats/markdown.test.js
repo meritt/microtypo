@@ -2018,6 +2018,12 @@ describe('an HTML block inside a container', () => {
     assert.equal(microtypo(head + tail, md), head + microtypo(tail, md));
   });
 
+  test('a comment runs past the `--!>` of HTML to the `-->` of CommonMark', () => {
+    const comment = `<!-- Корвин --!>\n${CODE}\n-->\n\n`;
+
+    assert.equal(microtypo(comment + TAIL, md), comment + TAIL_TYPESET);
+  });
+
   test('a block closed inside its container leaves the prose after it typeset', () => {
     const head = `> <pre>\n> ${CODE}\n> </pre>\n\n`;
 
