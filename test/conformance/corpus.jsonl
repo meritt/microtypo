@@ -1,4 +1,4 @@
-{"corpus":"microtypo-conformance","schema":1,"engine":"0.4.1","cases":65734}
+{"corpus":"microtypo-conformance","schema":1,"engine":"0.4.2","cases":65734}
 {"id":"0000d8619f71c7f6","config":{"input":"xml","rules":{"quote.*":false}},"ops":[],"text":"<p>«Лес»\"Город\"</p>","expect":{"output":"<p>«Лес»\"Город\"</p>"}}
 {"id":"0001a58801df65db","config":{"html":false},"ops":[],"text":"«ююя»«b»","expect":{"output":"«ююя»«b»"}}
 {"id":"000301a75617cecd","config":{"html":false},"ops":[],"text":"axя юx «axя» xaю","expect":{"output":"axя юx «axя» xaю"}}
