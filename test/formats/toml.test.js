@@ -260,6 +260,26 @@ describe('TOML well-formedness guards', () => {
   });
 });
 
+// Segment counts past what a call can take as spread arguments: 300_000 overflowed the stack.
+describe('TOML dotted keys of any length', () => {
+  const key = `${'amber.'.repeat(300_000)}kolvir`;
+  const cfg = { input: { format: 'toml' }, maxInputLength: 5_000_000 };
+
+  test('a top-level dotted key keeps its value typeset', () => {
+    assert.equal(
+      microtypo(`${key} = "Корвин - принц"\n`, cfg),
+      `${key} = "Корвин${NBSP}— принц"\n`
+    );
+  });
+
+  test('a dotted key inside an inline table keeps its value typeset', () => {
+    assert.equal(
+      microtypo(`shadow = { ${key} = "Корвин - принц" }\n`, cfg),
+      `shadow = { ${key} = "Корвин${NBSP}— принц" }\n`
+    );
+  });
+});
+
 describe('scanToml spans', () => {
   test('a multiline basic string without a backslash is a span', () => {
     assert.deepEqual(literals('a = """Корвин - Эрик"""'), [

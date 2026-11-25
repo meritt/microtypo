@@ -141,6 +141,19 @@ test('nested inch-fallback stays fast at default maxInputLength', () => {
   assert.ok(ms < 600, `nested inch-fallback payload took ${ms.toFixed(0)}ms (expected < 600ms)`);
 });
 
+// Every pair of straight quotes asks whether a node stands between it and the next boundary, and a
+// text with no `<` once answered that by searching to its end. The search is fast enough to hide
+// below a quarter of a million quotes, so the sizes are large: 4x took 13x before the fix.
+test('a run of straight quotes with no tag scales ~linearly', () => {
+  const typo = new MicroTypo({ maxInputLength: 5_000_000, maxProcessingMs: 0 });
+  const ratio = growth((k) => typo.process('"'.repeat(k)), 250_000, 1);
+
+  assert.ok(
+    ratio < 8,
+    `quadratic node search between quotes: 4x the input scaled ${ratio.toFixed(1)}x (expected < 8)`
+  );
+});
+
 // Every closer here stands where an opener stands, with a straight quote glued behind it: the walk
 // turns it and asks what the opening rule writes for that quote. Asked on a copy of the paragraph
 // made for each closer, that is a reading of the paragraph per closer.

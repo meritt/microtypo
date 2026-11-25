@@ -108,10 +108,13 @@ function endsBefore(ctx, source, raw, from, to) {
   if (name === undefined) {
     return false;
   }
+  // The search stops at `to` (one past, for a `</` starting just before it): a search to the end of
+  // the text, once per quote pair, makes a run of quotes with no tag quadratic.
+  const window = source.slice(0, to + 1);
   for (
-    let at = source.indexOf('</', from);
+    let at = window.indexOf('</', from);
     at !== -1 && at < to;
-    at = source.indexOf('</', at + 2)
+    at = window.indexOf('</', at + 2)
   ) {
     const tagEnd = nativeTagEnd(source, at);
     if (tagEnd !== -1 && tokenTagRaw(ctx, source.slice(at + 2, tagEnd - 1)) === name) {
@@ -123,7 +126,8 @@ function endsBefore(ctx, source, raw, from, to) {
 
 // A comment, a CDATA section, a processing instruction or a declaration between two offsets.
 function nodeBetween(ctx, source, from, to) {
-  for (let at = source.indexOf('<', from); at !== -1 && at < to; at = source.indexOf('<', at + 1)) {
+  const window = source.slice(0, to);
+  for (let at = window.indexOf('<', from); at !== -1; at = window.indexOf('<', at + 1)) {
     const tagEnd = nativeTagEnd(source, at);
     if (tagEnd !== -1 && /^[!?]/u.test(tokenTagRaw(ctx, source.slice(at + 1, tagEnd - 1)) ?? '')) {
       return true;
