@@ -1,7 +1,7 @@
 import { MicroTypoInputError } from '../errors/index.js';
 import { decodeEscapes } from '../lib/escape-decoder.js';
 import { isFlowSpace, skipSpaces } from '../lib/strings.js';
-import { chainAppend, LocatedSpan } from './span-path.js';
+import { chainAppend, chainAppendAll, LocatedSpan } from './span-path.js';
 
 const BARE_KEY_CHAR = /[A-Za-z0-9_-]/;
 
@@ -228,7 +228,7 @@ function scanKeyPath(src, i, n) {
 const elementChain = (frame) =>
   frame.type === 'array'
     ? chainAppend(frame.base, frame.index)
-    : chainAppend(frame.base, ...(frame.keySegments ?? []));
+    : chainAppendAll(frame.base, frame.keySegments ?? []);
 
 // Walk inline arrays/tables for their string values; comments and strings are consumed atomically so
 // a ]/}/#/quote inside one never drives structure. Protect-or-reject: a recognized opener that never
@@ -417,7 +417,7 @@ export function scanToml(src, checkBudget) {
     atLineStart = false;
 
     const { segments: keySegments, end: afterKey, quotedSpans: keyQuoted } = scanKeyPath(src, i, n);
-    const fullChain = chainAppend(tableChain, ...keySegments);
+    const fullChain = chainAppendAll(tableChain, keySegments);
 
     for (const qs of keyQuoted) {
       spans.push(new LocatedSpan(qs.start, qs.end, true, fullChain, qs.eligible));

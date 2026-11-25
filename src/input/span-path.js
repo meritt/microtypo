@@ -56,11 +56,17 @@ export function lineReader(readers) {
 // scanner the processing budget never reaches.
 //
 // A node also carries its depth, which a pointer would otherwise walk to the root for.
-export function chainAppend(base, ...positions) {
+export function chainAppend(base, position) {
+  return { chain: base, position, depth: (base?.depth ?? 0) + 1, pieces: null };
+}
+
+// An array, never spread arguments: a dotted key's segment count is the input's to choose, and a
+// spread that long overflows the call stack.
+export function chainAppendAll(base, positions) {
   let chain = base;
 
   for (const position of positions) {
-    chain = { chain, position, depth: (chain?.depth ?? 0) + 1, pieces: null };
+    chain = chainAppend(chain, position);
   }
 
   return chain;
