@@ -19,8 +19,10 @@ const JSON_TEXT = JSON.stringify({
   }))
 });
 
-function once(fn) {
-  fn();
+function once(fn, warmups = 1) {
+  for (let i = 0; i < warmups; i += 1) {
+    fn();
+  }
 
   let best = Infinity;
 
@@ -33,9 +35,11 @@ function once(fn) {
   return best;
 }
 
+// A reused instance runs optimized code. After one warm-up call the timing still reads the JIT tiers,
+// 0.2ms on the reference machine, which a CI runner 2.5x slower pushes past the limit.
 test('P0 reused short text stays below 0.5ms', () => {
   const typo = new MicroTypo();
-  const ms = once(() => typo.process(SHORT));
+  const ms = once(() => typo.process(SHORT), 100);
 
   assert.ok(ms < 0.5, `P0 short text took ${ms.toFixed(3)}ms`);
 });
